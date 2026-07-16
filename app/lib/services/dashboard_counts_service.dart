@@ -639,4 +639,98 @@ class FirebaseCountService {
     return FirebaseOBHSService.getOBHSStats(zone: zone, division: division);
   }
 
+  static Future<Map<String, dynamic>> getFormStatusCounts({
+    required String formType,
+    String? zone,
+    String? division,
+    String? entityId,
+    int? days,
+  }) async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+      String collectionName;
+      
+      if (formType == 'coach') {
+        collectionName = 'coachForms';
+      } else if (formType == 'premises' || formType == 'premise') {
+        collectionName = 'premisesForms';
+      } else if (formType == 'cts') {
+        collectionName = 'ctsForms';
+      } else {
+        collectionName = 'cleaningForms';
+      }
+
+      Query query = firestore.collection(collectionName);
+
+      if (zone != null && zone.isNotEmpty) {
+        query = query.where('submittedByZone', isEqualTo: zone);
+      }
+      if (division != null && division.isNotEmpty) {
+        query = query.where('submittedByDivision', isEqualTo: division);
+      }
+      if (entityId != null && entityId.isNotEmpty) {
+        query = query.where('submittedByEntityId', isEqualTo: entityId);
+      }
+
+      final snapshot = await query.get();
+      
+      DateTime? minDate;
+      if (days != null) {
+        final now = DateTime.now();
+        minDate = now.subtract(Duration(days: days));
+      }
+
+      int total = 0, pending = 0, manpowerApproved = 0, rejected = 0;
+      int scoringProgress = 0, autoApproved = 0, locked = 0;
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        
+        if (minDate != null && data['createdAt'] != null) {
+          DateTime createdAt;
+          if (data['createdAt'] is Timestamp) {
+            createdAt = (data['createdAt'] as Timestamp).toDate();
+          } else if (data['createdAt'] is String) {
+            createdAt = DateTime.parse(data['createdAt']);
+          } else {
+            createdAt = DateTime.now();
+          }
+          if (createdAt.isBefore(minDate)) continue;
+        }
+
+        total++;
+        final s = (data['status']?.toString() ?? '').toUpperCase().replaceAll('-', '_');
+        
+        if (['PENDING', 'SUBMITTED', 'RE_SUBMITTED', 'RESUBMITTED', 'DRAFT'].contains(s)) {
+          pending++;
+        } else if (['APPROVED', 'APPROVED_BY_RAILWAY', 'MANPOWER_APPROVED'].contains(s)) {
+          manpowerApproved++;
+        } else if (['REJECTED', 'REJECTED_BY_RAILWAY'].contains(s)) {
+          rejected++;
+        } else if (['SCORING_PROGRESS', 'SCORING_IN_PROGRESS', 'SCORED'].contains(s)) {
+          scoringProgress++;
+        } else if (['AUTO_APPROVED'].contains(s)) {
+          autoApproved++;
+        } else if (['LOCKED', 'ACKNOWLEDGED', 'COMPLETED'].contains(s)) {
+          locked++;
+        }
+      }
+
+      return {
+        'total': total,
+        'pending': pending,
+        'manpowerApproved': manpowerApproved,
+        'rejected': rejected,
+        'scoringProgress': scoringProgress,
+        'autoApproved': autoApproved,
+        'locked': locked,
+      };
+    } catch (e) {
+      print("Error fetching form status counts: $e");
+      return {
+        'total': 0, 'pending': 0, 'manpowerApproved': 0, 'rejected': 0,
+        'scoringProgress': 0, 'autoApproved': 0, 'locked': 0,
+      };
+    }
+  }
 }

@@ -41,9 +41,28 @@ class ComplaintRepository {
     if (res.statusCode != 200) throw Exception('Failed to start progress');
   }
 
-  static Future<void> resolve(String uid, String resolution, String? photoUrl) async {
-    final res = await http.post(Uri.parse('$baseUrl/api/complaints/$uid/resolve'), headers: await _headers(), body: jsonEncode({'resolution': resolution, 'photoUrl': photoUrl ?? ''}));
+  static Future<void> resolve(String uid, String actionTaken, String? photoUrl) async {
+    final body = <String, dynamic>{'actionTaken': actionTaken};
+    if (photoUrl != null) body['closurePhotoUrl'] = photoUrl;
+    final res = await http.post(Uri.parse('$baseUrl/api/complaints/$uid/resolve'), headers: await _headers(), body: jsonEncode(body));
     if (res.statusCode != 200) throw Exception('Failed to resolve complaint');
+  }
+
+  static Future<void> reject(String uid, String reason) async {
+    final res = await http.post(Uri.parse('$baseUrl/api/complaints/$uid/reject'), headers: await _headers(), body: jsonEncode({'reason': reason}));
+    if (res.statusCode != 200) throw Exception('Failed to reject complaint');
+  }
+
+  static Future<void> verify(String uid) async {
+    final res = await http.post(Uri.parse('$baseUrl/api/complaints/$uid/verify'), headers: await _headers());
+    if (res.statusCode != 200) throw Exception('Failed to verify complaint');
+  }
+
+  static Future<void> resubmit(String uid, String actionTaken, String? photoUrl) async {
+    final body = <String, dynamic>{'actionTaken': actionTaken};
+    if (photoUrl != null) body['closurePhotoUrl'] = photoUrl;
+    final res = await http.post(Uri.parse('$baseUrl/api/complaints/$uid/resubmit'), headers: await _headers(), body: jsonEncode(body));
+    if (res.statusCode != 200) throw Exception('Failed to resubmit complaint');
   }
 
   static Future<void> close(String uid) async {

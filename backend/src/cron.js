@@ -190,7 +190,7 @@ const checkContractExpiry = async () => {
   try {
     logger.info('Cron', ' Checking for expired contracts...');
     const now = new Date();
-    const snapshot = await db.collection('contracts').where('status', 'in', ['Active', 'active']).get();
+    const snapshot = await db.collection('contracts').where('status', '==', 'Active').get();
     if (snapshot.empty) { logger.info('Cron', ' No active contracts found to check.'); return; }
     const batch = db.batch();
     let expiredCount = 0;

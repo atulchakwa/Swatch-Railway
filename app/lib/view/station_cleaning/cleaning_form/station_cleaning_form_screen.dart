@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
@@ -25,6 +27,17 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
   bool _zonesLoading = false;
   List<StationArea> _areas = [];
   List<StationZone> _zones = [];
+
+  // Worker assignment
+  String? _workerName;
+  String? _workerRole;
+  String? _workerAreaId;
+  String? _workerPlatformId;
+
+  bool get _isWorkerRole {
+    final r = (_workerRole ?? '').toUpperCase().replaceAll(' ', '_');
+    return ['WORKER', 'RAILWAY_WORKER', 'JANITOR', 'ATTENDANT'].contains(r);
+  }
 
   late TextEditingController _manpowerCtrl;
   late TextEditingController _machineCtrl;
@@ -90,7 +103,19 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
     } else {
       for (final c in scoringCriteria) _scores[c['name']] = 0;
     }
-    _loadAreas();
+    // Read current user info after first frame so context is available
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+      if (user != null) {
+        setState(() {
+          _workerName = user.fullName;
+          _workerRole = user.role;
+          _workerAreaId = user.areaId;
+          _workerPlatformId = user.platformId;
+        });
+      }
+      _loadAreas();
+    });
   }
 
   @override
@@ -112,12 +137,28 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
     _areasLoading = true;
     if (mounted) setState(() {});
     try {
-      _areas = await ApiService.getStationAreas(widget.stationId);
+      final allAreas = await ApiService.getStationAreas(widget.stationId);
+      if (_isWorkerRole && (_workerAreaId != null || _workerPlatformId != null)) {
+        // Filter to only the worker's assigned area/platform
+        final assignedId = _workerAreaId ?? _workerPlatformId;
+        final assigned = allAreas.where((a) => a.uid == assignedId).toList();
+        _areas = assigned.isNotEmpty ? assigned : allAreas;
+        // Auto-select their assigned area
+        if (_areas.length == 1 && _form == null) {
+          _selectedArea = _areas.first.name;
+        }
+      } else {
+        _areas = allAreas;
+      }
     } catch (e) {
       debugPrint('_loadAreas error: $e');
     }
     _areasLoading = false;
     if (mounted) setState(() {});
+    // If a single area was auto-selected, load its zones
+    if (_selectedArea != null && _form == null) {
+      await _loadZones();
+    }
   }
 
   Future<void> _loadZones() async {
@@ -299,6 +340,7 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
       'areaUncleaned': double.tryParse(_areaUncleanedCtrl.text) ?? 0,
       'garbageCollected': double.tryParse(_garbageCtrl.text) ?? 0,
       'remarks': _remarksCtrl.text.trim(),
+      'submittedByName': _workerName ?? '',
       'photos': [
         ..._beforePhotos.map((u) => {'url': u, 'type': 'before'}),
         ..._afterPhotos.map((u) => {'url': u, 'type': 'after'}),
@@ -398,14 +440,98 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
   }
 
   Widget _buildScheduleSection() {
+    final submitterName = _form?.submittedByName.isNotEmpty == true
+        ? _form!.submittedByName
+        : (_workerName ?? '');
+    final submitterRole = _form != null ? (_form!.submittedBy.isNotEmpty ? _workerRole ?? '' : '') : (_workerRole ?? '');
     return Column(
       children: [
+        // ── Worker Identity Banner ───────────────────────────────────────────
+        if (submitterName.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: kRailwayBlue.withOpacity(0.07),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: kRailwayBlue.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: kRailwayBlue.withOpacity(0.15),
+                  child: const Icon(Icons.person, size: 20, color: kRailwayBlue),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        submitterName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: kRailwayBlue,
+                        ),
+                      ),
+                      if (submitterRole.isNotEmpty)
+                        Text(
+                          submitterRole,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: kRailwayBlue.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'Submitted By',
+                    style: TextStyle(fontSize: 10, color: kRailwayBlue, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+        // ────────────────────────────────────────────────────────────────────
         if (isEditable && _areasLoading)
           const Padding(padding: EdgeInsets.only(bottom: 8), child: LinearProgressIndicator()),
-        if (isEditable)
+        if (isEditable && _isWorkerRole && _areas.length == 1)
+          // Single assigned area — show as a read-only field
+          InputDecorator(
+            decoration: InputDecoration(
+              labelText: (_selectedArea != null && _selectedArea!.toLowerCase().contains('platform'))
+                  ? 'Your Assigned Platform'
+                  : 'Your Assigned Area',
+              border: const OutlineInputBorder(),
+              filled: true,
+              fillColor: Colors.grey.shade100,
+              suffixIcon: const Icon(Icons.lock_outline, size: 18, color: Colors.grey),
+            ),
+            child: Text(
+              _areas.first.name,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+          )
+        else if (isEditable)
           DropdownButtonFormField<String>(
             value: _selectedArea,
-            decoration: const InputDecoration(labelText: 'Area *', border: OutlineInputBorder()),
+            decoration: InputDecoration(
+              labelText: (_selectedArea != null && _selectedArea!.toLowerCase().contains('platform'))
+                  ? 'Platform *'
+                  : 'Area *',
+              border: const OutlineInputBorder(),
+            ),
             items: _areas.isNotEmpty
                 ? _areas.map((a) => DropdownMenuItem(value: a.name, child: Text(a.name))).toList()
                 : [const DropdownMenuItem(value: '', child: Text('No areas available', style: TextStyle(color: Colors.grey)))],
@@ -418,17 +544,41 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
             validator: (v) => v == null || v.isEmpty ? 'Required' : null,
           )
         else
-          TextFormField(initialValue: _selectedArea ?? '', decoration: const InputDecoration(labelText: 'Area', border: OutlineInputBorder()), readOnly: true),
+          TextFormField(
+            initialValue: _selectedArea ?? '',
+            decoration: InputDecoration(
+              labelText: (_selectedArea != null && _selectedArea!.toLowerCase().contains('platform'))
+                  ? 'Platform'
+                  : 'Area',
+              border: const OutlineInputBorder(),
+            ),
+            readOnly: true,
+          ),
         const SizedBox(height: 12),
         if (isEditable && _selectedArea != null && _selectedArea!.isNotEmpty) ...[
           if (_zonesLoading)
             const Padding(padding: EdgeInsets.only(bottom: 8), child: LinearProgressIndicator()),
           DropdownButtonFormField<String>(
             value: _selectedZone,
-            decoration: const InputDecoration(labelText: 'Zone', border: OutlineInputBorder()),
+            decoration: InputDecoration(
+              labelText: (_selectedArea != null && _selectedArea!.toLowerCase().contains('platform'))
+                  ? 'Area under Platform'
+                  : 'Zone',
+              border: const OutlineInputBorder(),
+            ),
             items: _zones.isNotEmpty
                 ? _zones.map((z) => DropdownMenuItem(value: z.name, child: Text(z.name))).toList()
-                : [const DropdownMenuItem(value: '', child: Text('No zones', style: TextStyle(color: Colors.grey)))],
+                : [
+                    DropdownMenuItem(
+                      value: '',
+                      child: Text(
+                        (_selectedArea!.toLowerCase().contains('platform'))
+                            ? 'No areas configured'
+                            : 'No zones configured',
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  ],
             onChanged: (v) { if (v != null && v.isNotEmpty) setState(() => _selectedZone = v); },
           ),
           const SizedBox(height: 12),

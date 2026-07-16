@@ -35,6 +35,10 @@ class StationReportService {
      1. HELPERS
      ================================================================== */
 
+  _getMonthEnd(year, month) {
+    return String(new Date(parseInt(year), parseInt(month), 0).getDate()).padStart(2, '0');
+  }
+
   async _getStationName(stationId) {
     const doc = await db.collection('stations').doc(stationId).get();
     if (!doc.exists) throw new NotFoundError('Station not found');
@@ -68,7 +72,7 @@ class StationReportService {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`;
-    const endDate = `${year}-${monthPad}-31`;
+    const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
 
     const [scorecardSnap, attendanceSnap, activitySnap, complaintSnap, inspectionSnap, formSnap] = await Promise.all([
       db.collection('daily_scorecards').where('stationId', '==', stationId).where('date', '>=', startDate).where('date', '<=', endDate).get(),
@@ -143,7 +147,7 @@ class StationReportService {
     const stationsSnap = await db.collection('stations').where('division', '==', division).where('active', '==', true).limit(200).get();
     const stationIds = []; stationsSnap.forEach(doc => stationIds.push({ id: doc.id, name: doc.data().stationName || '' }));
     const monthPad = String(month).padStart(2, '0');
-    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-31`;
+    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const comparisons = [];
     for (const station of stationIds) {
       const scoreSnap = await db.collection('daily_scorecards').where('stationId', '==', station.id).where('date', '>=', startDate).where('date', '<=', endDate).get();
@@ -274,7 +278,7 @@ class StationReportService {
   async generateMonthlyAttendanceSummary(stationId, month, year, user) {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
-    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-31`;
+    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const snap = await db.collection('station_attendance').where('stationId', '==', stationId).where('date', '>=', startDate).where('date', '<=', endDate).limit(500).get();
     const records = []; snap.forEach(d => records.push(d.data()));
     const daysPresent = new Set(records.filter(r => r.status === 'present').map(r => r.date)).size;
@@ -294,7 +298,7 @@ class StationReportService {
   async generateMonthlyCleaningSummary(stationId, month, year, user) {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
-    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-31`;
+    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const [activitySnap, garbageSnap, pestSnap] = await Promise.all([
       db.collection('station_daily_activities').where('stationId', '==', stationId).where('date', '>=', startDate).where('date', '<=', endDate).limit(500).get(),
       db.collection('garbage_collections').where('stationId', '==', stationId).where('collectionDate', '>=', startDate).where('collectionDate', '<=', endDate).limit(500).get(),
@@ -321,7 +325,7 @@ class StationReportService {
   async generateMonthlyScorecardReport(stationId, month, year, user) {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
-    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-31`;
+    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const snap = await db.collection('daily_scorecards').where('stationId', '==', stationId).where('date', '>=', startDate).where('date', '<=', endDate).limit(200).get();
     const records = []; snap.forEach(d => records.push(d.data()));
     const scores = records.map(r => r.overallStationScore || 0);
@@ -342,7 +346,7 @@ class StationReportService {
   async generateMonthlyComplaintSummary(stationId, month, year, user) {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
-    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-31`;
+    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const snap = await db.collection('complaints').where('stationId', '==', stationId).get();
     const records = []; snap.forEach(d => records.push(d.data()));
     const inMonth = records.filter(r => { const c = r.createdAt || ''; return c >= startDate && c <= endDate + 'T23:59:59'; });
@@ -400,7 +404,7 @@ class StationReportService {
   async generateMonthlyPenaltyReport(stationId, month, year, user) {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
-    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-31`;
+    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const [downtimeSnap, complaintSnap] = await Promise.all([
       db.collection('machine_downtime').where('stationId', '==', stationId).where('startTime', '>=', startDate).where('startTime', '<=', endDate).limit(500).get(),
       db.collection('complaints').where('stationId', '==', stationId).get(),
@@ -427,7 +431,7 @@ class StationReportService {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`;
-    const endDate = `${year}-${monthPad}-31`;
+    const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const [attSnap, actSnap, scoreSnap, compSnap, feedSnap] = await Promise.all([
       db.collection('station_attendance').where('stationId', '==', stationId).where('date', '>=', startDate).where('date', '<=', endDate).limit(500).get(),
       db.collection('station_daily_activities').where('stationId', '==', stationId).where('date', '>=', startDate).where('date', '<=', endDate).limit(500).get(),

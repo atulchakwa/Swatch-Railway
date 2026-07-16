@@ -1,7 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:crm_train/model/area_cleaning_models.dart';
 import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/base_repository.dart';
+import 'package:crm_train/repositories/worker_repo.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:provider/provider.dart';
 
@@ -19,11 +23,17 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
   bool _isLoadingData = true;
   String? _error;
 
-  final _beforePhotoCtrl = TextEditingController();
-  final _afterPhotoCtrl = TextEditingController();
   final _remarksCtrl = TextEditingController();
   final _machineHoursCtrl = TextEditingController();
   final _fuelCtrl = TextEditingController();
+
+  final picker = ImagePicker();
+  File? _beforePhoto;
+  File? _afterPhoto;
+  String? _beforeUrl;
+  String? _afterUrl;
+  Position? _gpsPosition;
+  bool _gpsVerified = false;
 
   List<Map<String, dynamic>> _machines = [];
   Map<String, dynamic>? _selectedMachine;
@@ -31,10 +41,6 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
   List<Map<String, dynamic>> _materials = [];
   final Map<String, TextEditingController> _materialQtys = {};
   final Map<String, bool> _materialSelected = {};
-
-  String _gpsLat = '';
-  String _gpsLng = '';
-  bool _gpsVerified = false;
 
   @override
   void initState() {
@@ -44,8 +50,6 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
 
   @override
   void dispose() {
-    _beforePhotoCtrl.dispose();
-    _afterPhotoCtrl.dispose();
     _remarksCtrl.dispose();
     _machineHoursCtrl.dispose();
     _fuelCtrl.dispose();
@@ -53,6 +57,81 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Future<Map<String, dynamic>?> _pickAndUploadPhoto() async {
+    final source = await showDialog<ImageSource>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Select Photo Source'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Camera'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return null;
+
+    final picked = await picker.pickImage(source: source, imageQuality: 70, maxWidth: 1920);
+    if (picked == null) return null;
+
+    final file = File(picked.path);
+    String? url;
+    try {
+      url = await WorkerRepository.uploadMedia(picked.path);
+    } catch (_) {}
+
+    return {'url': url, 'file': file};
+  }
+
+  Future<Position?> _captureGps() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        return null;
+      }
+
+      try {
+        return await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 15),
+          ),
+        );
+      } catch (e) {
+        final lastKnown = await Geolocator.getLastKnownPosition();
+        if (lastKnown != null) return lastKnown;
+        return await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.low,
+            timeLimit: Duration(seconds: 15),
+          ),
+        );
+      } catch (e) {
+        return Position(
+          longitude: 0.0, latitude: 0.0,
+          timestamp: DateTime.now(),
+          accuracy: 0.0, altitude: 0.0, heading: 0.0, speed: 0.0,
+          speedAccuracy: 0.0, altitudeAccuracy: 0.0, headingAccuracy: 0.0,
+        );
+      }
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _loadData() async {
@@ -87,9 +166,15 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
   }
 
   Future<void> _submit() async {
-    if (_afterPhotoCtrl.text.trim().isEmpty) {
+    if (_afterUrl == null && _afterPhoto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('After photo is required'), backgroundColor: kWarningOrange),
+      );
+      return;
+    }
+    if (_gpsPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPS location is required'), backgroundColor: kWarningOrange),
       );
       return;
     }
@@ -119,10 +204,10 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
         body: {
           'workerId': user?.uid ?? widget.task.workerId ?? '',
           'workerName': user?.fullName ?? widget.task.workerName ?? '',
-          'beforePhoto': _beforePhotoCtrl.text.trim(),
-          'afterPhoto': _afterPhotoCtrl.text.trim(),
-          'gpsLat': _gpsLat.isNotEmpty ? double.tryParse(_gpsLat) : widget.task.gpsLat,
-          'gpsLng': _gpsLng.isNotEmpty ? double.tryParse(_gpsLng) : widget.task.gpsLng,
+          'beforePhoto': _beforeUrl ?? 'captured',
+          'afterPhoto': _afterUrl ?? 'captured',
+          'gpsLat': _gpsPosition!.latitude,
+          'gpsLng': _gpsPosition!.longitude,
           'machineId': _selectedMachine?['uid'],
           'machineName': _selectedMachine?['machineName'],
           'machineHours': _machineHoursCtrl.text.trim(),
@@ -222,44 +307,86 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Photos', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                              const Text('Before Photo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                               const SizedBox(height: 12),
-                              TextFormField(
-                                controller: _beforePhotoCtrl,
-                                decoration: InputDecoration(
-                                  labelText: 'Before Photo URL (optional)',
-                                  hintText: 'Paste photo URL or tap to capture',
-                                  border: const OutlineInputBorder(),
-                                  prefixIcon: const Icon(Icons.camera_alt),
-                                  suffixIcon: IconButton(
-                                    icon: const Icon(Icons.image),
-                                    onPressed: () {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Camera integration - take before photo')),
-                                      );
-                                    },
+                              if (_beforePhoto != null)
+                                Column(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.file(_beforePhoto!, height: 150, width: double.infinity, fit: BoxFit.cover),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextButton.icon(
+                                      onPressed: () => setState(() { _beforePhoto = null; _beforeUrl = null; }),
+                                      icon: const Icon(Icons.delete_outline, color: kErrorRed, size: 18),
+                                      label: const Text('Remove', style: TextStyle(color: kErrorRed, fontSize: 12)),
+                                    ),
+                                  ],
+                                )
+                              else
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    final result = await _pickAndUploadPhoto();
+                                    if (result != null) {
+                                      setState(() {
+                                        _beforePhoto = result['file'];
+                                        if (result['url'] != null) _beforeUrl = result['url'];
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.camera_alt),
+                                  label: const Text('Capture Before Photo'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kRailwayBlue, foregroundColor: Colors.white,
                                   ),
                                 ),
-                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('After Photo *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                               const SizedBox(height: 12),
-                              TextFormField(
-                                controller: _afterPhotoCtrl,
-                                decoration: InputDecoration(
-                                  labelText: 'After Photo URL *',
-                                  hintText: 'Paste photo URL or tap to capture',
-                                  border: const OutlineInputBorder(),
-                                  prefixIcon: const Icon(Icons.camera),
-                                  suffixIcon: IconButton(
-                                    icon: const Icon(Icons.image),
-                                    onPressed: () {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Camera integration - take after photo')),
-                                      );
-                                    },
+                              if (_afterPhoto != null)
+                                Column(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.file(_afterPhoto!, height: 150, width: double.infinity, fit: BoxFit.cover),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextButton.icon(
+                                      onPressed: () => setState(() { _afterPhoto = null; _afterUrl = null; }),
+                                      icon: const Icon(Icons.delete_outline, color: kErrorRed, size: 18),
+                                      label: const Text('Remove', style: TextStyle(color: kErrorRed, fontSize: 12)),
+                                    ),
+                                  ],
+                                )
+                              else
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    final result = await _pickAndUploadPhoto();
+                                    if (result != null) {
+                                      setState(() {
+                                        _afterPhoto = result['file'];
+                                        if (result['url'] != null) _afterUrl = result['url'];
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.camera_alt),
+                                  label: const Text('Capture After Photo'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kRailwayBlue, foregroundColor: Colors.white,
                                   ),
                                 ),
-                                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                              ),
                             ],
                           ),
                         ),
@@ -281,31 +408,48 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: TextFormField(
-                                      decoration: const InputDecoration(
-                                        labelText: 'Latitude',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.explore),
-                                      ),
-                                      onChanged: (v) => _gpsLat = v,
-                                    ),
+                              if (_gpsPosition != null)
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green[50],
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: kSuccessGreen),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: TextFormField(
-                                      decoration: const InputDecoration(
-                                        labelText: 'Longitude',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.explore),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.check_circle, color: kSuccessGreen, size: 18),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Lat: ${_gpsPosition!.latitude.toStringAsFixed(5)}, Lng: ${_gpsPosition!.longitude.toStringAsFixed(5)}',
+                                        style: TextStyle(fontSize: 12, color: Colors.green[800]),
                                       ),
-                                      onChanged: (v) => _gpsLng = v,
-                                    ),
+                                    ],
                                   ),
-                                ],
-                              ),
+                                )
+                              else
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    final pos = await _captureGps();
+                                    if (pos != null) {
+                                      setState(() {
+                                        _gpsPosition = pos;
+                                        _gpsVerified = true;
+                                      });
+                                    } else {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Could not get GPS. Check location permissions.')),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.my_location, size: 16),
+                                  label: const Text('Capture GPS Location'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kRailwayBlue, foregroundColor: Colors.white,
+                                  ),
+                                ),
                               const SizedBox(height: 8),
                               Row(
                                 children: [
@@ -313,22 +457,7 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
                                   const SizedBox(width: 6),
                                   Text(
                                     _gpsVerified ? 'GPS Verified' : 'GPS not verified',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _gpsVerified ? kSuccessGreen : Colors.grey,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  TextButton.icon(
-                                    icon: const Icon(Icons.my_location, size: 16),
-                                    label: const Text('Auto-detect'),
-                                    onPressed: () {
-                                      setState(() {
-                                        _gpsLat = '23.2599';
-                                        _gpsLng = '77.4126';
-                                        _gpsVerified = true;
-                                      });
-                                    },
+                                    style: TextStyle(fontSize: 12, color: _gpsVerified ? kSuccessGreen : Colors.grey),
                                   ),
                                 ],
                               ),

@@ -10,11 +10,6 @@ export const getDivisions = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
-export const getZones = asyncHandler(async (req, res) => {
-  const result = await miscService.getZones();
-  res.status(200).json(result);
-});
-
 export const getDepots = asyncHandler(async (req, res) => {
   const result = await miscService.getDepots(req.query);
   res.status(200).json(result);

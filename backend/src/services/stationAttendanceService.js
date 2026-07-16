@@ -1,5 +1,6 @@
 import { db, admin } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
+import { geofenceService } from './geofenceService.js';
 import logger from '../logger/index.js';
 
 const VALID_SHIFTS = ['morning', 'afternoon', 'night'];
@@ -31,12 +32,19 @@ class StationAttendanceService {
     const status = data.status || (isLate ? 'late' : 'present');
     if (!VALID_STATUSES.includes(status)) throw new ValidationError(`status must be one of: ${VALID_STATUSES.join(', ')}`);
 
+    let geofenceValid = null;
+    if (latitude != null && longitude != null && (mode === 'gps' || mode === 'biometric')) {
+      geofenceValid = await geofenceService.isWithinGeofence(stationId, latitude, longitude);
+    }
+
     const record = {
       attendanceId, stationId, stationName: stationDoc.data().stationName || '',
       workerId, workerName: resolvedWorkerName, date, shift: shift.toLowerCase(),
       status, captureMode: mode, isManual: mode === 'manual', isLate,
       photoUrl: photoUrl || '', reason: reason || '',
       latitude: latitude || null, longitude: longitude || null,
+      geofenceValid: geofenceValid?.within ?? true,
+      geofenceCheck: geofenceValid,
       markedBy: user.uid, markedByName: user.fullName || user.name || '', markedAt: now, createdAt: now,
     };
     await db.collection('station_attendance').doc(attendanceId).set(record);

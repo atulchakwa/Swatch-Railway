@@ -47,7 +47,7 @@ export const dashboard = asyncHandler(async (req, res) => {
 });
 
 export const generateInvoice = asyncHandler(async (req, res) => {
-  const result = await billingService.generateInvoiceNumber(req.params.uid);
+  const result = await billingService.generateInvoiceNumber(req.params.uid, req.user);
   res.status(200).json(result);
 });
 

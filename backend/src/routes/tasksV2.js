@@ -35,6 +35,7 @@ router.post('/api/tasks-v2/:id/complete', verifyToken, requirePermission(PERMISS
 router.post('/api/tasks-v2/:id/resubmit', verifyToken, requirePermission(PERMISSIONS.RESUBMIT_TASK), taskManagementController.resubmit);
 router.post('/api/tasks-v2/:id/approve', verifyToken, requirePermission(PERMISSIONS.APPROVE_TASK), taskManagementController.approve);
 router.post('/api/tasks-v2/:id/reject', verifyToken, requirePermission(PERMISSIONS.REJECT_TASK), taskManagementController.reject);
+router.post('/api/tasks-v2/generate-range', verifyToken, requirePermission(PERMISSIONS.GENERATE_TASKS), taskManagementController.generateRange);
 router.get('/api/tasks-v2/:id', verifyToken, requirePermission(PERMISSIONS.VIEW_TASKS), taskManagementController.getById);
 
 export default router;

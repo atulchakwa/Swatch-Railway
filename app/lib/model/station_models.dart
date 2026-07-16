@@ -108,6 +108,7 @@ class StationArea {
   final int order;
   final String description;
   final bool active;
+  final String? platformId;
 
   StationArea({
     this.uid,
@@ -116,6 +117,7 @@ class StationArea {
     this.order = 0,
     this.description = '',
     this.active = true,
+    this.platformId,
   });
 
   Map<String, dynamic> toJson() => {
@@ -125,6 +127,7 @@ class StationArea {
     'order': order,
     'description': description,
     'active': active,
+    if (platformId != null) 'platformId': platformId,
   };
 
   factory StationArea.fromJson(Map<String, dynamic> json) => StationArea(
@@ -134,6 +137,7 @@ class StationArea {
     order: json['order'] ?? 0,
     description: json['description'] ?? '',
     active: json['active'] ?? true,
+    platformId: json['platformId'],
   );
 
   @override

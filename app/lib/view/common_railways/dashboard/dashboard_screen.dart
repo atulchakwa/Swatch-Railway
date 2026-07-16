@@ -226,19 +226,19 @@ class _CommonDashboardState extends State<CommonDashboard> {
         division: selectedDivision,
       );
 
-      final coachStats = await ApiService.getFormsStats(
+      final coachStats = await FirebaseCountService.getFormStatusCounts(
         formType: 'coach',
         zone: selectedZone,
         division: selectedDivision,
       );
 
-      final premisesStats = await ApiService.getFormsStats(
+      final premisesStats = await FirebaseCountService.getFormStatusCounts(
         formType: 'premises',
         zone: selectedZone,
         division: selectedDivision,
       );
 
-      final ctsStats = await ApiService.getFormsStats(
+      final ctsStats = await FirebaseCountService.getFormStatusCounts(
         formType: 'cts',
         zone: selectedZone,
         division: selectedDivision,

@@ -83,6 +83,10 @@ class TaskManagementService {
       case '2hrs': return ['06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'];
       case '4hrs': return ['06:00', '10:00', '14:00', '18:00', '22:00'];
       case 'daily': return ['08:00'];
+      case 'shift_wise': return ['06:00', '14:00', '22:00'];
+      case 'week_wise': return ['08:00'];
+      case 'fortnightly': return ['08:00'];
+      case 'monthly': return ['08:00'];
       default: return ['08:00'];
     }
   }
@@ -161,10 +165,20 @@ class TaskManagementService {
   }
 
   async getTasks(query = {}, user) {
-    const { stationId, platformId, areaId, workerId, status, date, startDate, endDate, supervisorId } = query;
+    const { stationId, platformId, areaId, workerId, status, date, startDate, endDate, supervisorId, includeOverdue } = query;
     const snapshot = await db.collection('cleaningTasks').limit(300).get();
     const tasks = [];
-    snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
+    const now = new Date();
+    snapshot.forEach(doc => {
+      const t = { id: doc.id, ...doc.data() };
+      const taskDate = t.date || t.scheduledDate || '';
+      const taskTime = t.scheduledTime || '23:59';
+      const taskDateTime = new Date(`${taskDate}T${taskTime}:00`);
+      const actionableStatuses = ['pending', 'assigned', 'in_progress'];
+      t.isOverdue = actionableStatuses.includes(t.status) && taskDateTime < now;
+      t.isDue = actionableStatuses.includes(t.status) && !t.isOverdue;
+      tasks.push(t);
+    });
 
     let filtered = tasks;
     if (stationId) filtered = filtered.filter(t => t.stationId === stationId);
@@ -173,6 +187,7 @@ class TaskManagementService {
     if (workerId) filtered = filtered.filter(t => t.workerId === workerId);
     if (status) filtered = filtered.filter(t => t.status === status);
     if (supervisorId) filtered = filtered.filter(t => t.supervisorId === supervisorId);
+    if (includeOverdue === 'true') filtered = filtered.filter(t => t.isOverdue);
     if (date) {
       filtered = filtered.filter(t => t.date === date || t.scheduledDate === date);
     }
@@ -346,7 +361,7 @@ class TaskManagementService {
   }
 
   async bulkGenerate(data, user) {
-    const { areaIds, date, workerId } = data;
+    const { areaIds, date, workerId, zoneIds } = data;
     if (!areaIds || !Array.isArray(areaIds) || areaIds.length === 0) {
       throw new ValidationError('areaIds array is required');
     }
@@ -375,69 +390,49 @@ class TaskManagementService {
       const areaData = areaDoc.exists ? areaDoc.data() : {};
       const cleaningFrequency = areaData.cleaningFrequency || areaData.frequency || 'daily';
       const frequencyTimes = areaData.frequencyTimes || this._getDefaultFrequencyTimes(cleaningFrequency);
-      const areaName = areaData.areaName || areaData.name || '';
+      const baseAreaName = areaData.areaName || areaData.name || '';
       const areaCode = areaData.areaCode || '';
 
       const batch = db.batch();
       let batchCount = 0;
 
+      // Determine the list of target zones for this area
+      let targetZones = [null];
+      if (zoneIds && Array.isArray(zoneIds) && zoneIds.length > 0) {
+        const zoneDocs = await Promise.all(zoneIds.map(zId => db.collection('stationZones').doc(zId).get()));
+        targetZones = zoneDocs
+          .filter(doc => doc.exists && doc.data().areaId === areaId)
+          .map(doc => ({ uid: doc.id, name: doc.data().zoneName || doc.data().name || '' }));
+        if (targetZones.length === 0) {
+          targetZones = [null];
+        }
+      }
+
       if (assignedWorker) {
         for (const scheduledTime of frequencyTimes) {
-          const taskRef = db.collection('cleaningTasks').doc();
-          const task = {
-            uid: taskRef.id,
-            stationId: areaData.stationId || assignedWorker.stationId || '',
-            platformId: areaData.platformId || null,
-            areaId,
-            areaName,
-            areaCode,
-            workerId: assignedWorker.uid,
-            workerName: assignedWorker.fullName || assignedWorker.name || 'Unknown',
-            supervisorId: areaData.supervisorId || null,
-            assignmentId: null,
-            activityType: areaData.areaType || 'Cleaning',
-            frequency: cleaningFrequency,
-            date: targetDate,
-            scheduledDate: targetDate,
-            scheduledTime,
-            priority: areaData.priority || 3,
-            shift: data.shift || areaData.defaultShift || 'morning',
-            status: 'pending',
-            startedAt: null, completedAt: null,
-            approvedAt: null, rejectedAt: null,
-            beforePhoto: null, afterPhoto: null,
-            gpsLat: null, gpsLng: null,
-            supervisorNotes: null, rejectionReason: null,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: new Date().toISOString()
-          };
-          batch.set(taskRef, task);
-          allTaskIds.push(taskRef.id);
-          batchCount++;
-        }
-      } else if (workersSnap) {
-        workersSnap.forEach(workerDoc => {
-          const assignment = workerDoc.data();
-          for (const scheduledTime of frequencyTimes) {
+          for (const zoneInfo of targetZones) {
             const taskRef = db.collection('cleaningTasks').doc();
+            const displayAreaName = zoneInfo ? `${baseAreaName} - ${zoneInfo.name}` : baseAreaName;
             const task = {
               uid: taskRef.id,
-              stationId: areaData.stationId || assignment.stationId,
-              platformId: areaData.platformId || assignment.platformId || null,
+              stationId: areaData.stationId || assignedWorker.stationId || '',
+              platformId: areaData.platformId || null,
               areaId,
-              areaName,
+              areaName: displayAreaName,
               areaCode,
-              workerId: assignment.workerId,
-              workerName: assignment.workerName,
+              zoneId: zoneInfo ? zoneInfo.uid : null,
+              zoneName: zoneInfo ? zoneInfo.name : null,
+              workerId: assignedWorker.uid,
+              workerName: assignedWorker.fullName || assignedWorker.name || 'Unknown',
               supervisorId: areaData.supervisorId || null,
-              assignmentId: assignment.uid,
+              assignmentId: null,
               activityType: areaData.areaType || 'Cleaning',
               frequency: cleaningFrequency,
               date: targetDate,
               scheduledDate: targetDate,
               scheduledTime,
               priority: areaData.priority || 3,
-              shift: assignment.shift || areaData.defaultShift || 'morning',
+              shift: data.shift || areaData.defaultShift || 'morning',
               status: 'pending',
               startedAt: null, completedAt: null,
               approvedAt: null, rejectedAt: null,
@@ -451,6 +446,48 @@ class TaskManagementService {
             allTaskIds.push(taskRef.id);
             batchCount++;
           }
+        }
+      } else if (workersSnap) {
+        workersSnap.forEach(workerDoc => {
+          const assignment = workerDoc.data();
+          for (const scheduledTime of frequencyTimes) {
+            for (const zoneInfo of targetZones) {
+              const taskRef = db.collection('cleaningTasks').doc();
+              const displayAreaName = zoneInfo ? `${baseAreaName} - ${zoneInfo.name}` : baseAreaName;
+              const task = {
+                uid: taskRef.id,
+                stationId: areaData.stationId || assignment.stationId,
+                platformId: areaData.platformId || assignment.platformId || null,
+                areaId,
+                areaName: displayAreaName,
+                areaCode,
+                zoneId: zoneInfo ? zoneInfo.uid : null,
+                zoneName: zoneInfo ? zoneInfo.name : null,
+                workerId: assignment.workerId,
+                workerName: assignment.workerName,
+                supervisorId: areaData.supervisorId || null,
+                assignmentId: assignment.uid,
+                activityType: areaData.areaType || 'Cleaning',
+                frequency: cleaningFrequency,
+                date: targetDate,
+                scheduledDate: targetDate,
+                scheduledTime,
+                priority: areaData.priority || 3,
+                shift: assignment.shift || areaData.defaultShift || 'morning',
+                status: 'pending',
+                startedAt: null, completedAt: null,
+                approvedAt: null, rejectedAt: null,
+                beforePhoto: null, afterPhoto: null,
+                gpsLat: null, gpsLng: null,
+                supervisorNotes: null, rejectionReason: null,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: new Date().toISOString()
+              };
+              batch.set(taskRef, task);
+              allTaskIds.push(taskRef.id);
+              batchCount++;
+            }
+          }
         });
       }
 
@@ -461,6 +498,31 @@ class TaskManagementService {
     }
 
     return { message: `Generated ${total} tasks across ${areaIds.length} areas for ${targetDate}`, count: total, taskIds: allTaskIds };
+  }
+
+  async generateTasksForDateRange(data, user) {
+    const { areaIds, startDate, endDate, workerId } = data;
+    if (!areaIds || !Array.isArray(areaIds) || areaIds.length === 0) {
+      throw new ValidationError('areaIds array is required');
+    }
+    if (!startDate || !endDate) throw new ValidationError('startDate and endDate are required');
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (start > end) throw new ValidationError('startDate must be before endDate');
+
+    let total = 0;
+    const allTaskIds = [];
+    const current = new Date(start);
+
+    while (current <= end) {
+      const dateStr = current.toISOString().split('T')[0];
+      const result = await this.bulkGenerate({ areaIds, date: dateStr, workerId, shift: data.shift }, user);
+      total += result.count;
+      allTaskIds.push(...result.taskIds);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return { message: `Generated ${total} tasks across ${areaIds.length} areas from ${startDate} to ${endDate}`, count: total, taskIds: allTaskIds };
   }
 }
 

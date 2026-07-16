@@ -90,11 +90,11 @@ class _InspectionListScreenState extends State<InspectionListScreen> {
                       isExpanded: true,
                       items: const [
                         DropdownMenuItem(value: 'all', child: Text('All Status')),
-                        DropdownMenuItem(value: 'scheduled', child: Text('Scheduled')),
-                        DropdownMenuItem(value: 'inProgress', child: Text('In Progress')),
-                        DropdownMenuItem(value: 'completed', child: Text('Completed')),
-                        DropdownMenuItem(value: 'approved', child: Text('Approved')),
-                        DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
+                        DropdownMenuItem(value: 'SCHEDULED', child: Text('Scheduled')),
+                        DropdownMenuItem(value: 'IN_PROGRESS', child: Text('In Progress')),
+                        DropdownMenuItem(value: 'COMPLETED', child: Text('Completed')),
+                        DropdownMenuItem(value: 'APPROVED', child: Text('Approved')),
+                        DropdownMenuItem(value: 'REJECTED', child: Text('Rejected')),
                       ],
                       onChanged: (val) {
                         if (val != null) {

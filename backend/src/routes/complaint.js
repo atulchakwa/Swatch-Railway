@@ -15,6 +15,7 @@ router.post('/api/complaints/:uid/verify', verifyToken, requirePermission(PERMIS
 router.post('/api/complaints/:uid/close', verifyToken, requirePermission(PERMISSIONS.MANAGE_COMPLAINTS), complaintController.close);
 router.post('/api/complaints/:uid/reopen', verifyToken, requirePermission(PERMISSIONS.MANAGE_COMPLAINTS), complaintController.reopen);
 router.post('/api/complaints/:uid/reject', verifyToken, requirePermission(PERMISSIONS.MANAGE_COMPLAINTS), complaintController.reject);
+router.post('/api/complaints/:uid/resubmit', verifyToken, requirePermission(PERMISSIONS.MANAGE_COMPLAINTS), complaintController.resubmit);
 router.post('/api/complaints/:uid/escalate', verifyToken, requirePermission(PERMISSIONS.MANAGE_COMPLAINTS), complaintController.escalate);
 router.post('/api/complaints/check-sla', verifyToken, requirePermission(PERMISSIONS.MANAGE_COMPLAINTS), complaintController.checkSla);
 router.get('/api/complaints/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_COMPLAINTS), complaintController.getById);

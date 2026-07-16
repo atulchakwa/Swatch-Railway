@@ -4,7 +4,7 @@ import { paginate } from '../utils/paginate.js';
 
 const VALID_FREQUENCY_TYPES = [
   'once_per_day', 'twice_per_day', 'three_times_per_day',
-  'every_six_hours', 'hourly', 'weekly', 'fortnightly',
+  'every_six_hours', 'hourly', 'shift_wise', 'weekly', 'fortnightly',
   'monthly', 'as_and_when_required'
 ];
 

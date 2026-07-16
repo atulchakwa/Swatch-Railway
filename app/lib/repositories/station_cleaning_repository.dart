@@ -585,6 +585,90 @@ class StationCleaningRepository {
     );
   }
 
+  // ─── AREA-TASK FREQUENCY MAPPING (SRS #2) ──────────────────────────────
+
+  static Future<Map<String, dynamic>> createAreaTaskFrequency(Map<String, dynamic> data) async {
+    return await _apiCall(
+      method: 'POST',
+      path: '/api/station-area-task-frequency',
+      body: data,
+      parser: (d) => d,
+    );
+  }
+
+  static Future<Map<String, dynamic>> updateAreaTaskFrequency(String uid, Map<String, dynamic> data) async {
+    return await _apiCall(
+      method: 'PUT',
+      path: '/api/station-area-task-frequency/$uid',
+      body: data,
+      parser: (d) => d,
+    );
+  }
+
+  static Future<Map<String, dynamic>> deleteAreaTaskFrequency(String uid) async {
+    return await _apiCall(
+      method: 'DELETE',
+      path: '/api/station-area-task-frequency/$uid',
+      parser: (d) => d,
+    );
+  }
+
+  static Future<Map<String, dynamic>> listAreaTaskFrequencies({String? stationId, String? areaId}) async {
+    final params = <String, String>{};
+    if (stationId != null) params['stationId'] = stationId;
+    if (areaId != null) params['areaId'] = areaId;
+    return await _apiCall(
+      method: 'GET',
+      path: '/api/station-area-task-frequency',
+      queryParams: params.isNotEmpty ? params : null,
+      parser: (d) => d,
+    );
+  }
+
+  // ─── ATTENDANCE (3-step: start / mid / end) ─────────────────────────────
+
+  static Future<Map<String, dynamic>> markStationAttendance({
+    required String type,
+    required String runInstanceId,
+    String stationId = '',
+    required String imageUrl,
+    double? latitude,
+    double? longitude,
+    String? livenessChallenge,
+  }) async {
+    final body = <String, dynamic>{
+      'runInstanceId': runInstanceId,
+      'stationId': stationId,
+      'attendanceType': type,
+      'imageUrl': imageUrl,
+      'latitude': latitude?.toString() ?? '',
+      'longitude': longitude?.toString() ?? '',
+      'deviceTimestamp': DateTime.now().toUtc().toIso8601String(),
+      if (livenessChallenge != null) 'livenessChallenge': livenessChallenge,
+    };
+    return await _apiCall(
+      method: 'POST',
+      path: '/api/station-cleaning/attendance',
+      body: body,
+      parser: (d) => d,
+    );
+  }
+
+  static Future<Map<String, dynamic>> getStationAttendanceStatus({
+    String? runInstanceId,
+    String? workerId,
+  }) async {
+    final params = <String, String>{};
+    if (runInstanceId != null) params['runInstanceId'] = runInstanceId;
+    if (workerId != null) params['workerId'] = workerId;
+    return await _apiCall(
+      method: 'GET',
+      path: '/api/station-cleaning/attendance/status',
+      queryParams: params.isNotEmpty ? params : null,
+      parser: (d) => d,
+    );
+  }
+
   // ─── DASHBOARD ──────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> getDashboard() async {

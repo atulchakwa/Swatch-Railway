@@ -303,3 +303,20 @@ export const getScoreTrend = asyncHandler(async (req, res) => {
   const { stationId } = req.params;
   res.json(await stationCleaningService.getScoreTrend(stationId, req.query));
 });
+
+// ─── Area-Task Frequency (SRS #2) ──────────────────────────────────────────
+export const createAreaTaskFrequency = asyncHandler(async (req, res) => {
+  res.status(201).json(await stationCleaningService.createAreaTaskFrequency(req.body));
+});
+
+export const updateAreaTaskFrequency = asyncHandler(async (req, res) => {
+  res.json(await stationCleaningService.updateAreaTaskFrequency(req.params.uid, req.body));
+});
+
+export const deleteAreaTaskFrequency = asyncHandler(async (req, res) => {
+  res.json(await stationCleaningService.deleteAreaTaskFrequency(req.params.uid));
+});
+
+export const listAreaTaskFrequencies = asyncHandler(async (req, res) => {
+  res.json(await stationCleaningService.listAreaTaskFrequencies(req.query));
+});

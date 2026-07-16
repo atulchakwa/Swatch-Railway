@@ -9,6 +9,7 @@
 import { db, admin } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import logger from '../logger/index.js';
+import { auditService } from './auditService.js';
 
 class StationBillingService {
   async generateBillingSupportPack(user, data) {
@@ -24,7 +25,8 @@ class StationBillingService {
 
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`;
-    const endDate = `${year}-${monthPad}-31`;
+    const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+    const endDate = `${year}-${monthPad}-${String(lastDay).padStart(2, '0')}`;
 
     const [attendanceSnap, activitySnap, scorecardSnap, complaintSnap, feedbackSnap, inspectionSnap, machineSnap, downtimeSnap] = await Promise.all([
       db.collection('station_attendance').where('stationId', '==', stationId).where('date', '>=', startDate).where('date', '<=', endDate).get(),
@@ -114,6 +116,7 @@ class StationBillingService {
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: now, createdAt: now, updatedAt: now,
     };
     await ref.set(pack);
+    await auditService.logAudit('STATION_BILL_PACK_CREATED', user.uid, user.fullName || 'System', ref.id, 'station_billing_packs', `Billing support pack generated for station ${stationName} period ${month}/${year}`);
     return { message: 'Billing support pack generated', uid: ref.id, pack };
   }
 
@@ -137,10 +140,13 @@ class StationBillingService {
     return { count: packs.length, packs };
   }
 
-  async updateCompliance(uid, checklist) {
+  async updateCompliance(uid, checklist, user) {
     const ref = db.collection('station_billing_packs').doc(uid);
     if (!(await ref.get()).exists) throw new NotFoundError('Billing pack not found');
     await ref.update({ complianceChecklist: checklist, updatedAt: new Date().toISOString() });
+    if (user) {
+      await auditService.logAudit('STATION_BILL_PACK_COMPLIANCE_UPDATED', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Compliance checklist updated`);
+    }
     return { message: 'Compliance checklist updated', uid };
   }
 
@@ -154,6 +160,7 @@ class StationBillingService {
     const checklist = pack.complianceChecklist || {};
     const allComplete = Object.values(checklist).every(v => v === true);
     await ref.update({ status: 'SUBMITTED', submittedBy: user.uid, submittedAt: new Date().toISOString(), autoVerified: allComplete, updatedAt: new Date().toISOString() });
+    await auditService.logAudit('STATION_BILL_PACK_SUBMITTED', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Billing support pack submitted`);
     return { message: 'Billing pack submitted', uid, autoVerified: allComplete };
   }
 
@@ -161,6 +168,7 @@ class StationBillingService {
     const ref = db.collection('station_billing_packs').doc(uid);
     if (!(await ref.get()).exists) throw new NotFoundError('Billing pack not found');
     await ref.update({ status: 'APPROVED', approvedBy: user.uid, approvedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await auditService.logAudit('STATION_BILL_PACK_APPROVED', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Billing support pack approved`);
     return { message: 'Billing pack approved', uid };
   }
 
@@ -169,6 +177,7 @@ class StationBillingService {
     if (!(await ref.get()).exists) throw new NotFoundError('Billing pack not found');
     if (!reason) throw new ValidationError('Rejection reason is required');
     await ref.update({ status: 'REJECTED', rejectionReason: reason, rejectedBy: user.uid, rejectedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await auditService.logAudit('STATION_BILL_PACK_REJECTED', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Billing support pack rejected. Reason: ${reason}`);
     return { message: 'Billing pack rejected', uid };
   }
 
@@ -180,10 +189,11 @@ class StationBillingService {
     const { amount, paymentRef, paymentDate } = body;
     if (!amount || !paymentRef) throw new ValidationError('amount and paymentRef are required');
     await ref.update({ paymentStatus: amount >= doc.data().totalPayableWithGst ? 'paid' : 'partial', paymentAmount: amount, paymentRef, paymentDate: paymentDate || new Date().toISOString(), paidAt: new Date().toISOString(), paidBy: user.uid, updatedAt: new Date().toISOString() });
+    await auditService.logAudit('STATION_BILL_PACK_PAYMENT_RECORDED', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Payment recorded. Ref: ${paymentRef}`);
     return { message: 'Payment recorded', uid };
   }
 
-  async updatePack(uid, data) {
+  async updatePack(uid, data, user) {
     const ref = db.collection('station_billing_packs').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Billing pack not found');
@@ -192,13 +202,19 @@ class StationBillingService {
     const updates = { updatedAt: new Date().toISOString() };
     for (const key of allowed) { if (data[key] !== undefined) updates[key] = data[key]; }
     await ref.update(updates);
+    if (user) {
+      await auditService.logAudit('STATION_BILL_PACK_UPDATED', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Billing support pack updated`);
+    }
     return { message: 'Billing pack updated', uid };
   }
 
-  async deletePack(uid) {
+  async deletePack(uid, user) {
     const ref = db.collection('station_billing_packs').doc(uid);
     if (!(await ref.get()).exists) throw new NotFoundError('Billing pack not found');
     await ref.update({ status: 'DELETED', deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    if (user) {
+      await auditService.logAudit('STATION_BILL_PACK_DELETED', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Billing support pack deleted`);
+    }
     return { message: 'Billing pack deleted' };
   }
 
@@ -208,6 +224,7 @@ class StationBillingService {
     if (!doc.exists) throw new NotFoundError('Billing pack not found');
     if (doc.data().status !== 'REJECTED') throw new ValidationError('Only REJECTED packs can be returned to draft');
     await ref.update({ status: 'DRAFT', rejectionReason: null, updatedAt: new Date().toISOString(), returnedToDraftBy: user.uid });
+    await auditService.logAudit('STATION_BILL_PACK_RETURNED_TO_DRAFT', user.uid, user.fullName || 'User', uid, 'station_billing_packs', `Billing support pack returned to draft`);
     return { message: 'Billing pack returned to draft', uid };
   }
 

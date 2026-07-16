@@ -79,12 +79,15 @@ class PlatformService {
 
   async getPlatformsByStation(stationId) {
     if (!stationId) throw new ValidationError('stationId is required');
-    const snapshot = await db.collection('platforms')
-      .where('stationId', '==', stationId)
-      .where('status', '==', 'active')
-      .orderBy('platformNumber').get();
+    const snapshot = await db.collection('platforms').get();
     const platforms = [];
-    snapshot.forEach(doc => platforms.push({ id: doc.id, ...doc.data() }));
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.stationId === stationId && data.status === 'active') {
+        platforms.push({ id: doc.id, ...data });
+      }
+    });
+    platforms.sort((a, b) => (a.platformNumber || '').localeCompare(b.platformNumber || ''));
     return { count: platforms.length, platforms };
   }
 

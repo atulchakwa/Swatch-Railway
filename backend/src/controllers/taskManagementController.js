@@ -80,3 +80,8 @@ export const bulkGenerate = asyncHandler(async (req, res) => {
   const result = await taskManagementService.bulkGenerate(req.body, req.user);
   res.status(201).json(result);
 });
+
+export const generateRange = asyncHandler(async (req, res) => {
+  const result = await taskManagementService.generateTasksForDateRange(req.body, req.user);
+  res.status(201).json(result);
+});

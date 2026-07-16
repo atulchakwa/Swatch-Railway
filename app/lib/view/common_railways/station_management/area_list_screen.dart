@@ -21,6 +21,7 @@ class AreaListScreen extends StatefulWidget {
 class _AreaListScreenState extends State<AreaListScreen> {
   List<Station> _stations = [];
   List<StationArea> _areas = [];
+  List<StationArea> _allStationAreas = [];
   Station? _selectedStation;
   List<Platform> _platforms = [];
   Platform? _selectedPlatform;
@@ -28,6 +29,7 @@ class _AreaListScreenState extends State<AreaListScreen> {
   bool _isLoadingPlatforms = false;
   bool _isLoadingAreas = false;
   String? _error;
+  String _assignedPlatformName = '';
 
   @override
   void initState() {
@@ -78,7 +80,41 @@ class _AreaListScreenState extends State<AreaListScreen> {
     if (_selectedStation == null) return;
     setState(() => _isLoadingAreas = true);
     try {
-      _areas = await ApiService.getStationAreas(_selectedStation!.uid ?? _selectedStation!.stationCode);
+      final fetched = await ApiService.getStationAreas(_selectedStation!.uid ?? _selectedStation!.stationCode);
+      final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+      final role = user?.role ?? '';
+
+      // user.areaId stores the assigned platform document ID for Area Master
+      final assignedPlatformId = user?.areaId;
+
+      // Find platform name
+      String platformName = '';
+      if (assignedPlatformId != null && assignedPlatformId.isNotEmpty) {
+        try {
+          final platformDoc = await PlatformRepository.getById(assignedPlatformId);
+          platformName = platformDoc.displayName;
+        } catch (_) {}
+      }
+
+      List<StationArea> displayAreas;
+      if (role == 'Area Master' || role == 'Platform Master') {
+        if (assignedPlatformId != null && assignedPlatformId.isNotEmpty) {
+          // Only show areas that belong to this master's platform
+          displayAreas = fetched.where((a) => a.platformId == assignedPlatformId).toList();
+        } else {
+          displayAreas = fetched;
+        }
+      } else {
+        displayAreas = fetched;
+      }
+
+      if (mounted) {
+        setState(() {
+          _allStationAreas = fetched;
+          _areas = displayAreas;
+          _assignedPlatformName = platformName;
+        });
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -90,10 +126,13 @@ class _AreaListScreenState extends State<AreaListScreen> {
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => AreaFormScreen(
-          stationId: _selectedStation!.uid ?? _selectedStation!.stationCode,
-          existingArea: existing,
-        ),
+          builder: (_) => AreaFormScreen(
+            stationId: _selectedStation!.uid ?? _selectedStation!.stationCode,
+            existingArea: existing,
+            platformId: Provider.of<AuthProvider>(context, listen: false).currentUser?.platformId ?? _selectedPlatform?.uid,
+            platformName: _assignedPlatformName.isNotEmpty ? _assignedPlatformName : _selectedPlatform?.displayName,
+            platforms: _platforms,
+          ),
       ),
     );
     if (result == true) _loadAreas();
@@ -154,22 +193,52 @@ class _AreaListScreenState extends State<AreaListScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       color: Colors.white,
-                      child: DropdownButtonFormField<Station>(
-                        value: _selectedStation,
-                        decoration: const InputDecoration(
-                          labelText: 'Station',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.train),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        items: _stations.map((s) => DropdownMenuItem(value: s, child: Text('${s.stationCode} - ${s.stationName}'))).toList(),
-                        onChanged: (v) {
-                          setState(() => _selectedStation = v);
-                          _loadAreas();
-                        },
-                      ),
+                      child: Builder(builder: (ctx) {
+                        final isMaster = Provider.of<AuthProvider>(ctx, listen: false).currentUser?.role == 'Area Master' ||
+                            Provider.of<AuthProvider>(ctx, listen: false).currentUser?.role == 'Platform Master';
+                        return DropdownButtonFormField<Station>(
+                          value: _selectedStation,
+                          decoration: const InputDecoration(
+                            labelText: 'Station',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.train),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          items: _stations.map((s) => DropdownMenuItem(value: s, child: Text('${s.stationCode} - ${s.stationName}'))).toList(),
+                          onChanged: isMaster ? null : (v) async {
+                            setState(() => _selectedStation = v);
+                            await _loadPlatforms();
+                            _loadAreas();
+                          },
+                        );
+                      }),
                     ),
-                    if (_platforms.isNotEmpty)
+                    if (Provider.of<AuthProvider>(context, listen: false).currentUser?.role == 'Area Master' ||
+                        Provider.of<AuthProvider>(context, listen: false).currentUser?.role == 'Platform Master')
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: kRailwayBlue.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: kRailwayBlue.withOpacity(0.25)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.view_quilt, color: kRailwayBlue, size: 20),
+                            const SizedBox(width: 10),
+                            Text(
+                              _assignedPlatformName.isNotEmpty
+                                  ? 'Assigned Platform: $_assignedPlatformName'
+                                  : 'Loading platform...',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: kRailwayBlue),
+                            ),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.lock, color: kRailwayBlue, size: 14),
+                          ],
+                        ),
+                      )
+                    else if (_platforms.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         color: Colors.white,
@@ -215,6 +284,17 @@ class _AreaListScreenState extends State<AreaListScreen> {
                                     itemCount: _areas.length,
                                     itemBuilder: (context, index) {
                                       final a = _areas[index];
+                                      String? areaPlatformName;
+                                      if (a.platformId != null) {
+                                        final parentArea = _allStationAreas.where((sa) => sa.uid == a.platformId).firstOrNull;
+                                        if (parentArea != null) {
+                                          areaPlatformName = parentArea.name;
+                                        }
+                                        if (areaPlatformName == null && _platforms.isNotEmpty) {
+                                          final p = _platforms.where((pl) => pl.uid == a.platformId).firstOrNull;
+                                          areaPlatformName = p?.displayName;
+                                        }
+                                      }
                                       return Card(
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         child: ListTile(
@@ -222,8 +302,31 @@ class _AreaListScreenState extends State<AreaListScreen> {
                                             backgroundColor: kRailwayBlue.withOpacity(0.1),
                                             child: Text('${a.order}', style: TextStyle(color: kRailwayBlue, fontWeight: FontWeight.bold)),
                                           ),
-                                          title: Text(a.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                          subtitle: Text(a.description.isNotEmpty ? a.description : 'No description'),
+                                          title: Row(
+                                            children: [
+                                              Expanded(child: Text(a.name, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                              if (areaPlatformName != null)
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: kRailwayBlue.withOpacity(0.1),
+                                                    borderRadius: BorderRadius.circular(12),
+                                                    border: Border.all(color: kRailwayBlue.withOpacity(0.3)),
+                                                  ),
+                                                  child: Text(
+                                                    areaPlatformName,
+                                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                          subtitle: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(a.description.isNotEmpty ? a.description : 'No description'),
+                                            ],
+                                          ),
                                           trailing: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [

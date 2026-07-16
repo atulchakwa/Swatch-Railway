@@ -4,6 +4,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 class PDFReportService {
   static const PdfColor primaryColor = PdfColor.fromInt(0xff1f4e78);
   static const PdfColor successColor = PdfColor.fromInt(0xff28a745);
@@ -11,6 +12,14 @@ class PDFReportService {
   static const PdfColor accentColor = PdfColor.fromInt(0xff9966cc);
   static const PdfColor lightBg = PdfColor.fromInt(0xfff8f9fa);
   static const PdfColor borderColor = PdfColor.fromInt(0xffdee2e6);
+
+  static pw.Widget _buildCheckMark() {
+    return pw.SvgImage(svg: '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>', width: 10, height: 10);
+  }
+
+  static pw.Widget _buildCrossMark() {
+    return pw.SvgImage(svg: '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>', width: 10, height: 10);
+  }
 
   static Future<pw.ImageProvider> _getRailwayLogo() async {
     final ByteData bytes = await rootBundle.load('assets/images/image.png');
@@ -105,7 +114,18 @@ class PDFReportService {
     );
   }
 
-  static pw.Widget _buildSignatures() {
+  static pw.Widget _buildSignatures({String? supervisorSignatureBase64, String? officialSignatureBase64}) {
+    pw.ImageProvider? supervisorImg;
+    pw.ImageProvider? officialImg;
+    try {
+      if (supervisorSignatureBase64 != null && supervisorSignatureBase64.isNotEmpty) {
+        supervisorImg = pw.MemoryImage(base64Decode(supervisorSignatureBase64));
+      }
+      if (officialSignatureBase64 != null && officialSignatureBase64.isNotEmpty) {
+        officialImg = pw.MemoryImage(base64Decode(officialSignatureBase64));
+      }
+    } catch (_) {}
+
     return pw.Container(
       margin: const pw.EdgeInsets.only(top: 30),
       padding: const pw.EdgeInsets.all(10),
@@ -121,23 +141,32 @@ class PDFReportService {
             color: primaryColor,
             child: pw.Text('APPROVAL & AUTHENTICATION', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
           ),
-          pw.SizedBox(height: 40),
+          pw.SizedBox(height: 10),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
             children: [
               pw.Column(children: [
+                if (supervisorImg != null)
+                  pw.Image(supervisorImg, height: 40)
+                else
+                  pw.SizedBox(height: 40),
                 pw.Container(width: 100, height: 1, color: PdfColors.grey),
                 pw.SizedBox(height: 5),
                 pw.Text('Supervisor', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                 pw.Text('System Validated', style: const pw.TextStyle(fontSize: 8)),
               ]),
               pw.Column(children: [
+                pw.SizedBox(height: 40),
                 pw.Container(width: 100, height: 1, color: PdfColors.grey),
                 pw.SizedBox(height: 5),
                 pw.Text('Audit Verified By', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                 pw.Text('OBHS Monitoring System', style: const pw.TextStyle(fontSize: 8)),
               ]),
               pw.Column(children: [
+                if (officialImg != null)
+                  pw.Image(officialImg, height: 40)
+                else
+                  pw.SizedBox(height: 40),
                 pw.Container(width: 100, height: 1, color: PdfColors.grey),
                 pw.SizedBox(height: 5),
                 pw.Text('Report Approved By', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
@@ -189,13 +218,18 @@ class PDFReportService {
   }
 
   static Future<pw.ImageProvider?> _fetchImageBytes(String? url) async {
-    if (url == null || url.isEmpty || url == 'captured' || url == 'N/A') return null;
+    if (url == null || url.trim().isEmpty || url == 'captured' || url == 'N/A') return null;
     try {
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
+      final uri = Uri.parse(url.trim());
+      final response = await http.get(uri).timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         return pw.MemoryImage(response.bodyBytes);
+      } else {
+        print('Failed to fetch image: ${response.statusCode} for $url');
       }
-    } catch (_) {}
+    } catch (e) {
+      print('Error fetching image: $e for $url');
+    }
     return null;
   }
 
@@ -239,8 +273,8 @@ class PDFReportService {
                   children: [
                     pw.Container(
                       width: 16, height: 16,
-                      decoration: const pw.BoxDecoration(color: successColor, shape: pw.BoxShape.circle),
-                      child: pw.Center(child: pw.Text('✓', style: pw.TextStyle(color: PdfColors.white, fontSize: 10, fontWeight: pw.FontWeight.bold))),
+                      decoration: pw.BoxDecoration(color: isSuccess ? successColor : warningColor, shape: pw.BoxShape.circle),
+                      child: pw.Center(child: isSuccess ? _buildCheckMark() : _buildCrossMark()),
                     ),
                     pw.SizedBox(width: 4),
                     pw.Text(statusValue, style: pw.TextStyle(color: isSuccess ? successColor : warningColor, fontWeight: pw.FontWeight.bold, fontSize: 9)),
@@ -280,7 +314,7 @@ class PDFReportService {
           pw.Container(
             width: 20, height: 20,
             decoration: const pw.BoxDecoration(color: successColor, shape: pw.BoxShape.circle),
-            child: pw.Center(child: pw.Text('✓', style: pw.TextStyle(color: PdfColors.white, fontSize: 12, fontWeight: pw.FontWeight.bold))),
+            child: pw.Center(child: _buildCheckMark()),
           ),
           pw.SizedBox(width: 10),
           pw.Expanded(child: pw.Text(conclusion, style: pw.TextStyle(color: const PdfColor.fromInt(0xff1b5e20), fontSize: 9, fontWeight: pw.FontWeight.bold))),
@@ -1077,7 +1111,10 @@ class PDFReportService {
                 }),
               ],
             ),
-            _buildSignatures(),
+            _buildSignatures(
+              supervisorSignatureBase64: bill['supervisorSignatureBase64'] ?? bill['submittedBySignatureBase64'],
+              officialSignatureBase64: bill['officialSignatureBase64'] ?? bill['approvedBySignatureBase64'],
+            ),
           ];
         },
       ),
@@ -1202,7 +1239,10 @@ class PDFReportService {
             if (form['lockedAt'] != null)
               _buildInfoRow('Locked At', DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.parse(form['lockedAt'])), '', ''),
             pw.SizedBox(height: 20),
-            _buildSignatures(),
+            _buildSignatures(
+              supervisorSignatureBase64: form['supervisorSignatureBase64'] ?? form['submittedBySignatureBase64'],
+              officialSignatureBase64: form['officialSignatureBase64'] ?? form['approvedBySignatureBase64'],
+            ),
           ];
         },
       ),

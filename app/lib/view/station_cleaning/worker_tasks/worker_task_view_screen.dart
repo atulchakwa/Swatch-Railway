@@ -1,9 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:crm_train/services/api_services.dart';
+import 'package:crm_train/repositories/worker_repo.dart';
+import 'package:crm_train/repositories/station_cleaning_repository.dart';
 import 'package:crm_train/helper/api_error_handler.dart';
+import 'package:crm_train/utills/app_colors.dart';
 
 class WorkerTaskViewScreen extends StatefulWidget {
   final String workerId;
@@ -26,13 +31,33 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
   String _selectedDate = DateTime.now().toIso8601String().split('T')[0];
   bool _startInProgress = false;
 
+  bool _startAttendanceMarked = false;
+  bool _midAttendanceMarked = false;
+  bool _endAttendanceMarked = false;
+
   final List<String> _statusChips = ['all', 'pending', 'in_progress', 'completed', 'approved', 'rejected'];
   String _statusFilter = 'all';
 
   @override
   void initState() {
     super.initState();
+    _loadAttendanceStatus();
     _loadTasks();
+  }
+
+  Future<void> _loadAttendanceStatus() async {
+    try {
+      final result = await StationCleaningRepository.getStationAttendanceStatus(
+        workerId: widget.workerId,
+      );
+      if (result['exists'] == true) {
+        setState(() {
+          _startAttendanceMarked = result['isStartMarked'] == true;
+          _midAttendanceMarked = result['isMidMarked'] == true;
+          _endAttendanceMarked = result['isEndMarked'] == true;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadTasks() async {
@@ -108,27 +133,93 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
     }
   }
 
-  Future<void> _completeTask(String taskId) async {
-    final photoCtrl = TextEditingController();
-    final remarksCtrl = TextEditingController();
-
-    await showDialog(
+  Future<String?> _captureAndUploadPhoto() async {
+    final source = await showDialog<ImageSource>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Complete Task'),
+        title: const Text('Select Photo Source'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: photoCtrl, decoration: const InputDecoration(labelText: 'After Photo URL', hintText: 'Paste image URL after cleaning')),
-            TextField(controller: remarksCtrl, decoration: const InputDecoration(labelText: 'Remarks (optional)')),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Camera'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
           ],
         ),
+      ),
+    );
+    if (source == null) return null;
+
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: source, imageQuality: 70, maxWidth: 1920);
+    if (picked == null) return null;
+
+    try {
+      return await WorkerRepository.uploadMedia(picked.path);
+    } catch (_) {
+      return 'captured';
+    }
+  }
+
+  Future<void> _completeTask(String taskId) async {
+    final remarksCtrl = TextEditingController();
+    String? afterPhotoUrl;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Complete Task'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (afterPhotoUrl == null && afterPhotoUrl != 'captured')
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final url = await _captureAndUploadPhoto();
+                    if (url != null) {
+                      setDialogState(() => afterPhotoUrl = url);
+                    }
+                  },
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Capture After Photo'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kRailwayBlue, foregroundColor: Colors.white,
+                  ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check_circle, color: kSuccessGreen),
+                    const SizedBox(width: 8),
+                    const Text('Photo captured', style: TextStyle(color: kSuccessGreen)),
+                    TextButton(
+                      onPressed: () => setDialogState(() => afterPhotoUrl = null),
+                      child: const Text('Retake'),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 12),
+              TextField(controller: remarksCtrl, decoration: const InputDecoration(labelText: 'Remarks (optional)')),
+            ],
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
-              if (photoCtrl.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('After photo is required')));
+              if (afterPhotoUrl == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('After photo is required'), backgroundColor: kWarningOrange),
+                );
                 return;
               }
               try {
@@ -139,13 +230,11 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
                 final response = await http.post(
                   Uri.parse('${ApiService.baseUrl}/api/tasks-v2/$taskId/complete'),
                   headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-                  body: jsonEncode({'afterPhoto': photoCtrl.text, 'remarks': remarksCtrl.text}),
+                  body: jsonEncode({'afterPhoto': afterPhotoUrl, 'remarks': remarksCtrl.text}),
                 ).timeout(const Duration(seconds: 30));
 
                 if (response.statusCode == 200) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task completed')));
-                  _loadTasks();
+                  Navigator.pop(ctx, true);
                 } else {
                   throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
                 }
@@ -158,29 +247,67 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
         ],
       ),
     );
+
+    if (result == true) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task completed')));
+      }
+      _loadTasks();
+    }
   }
 
   Future<void> _resubmitTask(String taskId) async {
-    final photoCtrl = TextEditingController();
     final remarksCtrl = TextEditingController();
+    String? afterPhotoUrl;
 
-    await showDialog(
+    final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Resubmit Task'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: photoCtrl, decoration: const InputDecoration(labelText: 'After Photo URL (updated)')),
-            TextField(controller: remarksCtrl, decoration: const InputDecoration(labelText: 'Remarks')),
-          ],
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (afterPhotoUrl == null)
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final url = await _captureAndUploadPhoto();
+                    if (url != null) {
+                      setDialogState(() => afterPhotoUrl = url);
+                    }
+                  },
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Capture Updated Photo'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kRailwayBlue, foregroundColor: Colors.white,
+                  ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check_circle, color: kSuccessGreen),
+                    const SizedBox(width: 8),
+                    const Text('Photo captured', style: TextStyle(color: kSuccessGreen)),
+                    TextButton(
+                      onPressed: () => setDialogState(() => afterPhotoUrl = null),
+                      child: const Text('Retake'),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 12),
+              TextField(controller: remarksCtrl, decoration: const InputDecoration(labelText: 'Remarks')),
+            ],
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
-              if (photoCtrl.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('After photo is required')));
+              if (afterPhotoUrl == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('After photo is required'), backgroundColor: kWarningOrange),
+                );
                 return;
               }
               try {
@@ -191,13 +318,11 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
                 final response = await http.post(
                   Uri.parse('${ApiService.baseUrl}/api/tasks-v2/$taskId/resubmit'),
                   headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-                  body: jsonEncode({'afterPhoto': photoCtrl.text, 'remarks': remarksCtrl.text}),
+                  body: jsonEncode({'afterPhoto': afterPhotoUrl, 'remarks': remarksCtrl.text}),
                 ).timeout(const Duration(seconds: 30));
 
                 if (response.statusCode == 200) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task resubmitted for review')));
-                  _loadTasks();
+                  Navigator.pop(ctx, true);
                 } else {
                   throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
                 }
@@ -210,6 +335,13 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
         ],
       ),
     );
+
+    if (result == true) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task resubmitted for review')));
+      }
+      _loadTasks();
+    }
   }
 
   Color _statusColor(String status) {
@@ -272,6 +404,29 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
               ],
             ),
           ),
+          if (!_startAttendanceMarked)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: kWarningOrange.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: kWarningOrange),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.access_time, color: kWarningOrange, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Start attendance not marked. Mark attendance from the hub screen.',
+                      style: TextStyle(color: kWarningOrange, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           SizedBox(
             height: 40,
             child: ListView(

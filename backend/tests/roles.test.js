@@ -6,12 +6,12 @@ import { ROLES, PERMISSIONS, ROLE_PERMISSIONS, ROLE_HIERARCHY } from '../src/per
    ========================================================================== */
 
 describe('Role Definitions', () => {
-  it('all 16 roles are defined', () => {
+  it('all 17 roles are defined', () => {
     const expected = [
       'SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER',
       'ADMIN', 'RAILWAY_ADMIN', 'RAILWAY_SUPERVISOR',
       'CONTRACTOR_ADMIN', 'CONTRACTOR_SUPERVISOR',
-      'STATION_MASTER', 'PLATFORM_MASTER', 'CTS',
+      'STATION_MASTER', 'AREA_MASTER', 'PLATFORM_MASTER', 'CTS',
       'WORKER', 'RAILWAY_WORKER', 'JANITOR', 'ATTENDANT',
       'PASSENGER'
     ];
@@ -21,8 +21,8 @@ describe('Role Definitions', () => {
     expect(Object.keys(ROLES).length).toBe(expected.length);
   });
 
-  it('all 104 permissions are defined', () => {
-    expect(Object.keys(PERMISSIONS).length).toBe(104);
+  it('all 108 permissions are defined', () => {
+    expect(Object.keys(PERMISSIONS).length).toBe(108);
   });
 
   it('each permission value is unique and non-empty', () => {
@@ -165,12 +165,19 @@ describe('WORKER/RAILWAY_WORKER/JANITOR/ATTENDANT - Task access', () => {
     it(`${role} has expected task execution permissions`, () => {
       expect(ROLE_PERMISSIONS[role]).toEqual([
         PERMISSIONS.VIEW_RUN_INSTANCES,
+        PERMISSIONS.SUBMIT_COACH_FORM,
         PERMISSIONS.VIEW_TASKS,
         PERMISSIONS.SUBMIT_TASKS,
         PERMISSIONS.START_TASK,
         PERMISSIONS.COMPLETE_TASK,
         PERMISSIONS.RESUBMIT_TASK,
-        PERMISSIONS.VIEW_DASHBOARD
+        PERMISSIONS.VIEW_DASHBOARD,
+        PERMISSIONS.VIEW_RUNS,
+        PERMISSIONS.VIEW_PEST_CONTROL,
+        PERMISSIONS.MANAGE_PEST_CONTROL,
+        PERMISSIONS.VIEW_GARBAGE,
+        PERMISSIONS.MANAGE_GARBAGE,
+        PERMISSIONS.VIEW_MACHINES
       ]);
     });
   }
@@ -289,10 +296,22 @@ describe('Authorization middleware logic', () => {
     expect(threw).toBe(true);
   });
 
-  it('requireAnyRole matches on partial match', async () => {
+  it('requireAnyRole rejects partial match (exact match only)', async () => {
     const { requireAnyRole } = await import('../src/middleware/authorization.js');
     const middleware = requireAnyRole('admin', 'supervisor');
     const req = { user: { role: 'RAILWAY_ADMIN' } };
+    let threw = false;
+    try { middleware(req, {}, () => {}); } catch (e) {
+      threw = true;
+      expect(e.name || e.constructor.name).toMatch(/Forbidden/i);
+    }
+    expect(threw).toBe(true);
+  });
+
+  it('requireAnyRole allows exact role match', async () => {
+    const { requireAnyRole } = await import('../src/middleware/authorization.js');
+    const middleware = requireAnyRole('ADMIN', 'SUPERVISOR');
+    const req = { user: { role: 'ADMIN' } };
     let called = false;
     middleware(req, {}, () => { called = true; });
     expect(called).toBe(true);

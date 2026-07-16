@@ -72,8 +72,8 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
   int ctsLocked = 0;
 
 
-  Map<String, dynamic> coachStats = {};
-  Map<String, dynamic> premisesStats = {};
+  Map<String, dynamic> coachCleaningStats = {};
+  Map<String, dynamic> premisesCleaningStats = {};
   Map<String, dynamic> ctsStats = {};
   bool isChartLoading = true;
   bool isStatsLoading = true;
@@ -171,7 +171,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     try {
       final days = _getDaysFromRange();
 
-      final coachStats = await ApiService.getFormsStats(
+      final coachStats = await FirebaseCountService.getFormStatusCounts(
         formType: 'coach',
         days: days,
         entityId: user.entityId,
@@ -179,7 +179,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
       print("Coach Forms Stats: $coachStats");
 
-      final premisesStatsData = await ApiService.getFormsStats(
+      final premisesStatsData = await FirebaseCountService.getFormStatusCounts(
         formType: 'premises',
         days: days,
         entityId: user.entityId,
@@ -187,13 +187,13 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
       print("Premises Forms Stats: $premisesStatsData");
 
-      final ctsStatsData = await ApiService.getFormsStats(
+      final ctsStatsData = await FirebaseCountService.getFormStatusCounts(
         formType: 'cts',
         days: days,
         entityId: user.entityId,
       );
 
-      print("Premises Forms Stats: $premisesStatsData");
+      print("CTS Forms Stats: $ctsStatsData");
 
       print("=" * 60);
 
@@ -267,8 +267,8 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
 
       setState(() {
-        coachStats = coachStatsData;
-        premisesStats = premisesStatsData;
+        coachCleaningStats = coachStatsData;
+        premisesCleaningStats = premisesStatsData;
         isStatsLoading = false;
       });
     } catch (e) {
@@ -1049,9 +1049,9 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     required IconData iconInner,
   }) {
     final List<Map<String, String>> grades = [
-      {'grade': '>90', 'pct': '${premisesStats['gradeAbove90Pct'] ?? '0.0'}%'},
-      {'grade': '81-90', 'pct': '${premisesStats['grade81to90Pct'] ?? '0.0'}%'},
-      {'grade': '71-80', 'pct': '${premisesStats['grade71to80Pct'] ?? '0.0'}%'},
+      {'grade': '>90', 'pct': '${premisesCleaningStats['gradeAbove90Pct'] ?? '0.0'}%'},
+      {'grade': '81-90', 'pct': '${premisesCleaningStats['grade81to90Pct'] ?? '0.0'}%'},
+      {'grade': '71-80', 'pct': '${premisesCleaningStats['grade71to80Pct'] ?? '0.0'}%'},
     ];
 
     return Container(
@@ -1129,10 +1129,10 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     required IconData iconInner,
   }) {
     final List<Map<String, String>> grades = [
-      {'grade': 'A', 'pct': '${coachStats['gradeAPercent'] ?? '0.0'}%'},
-      {'grade': 'B', 'pct': '${coachStats['gradeBPercent'] ?? '0.0'}%'},
-      {'grade': 'C', 'pct': '${coachStats['gradeCPercent'] ?? '0.0'}%'},
-      {'grade': 'D', 'pct': '${coachStats['gradeDPercent'] ?? '0.0'}%'},
+      {'grade': 'A', 'pct': '${coachCleaningStats['gradeAPercent'] ?? '0.0'}%'},
+      {'grade': 'B', 'pct': '${coachCleaningStats['gradeBPercent'] ?? '0.0'}%'},
+      {'grade': 'C', 'pct': '${coachCleaningStats['gradeCPercent'] ?? '0.0'}%'},
+      {'grade': 'D', 'pct': '${coachCleaningStats['gradeDPercent'] ?? '0.0'}%'},
     ];
 
     return Container(

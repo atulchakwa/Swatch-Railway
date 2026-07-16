@@ -4,6 +4,51 @@ import { paginate } from '../utils/paginate.js';
 
 class StationCleaningService {
 
+  _resolveStationId(requestedStationId, user) {
+    const role = (user?.role || '').toUpperCase();
+    if (user?.stationId && ['RAILWAY_SUPERVISOR', 'STATION_MASTER', 'AREA_MASTER', 'PLATFORM_MASTER'].includes(role)) {
+      return user.stationId;
+    }
+    return requestedStationId;
+  }
+
+  _resolveAreaId(requestedAreaId, user) {
+    const role = (user?.role || '').toUpperCase();
+    if (user?.areaId && role === 'PLATFORM_MASTER') {
+      return user.areaId;
+    }
+    return requestedAreaId;
+  }
+
+  _isMasterOrAdmin(user) {
+    const role = (user?.role || '').toUpperCase();
+    return ['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes(role);
+  }
+
+  _scopeByDivision(query, user, divisionField = 'division') {
+    const role = (user?.role || '').toUpperCase();
+    if (this._isMasterOrAdmin(user)) return query;
+    if (user?.division) {
+      return query.where(divisionField, '==', user.division);
+    }
+    return query;
+  }
+
+  _scopeByArea(query, user, field = 'areaId') {
+    const role = (user?.role || '').toUpperCase();
+    if (role === 'PLATFORM_MASTER' && user?.areaId) {
+      return query.where(field, '==', user.areaId);
+    }
+    return query;
+  }
+
+  _scopeByEntity(query, user, entityField = 'entityId') {
+    if (user?.userType === 'contractor' && user?.entityId) {
+      return query.where(entityField, '==', user.entityId);
+    }
+    return query;
+  }
+
   _verifyStationAccess(task, user) {
     const role = (user?.role || '').toUpperCase();
     if (role === 'STATION_MASTER' || role === 'AREA_MASTER' || role === 'PLATFORM_MASTER') {
@@ -29,6 +74,7 @@ class StationCleaningService {
       cleaningFrequency: body.cleaningFrequency || 'daily',
       priority: body.priority || 3,
       status: 'active',
+      platformId: body.platformId || null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
     await ref.set(data);
@@ -91,7 +137,7 @@ class StationCleaningService {
     let q = db.collection('stationZones').where('stationId', '==', stationId).where('status', '==', 'active');
     if (areaId) q = q.where('areaId', '==', areaId);
     const snapshot = await q.get();
-    const zones = snapshot.docs.map(d => {
+    let zones = snapshot.docs.map(d => {
       const data = d.data();
       const zName = data.zoneName || data.name || '';
       return {
@@ -102,6 +148,19 @@ class StationCleaningService {
         zoneName: zName
       };
     });
+
+    if (zones.length === 0 && areaId) {
+      const areaDoc = await db.collection('stationAreas').doc(areaId).get();
+      if (areaDoc.exists && (areaDoc.data().areaName || areaDoc.data().name || '').toLowerCase().includes('platform')) {
+        zones = [
+          { id: `${areaId}-toilet`, uid: `${areaId}-toilet`, stationId, areaId, name: 'Toilet', zoneName: 'Toilet', status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          { id: `${areaId}-waiting`, uid: `${areaId}-waiting`, stationId, areaId, name: 'Waiting Room', zoneName: 'Waiting Room', status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          { id: `${areaId}-concourse`, uid: `${areaId}-concourse`, stationId, areaId, name: 'Concourse', zoneName: 'Concourse', status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          { id: `${areaId}-track`, uid: `${areaId}-track`, stationId, areaId, name: 'Track Side', zoneName: 'Track Side', status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+        ];
+      }
+    }
+
     return { count: zones.length, zones };
   }
 
@@ -361,6 +420,9 @@ class StationCleaningService {
   }
 
   // ─── Station Tasks ──────────────────────────────────────────────────────────
+  // Tasks are primarily managed via taskManagementService (used by tasksV2 routes).
+  // These methods provide station-task CRUD for admin use cases.
+
   async submitStationTask(body, user) {
     const { stationId, areaId, workerId } = body;
     const role = (user?.role || '').toUpperCase();
@@ -377,6 +439,7 @@ class StationCleaningService {
       workerId: workerId || null,
       taskType: body.taskType || 'cleaning',
       status: 'pending',
+      beforePhoto: body.beforePhoto || null,
       afterPhoto: body.afterPhoto || null,
       remarks: body.remarks || '',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
@@ -411,7 +474,7 @@ class StationCleaningService {
   }
 
   async listPendingStationTasks(runInstanceId, user) {
-    const pendingStatuses = ['completed', 'submitted', 'resubmitted'];
+    const pendingStatuses = ['completed', 'resubmitted'];
     let allTasks = [];
     const userStationId = user?.stationId || null;
     for (const status of pendingStatuses) {
@@ -424,114 +487,47 @@ class StationCleaningService {
     return { count: allTasks.length, tasks: allTasks };
   }
 
-  // ─── Task State Machine (Full Lifecycle) ─────────────────────────────────
-  async startTask(taskId, user) {
-    const ref = db.collection('cleaningTasks').doc(taskId);
-    const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Station task not found');
-    const task = doc.data();
-    if (task.status !== 'pending') throw new ValidationError('Only pending tasks can be started');
-    this._verifyStationAccess(task, user);
-    await ref.update({
-      status: 'started',
-      startedBy: user?.uid || null,
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task started', taskId };
+  // ─── Area-Task Frequency Mapping (SRS #2) ──────────────────────────────────
+  async createAreaTaskFrequency(body) {
+    const { stationId, areaId, taskTypeId, frequencyId, shift } = body;
+    if (!stationId || !areaId || !taskTypeId || !frequencyId) {
+      throw new ValidationError('stationId, areaId, taskTypeId, and frequencyId are required');
+    }
+    const ref = db.collection('areaTaskFrequencies').doc();
+    const data = {
+      uid: ref.id, stationId, areaId, taskTypeId, frequencyId,
+      shift: shift || null,
+      isActive: true,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    };
+    await ref.set(data);
+    return { message: 'Area-task frequency mapping created', uid: ref.id, data };
   }
 
-  async completeTask(taskId, body, user) {
-    const ref = db.collection('cleaningTasks').doc(taskId);
+  async updateAreaTaskFrequency(uid, body) {
+    const ref = db.collection('areaTaskFrequencies').doc(uid);
     const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Station task not found');
-    const task = doc.data();
-    if (task.status !== 'started') throw new ValidationError('Only started tasks can be completed');
-    this._verifyStationAccess(task, user);
-    await ref.update({
-      status: 'completed',
-      afterPhoto: body.afterPhoto || task.afterPhoto || null,
-      completedRemarks: body.remarks || '',
-      completedBy: user?.uid || null,
-      completedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task completed', taskId };
+    if (!doc.exists) throw new NotFoundError('Area-task frequency mapping not found');
+    await ref.update({ ...body, updatedAt: new Date().toISOString() });
+    return { message: 'Area-task frequency mapping updated', uid };
   }
 
-  async submitTaskForReview(taskId, user) {
-    const ref = db.collection('cleaningTasks').doc(taskId);
+  async deleteAreaTaskFrequency(uid) {
+    const ref = db.collection('areaTaskFrequencies').doc(uid);
     const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Station task not found');
-    const task = doc.data();
-    if (task.status !== 'completed') throw new ValidationError('Only completed tasks can be submitted for review');
-    this._verifyStationAccess(task, user);
-    await ref.update({
-      status: 'submitted',
-      submittedBy: user?.uid || null,
-      submittedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task submitted for review', taskId };
+    if (!doc.exists) throw new NotFoundError('Area-task frequency mapping not found');
+    await ref.update({ isActive: false, updatedAt: new Date().toISOString() });
+    return { message: 'Area-task frequency mapping deactivated', uid };
   }
 
-  async approveTask(taskId, body, user) {
-    const ref = db.collection('cleaningTasks').doc(taskId);
-    const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Station task not found');
-    const task = doc.data();
-    if (task.status !== 'submitted') throw new ValidationError('Only submitted tasks can be approved');
-    this._verifyStationAccess(task, user);
-    const score = body.score != null ? Math.min(10, Math.max(1, Number(body.score))) : null;
-    await ref.update({
-      status: 'approved',
-      supervisorNotes: body.supervisorNotes || body.notes || '',
-      supervisorScore: score,
-      scoredAt: score != null ? new Date().toISOString() : null,
-      scoredBy: score != null ? (user?.uid || null) : null,
-      approvedBy: user?.uid || null,
-      approvedByName: user?.fullName || null,
-      approvedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task approved', taskId, score };
-  }
-
-  async rejectTask(taskId, body, user) {
-    const ref = db.collection('cleaningTasks').doc(taskId);
-    const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Station task not found');
-    const task = doc.data();
-    if (task.status !== 'submitted') throw new ValidationError('Only submitted tasks can be rejected');
-    this._verifyStationAccess(task, user);
-    const reason = body.reason || body.rejectionReason || 'No reason provided';
-    await ref.update({
-      status: 'rejected',
-      rejectionReason: reason,
-      rejectedBy: user?.uid || null,
-      rejectedByName: user?.fullName || null,
-      rejectedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task rejected', taskId };
-  }
-
-  async resubmitTask(taskId, body, user) {
-    const ref = db.collection('cleaningTasks').doc(taskId);
-    const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Station task not found');
-    const task = doc.data();
-    if (task.status !== 'rejected') throw new ValidationError('Only rejected tasks can be resubmitted');
-    this._verifyStationAccess(task, user);
-    await ref.update({
-      status: 'pending',
-      afterPhoto: body.afterPhoto || task.afterPhoto || null,
-      resubmittedRemarks: body.remarks || '',
-      resubmittedBy: user?.uid || null,
-      resubmittedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task resubmitted', taskId };
+  async listAreaTaskFrequencies(query) {
+    const { stationId, areaId } = query;
+    let q = db.collection('areaTaskFrequencies').where('isActive', '==', true);
+    if (stationId) q = q.where('stationId', '==', stationId);
+    if (areaId) q = q.where('areaId', '==', areaId);
+    const snapshot = await q.limit(200).get();
+    const mappings = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    return { count: mappings.length, mappings };
   }
 
   // ─── Station Cleaning Forms ─────────────────────────────────────────────────
@@ -546,8 +542,11 @@ class StationCleaningService {
       platformId: body.platformId || null,
       shiftType: body.shiftType || 'morning',
       formDate: body.formDate || new Date().toISOString().split('T')[0],
-      status: 'draft',
+      status: body.status || 'draft',
       createdBy: user && user.uid,
+      createdByName: user && (user.fullName || user.name) || 'Unknown',
+      submittedBy: user && user.uid,
+      submittedByName: user && (user.fullName || user.name) || 'Unknown',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
     await ref.set(data);
@@ -558,9 +557,15 @@ class StationCleaningService {
     const ref = db.collection('stationCleaningForms').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Cleaning form not found');
+    const currentStatus = doc.data().status;
+    const allowed = ['draft', 'rejected'];
+    if (!allowed.includes(currentStatus)) {
+      throw new ValidationError(`Only draft or rejected forms can be submitted. Current status: ${currentStatus}`);
+    }
     await ref.update({
       ...body, status: 'submitted',
       submittedBy: user && user.uid,
+      submittedByName: user && (user.fullName || user.name) || 'Unknown',
       submittedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });

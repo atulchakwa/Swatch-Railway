@@ -22,7 +22,7 @@ class _ComplaintListScreenState extends State<ComplaintListScreen> {
   bool _filtersVisible = false;
   List<Complaint> _complaints = [];
 
-  static const _categories = ['all', 'Cleanliness', 'Water', 'Toilet', 'Pest', 'Machine', 'Other'];
+  static const _categories = ['all', 'Broken Fittings', 'Damaged Dustbin', 'Leakage', 'Blocked Drain', 'Damaged Tiles', 'Lighting Issue', 'Signage Issue', 'Damaged Fixture', 'Plumbing', 'Electrical', 'Other'];
 
   @override
   void initState() {
@@ -71,6 +71,8 @@ class _ComplaintListScreenState extends State<ComplaintListScreen> {
         return const Color(0xFFB71C1C);
       case ComplaintStatus.railwayVerified:
         return kSuccessGreen;
+      case ComplaintStatus.resubmitted:
+        return kWarningOrange;
     }
   }
 
@@ -154,6 +156,7 @@ class _ComplaintListScreenState extends State<ComplaintListScreen> {
                               DropdownMenuItem(value: 'reopened', child: Text('Reopened', style: TextStyle(fontSize: 13))),
                               DropdownMenuItem(value: 'rejected', child: Text('Rejected', style: TextStyle(fontSize: 13))),
                               DropdownMenuItem(value: 'escalated', child: Text('Escalated', style: TextStyle(fontSize: 13))),
+                              DropdownMenuItem(value: 'railway_verified', child: Text('Railway Verified', style: TextStyle(fontSize: 13))),
                             ],
                             onChanged: (val) { if (val != null) setState(() => _selectedStatus = val); },
                           ),

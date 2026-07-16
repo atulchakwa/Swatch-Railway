@@ -31,14 +31,11 @@ export function requireRole(...allowedRoles) {
 
 export function requireAnyRole(...allowedRoles) {
   return (req, res, next) => {
-    const userRole = (req.user?.role || '').toLowerCase();
+    const userRole = (req.user?.role || '').toUpperCase().replace(/\s+/g, '_');
+    const allowed = allowedRoles.map(r => r.toUpperCase().replace(/\s+/g, '_'));
 
-    const hasAccess = allowedRoles.some(role =>
-      userRole.includes(role.toLowerCase())
-    );
-
-    if (!hasAccess) {
-      throw new ForbiddenError('Access denied for your role');
+    if (!allowed.includes(userRole)) {
+      throw new ForbiddenError(`Access denied. Requires one of: ${allowedRoles.join(', ')}`);
     }
     next();
   };
@@ -56,7 +53,7 @@ export function requireEntityAccess(req, res, next) {
 
 export function requireStationAccess(req, res, next) {
   const role = (req.user?.role || '').toUpperCase();
-  if (role === 'STATION_MASTER' || role === 'AREA_MASTER') {
+  if (role === 'STATION_MASTER' || role === 'AREA_MASTER' || role === 'PLATFORM_MASTER') {
     const stationId = req.user.stationId;
     if (!stationId) {
       throw new ForbiddenError('No station assigned to your account');
@@ -72,13 +69,28 @@ export function requireStationAccess(req, res, next) {
 export function requirePlatformAccess(req, res, next) {
   const role = (req.user?.role || '').toUpperCase();
   if (role === 'PLATFORM_MASTER') {
+    const platformId = req.user.platformId;
+    if (!platformId) {
+      throw new ForbiddenError('No platform assigned to your account');
+    }
+    const targetPlatformId = req.params.platformId || req.body.platformId || req.query.platformId;
+    if (targetPlatformId && targetPlatformId !== platformId) {
+      throw new ForbiddenError('You can only access your assigned platform');
+    }
+  }
+  next();
+}
+
+export function requireAreaAccess(req, res, next) {
+  const role = (req.user?.role || '').toUpperCase();
+  if (role === 'AREA_MASTER') {
     const areaId = req.user.areaId;
     if (!areaId) {
-      throw new ForbiddenError('No platform/area assigned to your account');
+      throw new ForbiddenError('No area assigned to your account');
     }
     const targetAreaId = req.params.areaId || req.body.areaId || req.query.areaId;
     if (targetAreaId && targetAreaId !== areaId) {
-      throw new ForbiddenError('You can only access your assigned platform/area');
+      throw new ForbiddenError('You can only access your assigned area');
     }
   }
   next();

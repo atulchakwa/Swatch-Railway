@@ -25,7 +25,10 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
   late TextEditingController _reopenReasonCtrl;
   late TextEditingController _escalateToCtrl;
 
-  String _category = 'Cleanliness';
+  String _category = 'Other';
+  String _severity = 'medium';
+  double? _latitude;
+  double? _longitude;
 
   bool get isEdit => widget.complaint != null;
   String get _currentStatus => widget.complaint?.status ?? '';
@@ -63,12 +66,17 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      await ComplaintRepository.create({
+      final body = <String, dynamic>{
         'stationId': widget.stationId,
+        'stationName': widget.stationName,
         'category': _category,
         'description': _descriptionCtrl.text.trim(),
-        'photoUrl': _photoUrlCtrl.text.trim(),
-      });
+        'severity': _severity,
+        'photoUrl': _photoUrlCtrl.text.trim().isNotEmpty ? _photoUrlCtrl.text.trim() : null,
+      };
+      if (_latitude != null) body['latitude'] = _latitude;
+      if (_longitude != null) body['longitude'] = _longitude;
+      await ComplaintRepository.create(body);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Complaint created'), backgroundColor: kSuccessGreen),
@@ -301,6 +309,116 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
     );
   }
 
+  void _rejectComplaint() {
+    final reasonCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Complaint'),
+        content: TextField(
+          controller: reasonCtrl,
+          decoration: const InputDecoration(labelText: 'Rejection Reason *', border: OutlineInputBorder()),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              if (reasonCtrl.text.trim().isEmpty) return;
+              try {
+                await ComplaintRepository.reject(widget.complaint!.uid, reasonCtrl.text.trim());
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Complaint rejected'), backgroundColor: kWarningOrange),
+                  );
+                  Navigator.pop(context, true);
+                }
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: kErrorRed));
+              }
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _verifyComplaint() async {
+    setState(() => _isLoading = true);
+    try {
+      await ComplaintRepository.verify(widget.complaint!.uid);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Complaint verified'), backgroundColor: kSuccessGreen),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: kErrorRed));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _resubmitComplaint() async {
+    final actionCtrl = TextEditingController();
+    final photoCtrl = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Resubmit Complaint'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: actionCtrl,
+                decoration: const InputDecoration(labelText: 'Updated Action Taken *', border: OutlineInputBorder()),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: photoCtrl,
+                decoration: const InputDecoration(labelText: 'Closure Photo URL (optional)', border: OutlineInputBorder()),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              if (actionCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+    if (result != true) return;
+    setState(() => _isLoading = true);
+    try {
+      await ComplaintRepository.resubmit(
+        widget.complaint!.uid,
+        actionCtrl.text.trim(),
+        photoCtrl.text.trim().isNotEmpty ? photoCtrl.text.trim() : null,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Complaint resubmitted'), backgroundColor: kWarningOrange),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: kErrorRed));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = widget.complaint;
@@ -326,11 +444,16 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
                         value: _category,
                         decoration: const InputDecoration(labelText: 'Category *', border: OutlineInputBorder()),
                         items: const [
-                          DropdownMenuItem(value: 'Cleanliness', child: Text('Cleanliness')),
-                          DropdownMenuItem(value: 'Water', child: Text('Water')),
-                          DropdownMenuItem(value: 'Toilet', child: Text('Toilet')),
-                          DropdownMenuItem(value: 'Pest', child: Text('Pest')),
-                          DropdownMenuItem(value: 'Machine', child: Text('Machine')),
+                          DropdownMenuItem(value: 'Broken Fittings', child: Text('Broken Fittings')),
+                          DropdownMenuItem(value: 'Damaged Dustbin', child: Text('Damaged Dustbin')),
+                          DropdownMenuItem(value: 'Leakage', child: Text('Leakage')),
+                          DropdownMenuItem(value: 'Blocked Drain', child: Text('Blocked Drain')),
+                          DropdownMenuItem(value: 'Damaged Tiles', child: Text('Damaged Tiles')),
+                          DropdownMenuItem(value: 'Lighting Issue', child: Text('Lighting Issue')),
+                          DropdownMenuItem(value: 'Signage Issue', child: Text('Signage Issue')),
+                          DropdownMenuItem(value: 'Damaged Fixture', child: Text('Damaged Fixture')),
+                          DropdownMenuItem(value: 'Plumbing', child: Text('Plumbing')),
+                          DropdownMenuItem(value: 'Electrical', child: Text('Electrical')),
                           DropdownMenuItem(value: 'Other', child: Text('Other')),
                         ],
                         onChanged: isEdit ? null : (v) {
@@ -346,9 +469,49 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
                       ),
                       if (!isEdit) ...[
                         const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: _severity,
+                          decoration: const InputDecoration(labelText: 'Severity', border: OutlineInputBorder()),
+                          items: const [
+                            DropdownMenuItem(value: 'low', child: Text('Low')),
+                            DropdownMenuItem(value: 'medium', child: Text('Medium')),
+                            DropdownMenuItem(value: 'high', child: Text('High')),
+                            DropdownMenuItem(value: 'critical', child: Text('Critical')),
+                          ],
+                          onChanged: (v) { if (v != null) setState(() => _severity = v); },
+                        ),
+                        const SizedBox(height: 12),
                         TextFormField(
                           controller: _photoUrlCtrl,
                           decoration: const InputDecoration(labelText: 'Photo URL (optional)', border: OutlineInputBorder()),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                decoration: const InputDecoration(
+                                  labelText: 'Latitude',
+                                  border: OutlineInputBorder(),
+                                  hintText: 'GPS latitude',
+                                ),
+                                onChanged: (v) => _latitude = double.tryParse(v),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextFormField(
+                                decoration: const InputDecoration(
+                                  labelText: 'Longitude',
+                                  border: OutlineInputBorder(),
+                                  hintText: 'GPS longitude',
+                                ),
+                                onChanged: (v) => _longitude = double.tryParse(v),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ],
@@ -431,6 +594,16 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
                       child: const Text('Start Progress'),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () => _rejectComplaint(),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.grey, foregroundColor: Colors.white),
+                      child: const Text('Reject'),
+                    ),
+                  ),
                 ],
                 if (isEdit && _currentStatus == 'inProgress')
                   SizedBox(
@@ -442,7 +615,28 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
                       child: const Text('Resolve'),
                     ),
                   ),
-                if (isEdit && _currentStatus == 'resolved')
+                if (isEdit && _currentStatus == 'resolved') ...[
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () => _verifyComplaint(),
+                      style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+                      child: const Text('Verify'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () => _rejectComplaint(),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.grey, foregroundColor: Colors.white),
+                      child: const Text('Reject Resolution'),
+                    ),
+                  ),
+                ],
+                if (isEdit && _currentStatus == 'railwayVerified')
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -452,6 +646,27 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
                       child: const Text('Close'),
                     ),
                   ),
+                if (isEdit && _currentStatus == 'rejected') ...[
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _resubmitComplaint,
+                      style: ElevatedButton.styleFrom(backgroundColor: kWarningOrange, foregroundColor: Colors.white),
+                      child: const Text('Resubmit'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _reopen,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
+                      child: const Text('Reopen'),
+                    ),
+                  ),
+                ],
                 if (isEdit && _currentStatus == 'closed')
                   SizedBox(
                     width: double.infinity,

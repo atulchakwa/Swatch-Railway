@@ -54,6 +54,10 @@ import stationArchiveRoutes from './routes/stationArchive.js';
 import stationReportRoutes from './routes/stationReport.js';
 import garbageRoutes from './routes/garbage.js';
 import pestControlRoutes from './routes/pestControl.js';
+import zoneRoutes from './routes/zone.js';
+import taskTypeRoutes from './routes/taskType.js';
+import geofenceRoutes from './routes/geofence.js';
+import idleAlertRoutes from './routes/idleAlert.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { metricsMiddleware, metricsHandler } from './middleware/metrics.js';
@@ -139,6 +143,10 @@ app.use(stationArchiveRoutes);                    // /api/station-archives/*
 app.use(stationReportRoutes);                     // /api/station-reports/*
 app.use(garbageRoutes);                             // /api/garbage/*
 app.use(pestControlRoutes);                         // /api/pest-control/*
+app.use(zoneRoutes);                                // /api/zones/*
+app.use(taskTypeRoutes);                            // /api/task-types/*
+app.use(geofenceRoutes);                            // /api/geofences/* /api/geofence-alerts/*
+app.use(idleAlertRoutes);                           // /api/idle-alerts/*
 
 // Relative-path routes mounted with base prefixes
 app.use('/api/passenger', passengerRoutes);       // /api/passenger/*

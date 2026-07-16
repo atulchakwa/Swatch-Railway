@@ -1,8 +1,9 @@
 import { db, admin } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import { paginate } from '../utils/paginate.js';
+import { auditService } from './auditService.js';
 
-const INSPECTION_TYPES = ['daily', 'surprise', 'ad_hoc', 'complaint_based', 'monthly_review', 'routine', 'random', 'emergency'];
+const INSPECTION_TYPES = ['daily', 'surprise', 'ad_hoc', 'complaint_based', 'monthly_review', 'routine', 'random', 'emergency', 'petty_issue_linked', 'cleanliness_scorecard'];
 const RATING_LABELS = ['dirty', 'poor', 'average', 'good', 'excellent'];
 
 class InspectionService {
@@ -32,6 +33,7 @@ class InspectionService {
       createdBy: userData.uid, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
     await ref.set(data);
+    await auditService.logAudit('INSPECTION_CREATED', userData.uid, userData.fullName || userData.name || '', ref.id, 'inspections', `Inspection created for station ${stationDoc.data().stationName || ''}`);
     return { message: 'Inspection created', uid: ref.id, inspection: data };
   }
 
@@ -74,6 +76,7 @@ class InspectionService {
     const ref = db.collection('inspections').doc(uid);
     if (!(await ref.get()).exists) throw new NotFoundError('Inspection not found');
     await ref.update({ status: 'IN_PROGRESS', startedAt: new Date().toISOString(), startedBy: userData.uid, updatedAt: new Date().toISOString() });
+    await auditService.logAudit('INSPECTION_STARTED', userData.uid, userData.fullName || userData.name || '', uid, 'inspections', `Inspection started`);
     return { message: 'Inspection started', uid };
   }
 
@@ -95,6 +98,7 @@ class InspectionService {
     const updates = { ratings: scores, overallScore, grade, photos: photos || [], checklistResults: checklistResults || [], remarks: remarks || '', status: 'COMPLETED', completedAt: new Date().toISOString(), completedBy: userData.uid, updatedAt: new Date().toISOString() };
     await ref.update(updates);
     await db.collection('inspection_scores').add({ inspectionId: uid, stationId: doc.data().stationId, overallScore, grade, scoredAt: new Date().toISOString() });
+    await auditService.logAudit('INSPECTION_RATINGS_SUBMITTED', userData.uid, userData.fullName || userData.name || '', uid, 'inspections', `Ratings submitted. Score: ${overallScore} (${grade})`);
     return { message: 'Ratings submitted', uid, overallScore, grade, ratings: scores };
   }
 
@@ -102,6 +106,7 @@ class InspectionService {
     const ref = db.collection('inspections').doc(uid);
     if (!(await ref.get()).exists) throw new NotFoundError('Inspection not found');
     await ref.update({ status: 'APPROVED', approvedBy: userData.uid, approvedAt: new Date().toISOString(), approvalRemarks: body.remarks || '', updatedAt: new Date().toISOString() });
+    await auditService.logAudit('INSPECTION_APPROVED', userData.uid, userData.fullName || userData.name || '', uid, 'inspections', `Inspection approved. Remarks: ${body.remarks || 'None'}`);
     return { message: 'Inspection approved', uid };
   }
 
@@ -110,6 +115,7 @@ class InspectionService {
     if (!(await ref.get()).exists) throw new NotFoundError('Inspection not found');
     if (!body.reason) throw new ValidationError('Rejection reason is required');
     await ref.update({ status: 'REJECTED', rejectedBy: userData.uid, rejectedAt: new Date().toISOString(), rejectionReason: body.reason, updatedAt: new Date().toISOString() });
+    await auditService.logAudit('INSPECTION_REJECTED', userData.uid, userData.fullName || userData.name || '', uid, 'inspections', `Inspection rejected. Reason: ${body.reason}`);
     return { message: 'Inspection rejected', uid };
   }
 
@@ -117,6 +123,7 @@ class InspectionService {
     const ref = db.collection('inspections').doc(uid);
     if (!(await ref.get()).exists) throw new NotFoundError('Inspection not found');
     await ref.update({ status: 'RESUBMITTED', resubmittedBy: userData.uid, resubmittedAt: new Date().toISOString(), resubmissionRemarks: body.remarks || '', updatedAt: new Date().toISOString() });
+    await auditService.logAudit('INSPECTION_RESUBMITTED', userData.uid, userData.fullName || userData.name || '', uid, 'inspections', `Inspection resubmitted`);
     return { message: 'Inspection resubmitted', uid };
   }
 
@@ -138,6 +145,7 @@ class InspectionService {
     const now = new Date().toISOString();
     const newDef = { defId, area: deficiency.area, description: deficiency.description, severity: deficiency.severity || 'medium', assignedTo: deficiency.assignedTo || null, assignedToName: deficiency.assignedToName || '', closureStatus: 'OPEN', closureProof: null, closedAt: null, closedBy: null, addedBy: user.uid, addedByName: user.fullName || '', addedAt: now };
     await ref.update({ deficiencies: admin.firestore.FieldValue.arrayUnion(newDef), allDeficienciesClosed: false, updatedAt: now });
+    await auditService.logAudit('INSPECTION_DEFICIENCY_ADDED', user.uid, user.fullName || '', uid, 'inspections', `Deficiency added: ${deficiency.description}`);
     return { message: 'Deficiency added', defId, deficiency: newDef };
   }
 
@@ -150,6 +158,7 @@ class InspectionService {
     if (idx === -1) throw new NotFoundError('Deficiency not found');
     defs[idx] = { ...defs[idx], closureStatus: 'CLOSED', closureProof: closureData.closureProof || '', closureRemarks: closureData.remarks || '', closedAt: new Date().toISOString(), closedBy: user.uid, closedByName: user.fullName || '' };
     await ref.update({ deficiencies: defs, allDeficienciesClosed: defs.every(d => d.closureStatus === 'CLOSED'), updatedAt: new Date().toISOString() });
+    await auditService.logAudit('INSPECTION_DEFICIENCY_CLOSED', user.uid, user.fullName || '', uid, 'inspections', `Deficiency ${defId} closed`);
     return { message: 'Deficiency closed', defId };
   }
 
@@ -163,6 +172,7 @@ class InspectionService {
     if (defs[idx].closureStatus !== 'CLOSED') throw new ValidationError('Deficiency must be CLOSED first');
     defs[idx] = { ...defs[idx], closureStatus: 'RAILWAY_VERIFIED', railwayVerifiedBy: user.uid, railwayVerifiedAt: new Date().toISOString() };
     await ref.update({ deficiencies: defs, updatedAt: new Date().toISOString() });
+    await auditService.logAudit('INSPECTION_DEFICIENCY_VERIFIED', user.uid, user.fullName || '', uid, 'inspections', `Deficiency ${defId} closure verified`);
     return { message: 'Deficiency closure verified' };
   }
 

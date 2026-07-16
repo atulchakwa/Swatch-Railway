@@ -121,7 +121,7 @@ class CTSStep4Submit extends GetView<CTSFormController> {
                 const SizedBox(height: 5),
                 DropdownButtonFormField(
                   decoration: InputDecoration(
-                    hintText: 'Select Supervisor',
+                    hintText: 'Select Railway Employee',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),

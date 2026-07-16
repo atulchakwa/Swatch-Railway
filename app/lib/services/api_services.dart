@@ -70,6 +70,7 @@ class ApiService {
     String? trainId,
     List<String>? trainIds,
     String? worker_type,
+    String? signatureBase64,
   }) async {
     try {
       final token = await getToken();
@@ -98,6 +99,7 @@ class ApiService {
           'trainId': trainId,
           'trainIds': trainIds,
           'worker_type': worker_type,
+          'signatureBase64': signatureBase64,
         }),
       );
 

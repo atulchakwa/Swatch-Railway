@@ -44,7 +44,7 @@ export const getTaskSystemReport = asyncHandler(async (req, res) => {
 
 export const calculateTasksFromFrequency = asyncHandler(async (req, res) => {
   const { frequencyId, areaId, platformId, stationId, startDate, endDate } = req.body;
-  const result = await frequencyService.calculateTasksFromFrequency(req.user, {
+  const result = await frequencyService.calculateFrequency({
     frequencyId,
     areaId,
     platformId,

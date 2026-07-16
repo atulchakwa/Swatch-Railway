@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
+import { auditService } from './auditService.js';
 
 class BillingService {
   async saveBillingConfig(configData, user) {
@@ -15,6 +16,7 @@ class BillingService {
       configData.updatedBy = uid;
       delete configData.uid;
       await ref.update(configData);
+      await auditService.logAudit('BILLING_CONFIG_UPDATED', uid, fullName || 'User', ref.id, 'billingRules', `Billing rules updated for contract ${configData.contractNumber} by ${fullName || 'User'}`, configData);
     } else {
       ref = db.collection('billingRules').doc();
       configData.uid = ref.id;
@@ -22,6 +24,7 @@ class BillingService {
       configData.createdBy = uid;
       configData.status = 'Active';
       await ref.set(configData);
+      await auditService.logAudit('BILLING_CONFIG_CREATED', uid, fullName || 'User', ref.id, 'billingRules', `Billing rules configured for contract ${configData.contractNumber} by ${fullName || 'User'}`, configData);
     }
     return { message: 'Billing config saved', uid: ref.id };
   }
@@ -86,6 +89,7 @@ class BillingService {
     if (missedObhsCount) billData.missedObhsCount = missedObhsCount;
     if (otherPenalties) billData.otherPenalties = otherPenalties;
     await ref.set(billData);
+    await auditService.logAudit('BILL_CREATED', uid, fullName || 'User', ref.id, 'billingReports', `Billing report generated for contract ${contract.contractNumber || 'N/A'} period ${month}/${year} by ${fullName || 'User'}`, billData);
 
     return { message: 'Bill generated', uid: ref.id };
   }
@@ -144,6 +148,7 @@ class BillingService {
       invoiceGeneratedAt: new Date().toISOString(),
       auditLog: admin.firestore.FieldValue.arrayUnion({ action: 'APPROVED', performedBy: approverId, performedByName: fullName, timestamp: new Date().toISOString(), details: `Bill approved by ${fullName}` })
     });
+    await auditService.logAudit('BILL_APPROVED', approverId, fullName || 'User', ref.id, 'billingReports', `Bill approved by ${fullName || 'User'}. Invoice ${invoiceNumber} generated.`, { status: 'APPROVED', invoiceNumber });
     return { message: 'Bill approved', invoiceNumber };
   }
 
@@ -159,6 +164,7 @@ class BillingService {
       rejectedAt: new Date().toISOString(), rejectionReason: reason || 'No reason provided',
       auditLog: admin.firestore.FieldValue.arrayUnion({ action: 'REJECTED', performedBy: rejectorId, performedByName: fullName, timestamp: new Date().toISOString(), details: `Bill rejected by ${fullName}` })
     });
+    await auditService.logAudit('BILL_REJECTED', rejectorId, fullName || 'User', ref.id, 'billingReports', `Bill rejected by ${fullName || 'User'}. Reason: ${reason}`, { status: 'REJECTED', rejectionReason: reason });
     return { message: 'Bill rejected' };
   }
 
@@ -189,7 +195,7 @@ class BillingService {
     return summary;
   }
 
-  async generateInvoiceNumber(uid) {
+  async generateInvoiceNumber(uid, user) {
     const ref = db.collection('billingReports').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Report not found');
@@ -197,6 +203,11 @@ class BillingService {
     if (report.status !== 'APPROVED') throw new ValidationError('Invoice can only be generated for approved bills');
     const invoiceNumber = report.invoiceNumber || `INV-${report.contractNumber}-${report.year}${String(report.month).padStart(2, '0')}-${Date.now().toString().slice(-4)}`;
     await ref.update({ invoiceNumber, invoiceGeneratedAt: new Date().toISOString() });
+    if (user) {
+      await auditService.logAudit('INVOICE_GENERATED', user.uid, user.fullName || 'User', ref.id, 'billingReports', `Invoice generated: ${invoiceNumber} by ${user.fullName || 'User'}`, { invoiceNumber });
+    } else {
+      await auditService.logAudit('INVOICE_GENERATED', 'system', 'System', ref.id, 'billingReports', `Invoice generated: ${invoiceNumber}`, { invoiceNumber });
+    }
     return { message: 'Invoice generated', invoiceNumber };
   }
 

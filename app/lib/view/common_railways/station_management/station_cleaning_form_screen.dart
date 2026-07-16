@@ -6,7 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:crm_train/providers/auth_provider.dart';
-import 'package:image_picker/image_picker.dart';
+
+class FormAreaSelection {
+  StationArea? selectedArea;
+  StationZone? selectedZone;
+  List<StationZone> zones = [];
+  bool isLoadingZones = false;
+}
 
 class StationCleaningFormScreen extends StatefulWidget {
   const StationCleaningFormScreen({super.key});
@@ -19,16 +25,13 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
   final _formKey = GlobalKey<FormState>();
   bool isLoadingStations = true;
   bool isLoadingAreas = false;
-  bool isLoadingZones = false;
   bool isSaving = false;
 
   List<Station> stations = [];
   List<StationArea> areas = [];
-  List<StationZone> zones = [];
 
   Station? selectedStation;
-  StationArea? selectedArea;
-  StationZone? selectedZone;
+  final List<FormAreaSelection> _areaSelections = [FormAreaSelection()];
 
   late TextEditingController _dateCtrl;
   late TextEditingController _startTimeCtrl;
@@ -142,9 +145,11 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
       if (mounted) {
         setState(() {
           areas = result;
-          selectedArea = null;
-          selectedZone = null;
-          zones = [];
+          for (final selection in _areaSelections) {
+            selection.selectedArea = null;
+            selection.selectedZone = null;
+            selection.zones = [];
+          }
           isLoadingAreas = false;
         });
       }
@@ -158,21 +163,21 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
     }
   }
 
-  Future<void> _loadZones() async {
-    if (selectedStation == null || selectedArea == null) return;
-    setState(() => isLoadingZones = true);
+  Future<void> _loadZones(FormAreaSelection selection) async {
+    if (selectedStation == null || selection.selectedArea == null) return;
+    setState(() => selection.isLoadingZones = true);
     try {
-      final result = await ApiService.getStationZones(selectedStation!.uid ?? '', areaId: selectedArea!.uid ?? '');
+      final result = await ApiService.getStationZones(selectedStation!.uid ?? '', areaId: selection.selectedArea!.uid ?? '');
       if (mounted) {
         setState(() {
-          zones = result;
-          selectedZone = null;
-          isLoadingZones = false;
+          selection.zones = result;
+          selection.selectedZone = null;
+          selection.isLoadingZones = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => isLoadingZones = false);
+        setState(() => selection.isLoadingZones = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load zones: $e'), backgroundColor: kErrorRed),
         );
@@ -211,14 +216,21 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
   Map<String, dynamic> _buildPayload({required bool isDraft}) {
     final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
     final checkedActivities = _activities.entries.where((e) => e.value).map((e) => e.key).toList();
+    
+    final firstSelection = _areaSelections.first;
+    final List<Map<String, dynamic>> areasList = _areaSelections.map((selection) {
+      return {
+        'areaId': selection.selectedArea?.uid ?? '',
+        'areaName': selection.selectedArea?.name ?? '',
+        'zoneId': selection.selectedZone?.uid ?? '',
+        'zoneName': selection.selectedZone?.name ?? '',
+      };
+    }).toList();
+
     return {
       'formId': 'SCF-${DateTime.now().millisecondsSinceEpoch}',
       'stationId': selectedStation!.uid ?? '',
       'stationName': selectedStation!.stationName,
-      'areaId': selectedArea?.uid ?? '',
-      'areaName': selectedArea?.name ?? '',
-      'zoneId': selectedZone?.uid ?? '',
-      'zoneName': selectedZone?.name ?? '',
       'division': selectedStation!.division,
       'submittedBy': user?.uid ?? '',
       'submittedByName': user?.fullName ?? '',
@@ -240,6 +252,15 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
         if (_beforePhotoUrl != null) {'url': _beforePhotoUrl, 'type': 'before'},
         if (_afterPhotoUrl != null) {'url': _afterPhotoUrl, 'type': 'after'},
       ],
+      
+      // Root level fields for backward compatibility
+      'areaId': firstSelection.selectedArea?.uid ?? '',
+      'areaName': firstSelection.selectedArea?.name ?? '',
+      'zoneId': firstSelection.selectedZone?.uid ?? '',
+      'zoneName': firstSelection.selectedZone?.name ?? '',
+      
+      // Multi-area list
+      'areasList': areasList,
     };
   }
 
@@ -311,45 +332,109 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
                     ),
                     items: stations.map((s) => DropdownMenuItem(value: s, child: Text(s.stationName))).toList(),
                     onChanged: isLoadingStations ? null : (v) {
-                      setState(() { selectedStation = v; selectedArea = null; selectedZone = null; areas = []; zones = []; });
+                      setState(() { selectedStation = v; areas = []; });
                       if (v != null) _loadAreas();
                     },
                     validator: (v) => v == null ? 'Please select a station' : null,
                   ),
                   if (isLoadingStations) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
                   const SizedBox(height: 14),
-                  DropdownButtonFormField<StationArea>(
-                    value: selectedArea,
-                    decoration: const InputDecoration(
-                      labelText: 'Select Area',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.layers),
+
+                  if (selectedStation != null) ...[
+                    const Divider(height: 24),
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _areaSelections.length,
+                      itemBuilder: (context, index) {
+                        final selection = _areaSelections[index];
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (index > 0) const Divider(height: 24),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Area / Platform #${index + 1}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: kRailwayBlue),
+                                ),
+                                if (_areaSelections.length > 1)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    onPressed: () {
+                                      setState(() {
+                                        _areaSelections.removeAt(index);
+                                      });
+                                    },
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<StationArea>(
+                              value: selection.selectedArea,
+                              decoration: InputDecoration(
+                                labelText: (selection.selectedArea != null && selection.selectedArea!.name.toLowerCase().contains('platform'))
+                                    ? 'Select Platform'
+                                    : 'Select Area / Platform',
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(Icons.layers),
+                              ),
+                              items: areas.map((a) => DropdownMenuItem(value: a, child: Text(a.name))).toList(),
+                              onChanged: isLoadingAreas ? null : (v) {
+                                setState(() { selection.selectedArea = v; selection.selectedZone = null; selection.zones = []; });
+                                if (v != null) _loadZones(selection);
+                              },
+                            ),
+                            if (isLoadingAreas) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
+                            const SizedBox(height: 14),
+
+                            if (selection.selectedArea != null && selection.zones.isEmpty && !selection.isLoadingZones)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                child: Text(
+                                  (selection.selectedArea!.name.toLowerCase().contains('platform'))
+                                      ? 'No areas configured for this platform (Optional)'
+                                      : 'No zones configured for this area (Optional)',
+                                  style: const TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+                                ),
+                              )
+                            else
+                              DropdownButtonFormField<StationZone>(
+                                value: selection.selectedZone,
+                                decoration: InputDecoration(
+                                  labelText: (selection.selectedArea != null && selection.selectedArea!.name.toLowerCase().contains('platform'))
+                                      ? 'Select Area (Optional)'
+                                      : 'Select Zone (Optional)',
+                                  border: const OutlineInputBorder(),
+                                  prefixIcon: const Icon(Icons.map),
+                                ),
+                                items: selection.zones.map((z) => DropdownMenuItem(value: z, child: Text(z.name))).toList(),
+                                onChanged: selection.isLoadingZones || selection.zones.isEmpty ? null : (v) { setState(() { selection.selectedZone = v; }); },
+                              ),
+                            if (selection.isLoadingZones) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
+                          ],
+                        );
+                      },
                     ),
-                    items: areas.map((a) => DropdownMenuItem(value: a, child: Text(a.name))).toList(),
-                    onChanged: isLoadingAreas ? null : (v) {
-                      setState(() { selectedArea = v; selectedZone = null; zones = []; });
-                      if (v != null) _loadZones();
-                    },
-                  ),
-                  if (isLoadingAreas) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
-                  const SizedBox(height: 14),
-                  if (selectedArea != null && zones.isEmpty && !isLoadingZones)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text('No zones configured for this area (Optional)', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
-                    )
-                  else
-                    DropdownButtonFormField<StationZone>(
-                      value: selectedZone,
-                      decoration: const InputDecoration(
-                        labelText: 'Select Zone (Optional)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.map),
+                    const SizedBox(height: 12),
+                    Center(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _areaSelections.add(FormAreaSelection());
+                          });
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add More Area / Platform'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: kRailwayBlue,
+                          side: const BorderSide(color: kRailwayBlue),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
                       ),
-                      items: zones.map((z) => DropdownMenuItem(value: z, child: Text(z.name))).toList(),
-                      onChanged: isLoadingZones || zones.isEmpty ? null : (v) { setState(() { selectedZone = v; }); },
                     ),
-                  if (isLoadingZones) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),
