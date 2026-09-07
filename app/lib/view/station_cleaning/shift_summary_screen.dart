@@ -89,7 +89,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
   bool _isSubmitting = false;
   bool _loadingAreas = false;
   List<StationArea> _masterAreas = [];
-  late final List<_AreaEntry> _entries;
+  late List<_AreaEntry> _entries;
 
   static const int _minAreas = 5;
 
