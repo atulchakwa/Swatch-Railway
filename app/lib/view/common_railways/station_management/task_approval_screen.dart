@@ -40,7 +40,10 @@ class _TaskApprovalScreenState extends State<TaskApprovalScreen>
     _tabController = TabController(length: 3, vsync: this);
     final user = context.read<AuthProvider>().currentUser;
     _userRole = user?.role ?? '';
-    _userStationId = widget.stationId ?? user?.stationId;
+    final userStationId = (user?.stationId != null && user!.stationId!.isNotEmpty)
+        ? user.stationId
+        : (user?.stations.isNotEmpty == true ? user!.stations.first : null);
+    _userStationId = widget.stationId ?? userStationId;
     _loadAll();
   }
 

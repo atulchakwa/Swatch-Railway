@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:crm_train/model/material_model.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/material_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
+import 'package:provider/provider.dart';
 import 'material_form_screen.dart';
 
 class MaterialListScreen extends StatefulWidget {
@@ -25,6 +27,14 @@ class _MaterialListScreenState extends State<MaterialListScreen> with SingleTick
   String? _error;
   String _query = '';
 
+  String get _stationId {
+    if (widget.stationId != null && widget.stationId!.isNotEmpty) return widget.stationId!;
+    final user = context.read<AuthProvider>().currentUser;
+    if (user?.stationId != null && user!.stationId!.isNotEmpty) return user.stationId!;
+    if (user?.stations.isNotEmpty == true) return user!.stations.first;
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -47,7 +57,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> with SingleTick
   Future<void> _load() async {
     setState(() => _isLoading = true);
     try {
-      _all = await MaterialRepository.getAll(stationId: widget.stationId);
+      _all = await MaterialRepository.getAll(stationId: _stationId);
       _applyFilter();
     } catch (e) {
       if (e.toString().contains('AUTH_ERROR')) {
@@ -62,14 +72,14 @@ class _MaterialListScreenState extends State<MaterialListScreen> with SingleTick
 
   Future<void> _loadAlerts() async {
     try {
-      _alerts = await MaterialRepository.getAlerts(stationId: widget.stationId);
+      _alerts = await MaterialRepository.getAlerts(stationId: _stationId);
       if (mounted) setState(() {});
     } catch (_) {}
   }
 
   Future<void> _loadLogs() async {
     try {
-      _logs = await MaterialRepository.getLogs(stationId: widget.stationId);
+      _logs = await MaterialRepository.getLogs(stationId: _stationId);
       if (mounted) setState(() {});
     } catch (_) {}
   }
@@ -154,7 +164,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> with SingleTick
                       onPressed: () async {
                         final r = await Navigator.push<bool>(
                           context,
-                          MaterialPageRoute(builder: (_) => MaterialFormScreen(existing: m, stationId: widget.stationId)),
+                          MaterialPageRoute(builder: (_) => MaterialFormScreen(existing: m, stationId: _stationId)),
                         );
                         if (r == true) _load();
                       },
@@ -406,7 +416,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> with SingleTick
         backgroundColor: kRailwayBlue,
         child: const Icon(Icons.add, color: Colors.white),
         onPressed: () async {
-          final r = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => MaterialFormScreen(stationId: widget.stationId)));
+          final r = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => MaterialFormScreen(stationId: _stationId)));
           if (r == true) _load();
         },
       ),
