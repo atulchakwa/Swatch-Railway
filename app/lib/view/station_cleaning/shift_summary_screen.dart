@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'package:crm_train/repositories/worker_repo.dart';
@@ -36,6 +39,7 @@ class _AreaEntry {
   final String areaId;
   String areaName;
   String mainArea;
+  String activityType;
   double basicAreaSqFt;
   int boqTimesPerPeriod;
   int times;
@@ -62,6 +66,7 @@ class _AreaEntry {
     required this.areaId,
     this.areaName = '',
     this.mainArea = '',
+    this.activityType = '',
     this.basicAreaSqFt = 0,
     this.boqTimesPerPeriod = 1,
     this.times = 1,
@@ -92,7 +97,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
   void initState() {
     super.initState();
     _entries = widget.areas.map((a) {
-      final key = (a['areaId'] ?? a['areaName'] ?? '').toString();
+      final key = (a['key'] ?? a['areaId'] ?? a['areaName'] ?? '').toString();
       final master = _findMaster(key, (a['areaName'] ?? '').toString());
       final taskRemarks = (a['taskRemarks'] ?? '').toString();
       final afterPhotoUrl = (a['afterPhotoUrl'] ?? '').toString();
@@ -101,6 +106,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
         areaId: (a['areaId'] ?? '').toString(),
         areaName: (a['areaName'] ?? master?.name ?? '').toString(),
         mainArea: (a['mainArea'] ?? master?.mainArea ?? '').toString(),
+        activityType: (a['activityType'] ?? '').toString(),
         basicAreaSqFt: (a['basicAreaSqFt'] ?? master?.basicAreaSqFt ?? 0).toDouble(),
         boqTimesPerPeriod: (a['boqTimesPerPeriod'] ?? master?.boqTimesPerPeriod ?? 1).toInt(),
         times: (a['times'] ?? 1).toInt(),
@@ -116,6 +122,83 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
       );
     }).toList();
     _loadMasterAreas();
+    if (_entries.isEmpty) _loadCompletedTasks();
+  }
+
+  Future<void> _loadCompletedTasks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) return;
+      final uri = Uri.parse('${ApiService.baseUrl}/api/tasks-v2/supervisor/${widget.supervisorId}')
+          .replace(queryParameters: {'date': widget.date});
+      final response = await http.get(
+        uri,
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200 || !mounted) return;
+      final body = jsonDecode(response.body);
+      final tasks = (body['tasks'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+      final doneStatuses = {'completed', 'approved'};
+      final completed = tasks
+          .where((t) => doneStatuses.contains((t['status'] ?? '').toString().toLowerCase()))
+          .where((t) => (t['areaId'] ?? '').toString().isNotEmpty)
+          .toList();
+      if (completed.isEmpty) return;
+      final grouped = <String, Map<String, dynamic>>{};
+      for (final t in completed) {
+        final areaId = (t['areaId'] ?? '').toString();
+        final key = '${t['uid'] ?? areaId}_$areaId';
+        grouped[key] = {
+          'key': key,
+          'areaId': areaId,
+          'areaName': t['areaName'] ?? '',
+          'mainArea': t['mainArea'] ?? '',
+          'basicAreaSqFt': t['basicAreaSqFt'] ?? 0,
+          'boqTimesPerPeriod': t['boqTimesPerPeriod'] ?? 1,
+          'cleaningFrequency': t['cleaningFrequency'] ?? 'daily',
+          'activityType': t['activityType'] ?? t['taskTypeName'] ?? '',
+          'scheduledTime': t['scheduledTime'] ?? '',
+          'taskId': t['uid'],
+          'afterPhotoUrl': t['afterPhoto'] ?? '',
+          'taskRemarks': t['remarks'] ?? '',
+          'gpsLat': t['gpsLat'],
+          'gpsLng': t['gpsLng'],
+          'times': 1,
+        };
+      }
+      if (grouped.isEmpty || !mounted) return;
+      final entries = grouped.values.map((a) {
+        final key = (a['key'] ?? a['areaId'] ?? a['areaName'] ?? '').toString();
+        final master = _findMaster(key, (a['areaName'] ?? '').toString());
+        final taskRemarks = (a['taskRemarks'] ?? '').toString();
+        final afterPhotoUrl = (a['afterPhotoUrl'] ?? '').toString();
+        return _AreaEntry(
+          key: key.isEmpty ? 'area_${a['areaName']}' : key,
+          areaId: (a['areaId'] ?? '').toString(),
+          areaName: (a['areaName'] ?? master?.name ?? '').toString(),
+          mainArea: (a['mainArea'] ?? master?.mainArea ?? '').toString(),
+          activityType: (a['activityType'] ?? '').toString(),
+          basicAreaSqFt: (a['basicAreaSqFt'] ?? master?.basicAreaSqFt ?? 0).toDouble(),
+          boqTimesPerPeriod: (a['boqTimesPerPeriod'] ?? master?.boqTimesPerPeriod ?? 1).toInt(),
+          times: (a['times'] ?? 1).toInt(),
+          tenderedAreaPerDay: (a['tenderedAreaPerDay'] ?? master?.tenderedAreaPerDay ?? 0).toDouble(),
+          cleaningFrequency: (a['cleaningFrequency'] ?? master?.cleaningFrequency ?? 'daily').toString(),
+          scheduledTime: (a['scheduledTime'] ?? '').toString(),
+          taskId: a['taskId']?.toString(),
+          afterPhotoUrl: afterPhotoUrl.isNotEmpty ? afterPhotoUrl : null,
+          taskRemarks: taskRemarks.isNotEmpty ? taskRemarks : null,
+          taskGpsLat: (a['gpsLat'] as num?)?.toDouble(),
+          taskGpsLng: (a['gpsLng'] as num?)?.toDouble(),
+          remark: taskRemarks,
+        );
+      }).toList();
+      for (final e in _entries) {
+        e.dispose();
+      }
+      setState(() => _entries = entries);
+      _loadMasterAreas();
+    } catch (_) {}
   }
 
   @override
@@ -399,6 +482,19 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
+                if (entry.activityType.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: kRailwayBlue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      entry.activityType,
+                      style: TextStyle(color: kRailwayBlue, fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 if (entry.scheduledTime.isNotEmpty)
                   Text(entry.scheduledTime, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
               ],

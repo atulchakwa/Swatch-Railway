@@ -318,23 +318,24 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
       if (!doneStatuses.contains((t['status'] ?? '').toString().toLowerCase())) continue;
       final areaId = (t['areaId'] ?? '').toString();
       if (areaId.isEmpty) continue;
-      final existing = areaMap[areaId];
-      if (existing != null) {
-        existing['times'] = ((existing['times'] as int) + 1);
-      } else {
-        areaMap[areaId] = {
-          'key': areaId,
-          'areaId': areaId,
-          'areaName': t['areaName'] ?? '',
-          'scheduledTime': t['scheduledTime'] ?? '',
-          'taskId': t['uid'],
-          'afterPhotoUrl': t['afterPhoto'] ?? '',
-          'taskRemarks': t['remarks'] ?? '',
-          'gpsLat': t['gpsLat'],
-          'gpsLng': t['gpsLng'],
-          'times': 1,
-        };
-      }
+      final key = '${t['uid'] ?? areaId}_$areaId';
+      areaMap[key] = {
+        'key': key,
+        'areaId': areaId,
+        'areaName': t['areaName'] ?? '',
+        'mainArea': t['mainArea'] ?? '',
+        'basicAreaSqFt': t['basicAreaSqFt'] ?? 0,
+        'boqTimesPerPeriod': t['boqTimesPerPeriod'] ?? 1,
+        'cleaningFrequency': t['cleaningFrequency'] ?? 'daily',
+        'activityType': t['activityType'] ?? t['taskTypeName'] ?? '',
+        'scheduledTime': t['scheduledTime'] ?? '',
+        'taskId': t['uid'],
+        'afterPhotoUrl': t['afterPhoto'] ?? '',
+        'taskRemarks': t['remarks'] ?? '',
+        'gpsLat': t['gpsLat'],
+        'gpsLng': t['gpsLng'],
+        'times': 1,
+      };
     }
     final areas = areaMap.values.toList();
 
@@ -344,19 +345,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
           const SnackBar(
             content: Text('No completed tasks found. Complete tasks before submitting shift summary.'),
             backgroundColor: kWarningOrange,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (areas.length < 5) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Only ${areas.length} area(s) completed. Complete at least 5 areas before submitting shift summary.'),
-            backgroundColor: kWarningOrange,
-            duration: const Duration(seconds: 5),
           ),
         );
       }
