@@ -29,10 +29,17 @@ class StationBillingService {
     const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
     const endDate = `${year}-${monthPad}-${String(lastDay).padStart(2, '0')}`;
 
+    const existingSnap = await db.collection('station_billing_packs')
+      .where('contractId', '==', contractId).where('stationId', '==', stationId)
+      .where('month', '==', parseInt(month)).where('year', '==', parseInt(year)).limit(5).get();
+    const existingPacks = []; existingSnap.forEach(d => existingPacks.push({ id: d.id, ...d.data() }));
+    const existingPack = existingPacks.find(p => p.status !== 'DELETED');
+    if (existingPack) return { message: 'Existing billing support pack returned', uid: existingPack.id, pack: existingPack };
+
     const [attendanceSnap, cleaningAttSnap, activitySnap, scorecardSnap, complaintSnap, feedbackSnap, inspectionSnap, machineSnap, downtimeSnap, stationRunSnap, formsSnap] = await Promise.all([
       db.collection('station_attendance').where('stationId', '==', stationId).get(),
       db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
-      db.collection('station_daily_activities').where('stationId', '==', stationId).get(),
+      db.collection('cleaningTasks').where('stationId', '==', stationId).get(),
       db.collection('daily_scorecards').where('stationId', '==', stationId).get(),
       db.collection('complaints').where('stationId', '==', stationId).get(),
       db.collection('station_feedback').where('stationId', '==', stationId).get(),
@@ -50,9 +57,9 @@ class StationBillingService {
     const uniqueDates = [...new Set(attendanceRecords.map(r => r.date))].length;
     const attendanceSummary = { totalDaysRecorded: uniqueDates, totalAttendanceEntries: attendanceRecords.length, totalPresent: presentCount, totalAbsent: attendanceRecords.filter(r => r.status === 'absent').length, averageDailyManpower: uniqueDates > 0 ? Math.round(presentCount / uniqueDates) : 0, attendancePercentage: attendanceRecords.length > 0 ? Math.round(presentCount / attendanceRecords.length * 100) : 0 };
 
-    const activities = []; activitySnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) activities.push(r); });
+    const activities = []; activitySnap.forEach(d => { const r = d.data(); const d2 = r.scheduledDate || r.date || ''; if (d2 >= startDate && d2 <= endDate) activities.push(r); });
     const actSummary = { total: activities.length, APPROVED: 0, COMPLETED: 0, REJECTED: 0, PENDING: 0, IN_PROGRESS: 0, PARTIALLY_COMPLETED: 0, RESUBMITTED: 0 };
-    activities.forEach(a => { if (actSummary[a.status] !== undefined) actSummary[a.status]++; });
+    activities.forEach(a => { const s = (a.status || '').toUpperCase(); if (actSummary[s] !== undefined) actSummary[s]++; });
     const activityCompletionRate = actSummary.total > 0 ? Math.round((actSummary.APPROVED + actSummary.COMPLETED) / actSummary.total * 100) : 0;
 
     const scorecards = []; scorecardSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) scorecards.push(r); });
@@ -96,26 +103,27 @@ class StationBillingService {
     const machineDowntimeSummary = { incidents: downtimeRecords.length, totalHours: totalDowntimeHours, totalPenalty: totalMachinePenalty };
 
     const billingRuleSnap = await db.collection('billingRules').where('contractId', '==', contractId).limit(1).get();
-    let penalties = { totalPenaltyAmount: 0, deductions: [] };
+    const extraPenalties = [];
+    let extraPenaltyAmount = 0;
     const monthlyBase = (contractData.contractValue || 0) / 12;
-    
+
     if (!billingRuleSnap.empty) {
       const rules = billingRuleSnap.docs[0].data();
       if (attendanceSummary.attendancePercentage < 90 && rules.attendancePenaltyRate) {
         const amt = Math.round(((90 - attendanceSummary.attendancePercentage) / 100) * monthlyBase * (rules.attendancePenaltyRate || 0.01));
-        penalties.deductions.push({ reason: 'Attendance Shortfall', percentage: 90 - attendanceSummary.attendancePercentage, amount: amt });
-        penalties.totalPenaltyAmount += amt;
+        extraPenalties.push({ reason: 'Attendance Shortfall', percentage: 90 - attendanceSummary.attendancePercentage, amount: amt });
+        extraPenaltyAmount += amt;
       }
       if (avgScore < 70 && rules.scorePenaltyRate) {
         const amt = Math.round(((70 - avgScore) / 100) * monthlyBase * (rules.scorePenaltyRate || 0.02));
-        penalties.deductions.push({ reason: 'Score Below 70%', percentage: 70 - avgScore, amount: amt });
-        penalties.totalPenaltyAmount += amt;
+        extraPenalties.push({ reason: 'Score Below 70%', percentage: 70 - avgScore, amount: amt });
+        extraPenaltyAmount += amt;
       }
     }
-    
+
     if (machineDowntimeSummary.totalPenalty > 0) {
-      penalties.deductions.push({ reason: 'Machine Downtime Penalty', percentage: 0, amount: machineDowntimeSummary.totalPenalty });
-      penalties.totalPenaltyAmount += machineDowntimeSummary.totalPenalty;
+      extraPenalties.push({ reason: 'Machine Downtime Penalty', percentage: 0, amount: machineDowntimeSummary.totalPenalty });
+      extraPenaltyAmount += machineDowntimeSummary.totalPenalty;
     }
     
     // 20% Supervisor Approval Deduction
@@ -129,8 +137,8 @@ class StationBillingService {
       const approvalSubjectAmount = monthlyBase * 0.20;
       const approvalPenalty = Math.round(approvalSubjectAmount * unapprovedRatio);
       if (approvalPenalty > 0) {
-        penalties.deductions.push({ reason: 'Unapproved Station Runs (20% conditional billing)', percentage: Math.round(unapprovedRatio * 100), amount: approvalPenalty });
-        penalties.totalPenaltyAmount += approvalPenalty;
+        extraPenalties.push({ reason: 'Unapproved Station Runs (20% conditional billing)', percentage: Math.round(unapprovedRatio * 100), amount: approvalPenalty });
+        extraPenaltyAmount += approvalPenalty;
       }
     }
 
@@ -149,14 +157,6 @@ class StationBillingService {
         achievedAmount: summary.achievedAmount,
         itemScores: summary.itemScores,
       };
-      if (executionSheetSummary.configured && summary.shortfallDeduction > 0) {
-        penalties.deductions.push({
-          reason: 'Work Execution Sheet Shortfall (50% billing component)',
-          percentage: Math.round((100 - summary.executionScore) * 100) / 100,
-          amount: summary.shortfallDeduction,
-        });
-        penalties.totalPenaltyAmount += summary.shortfallDeduction;
-      }
     } catch (err) {
       logger.warn(`Execution sheet summary skipped for ${stationId} ${month}/${year}: ${err.message}`);
     }
@@ -186,14 +186,6 @@ class StationBillingService {
         achievedAmount,
         shortfallDeduction,
       };
-      if (shortfallDeduction > 0) {
-        penalties.deductions.push({
-          reason: 'Inspection Score Shortfall (20% billing component)',
-          percentage: Math.round((100 - (inspectionScore > 100 ? 100 : inspectionScore)) * 100) / 100,
-          amount: shortfallDeduction,
-        });
-        penalties.totalPenaltyAmount += shortfallDeduction;
-      }
     }
 
     const machines = []; machineSnap.forEach(d => machines.push(d.data()));
@@ -217,12 +209,19 @@ class StationBillingService {
     const grade = overallScore >= 90 ? 'A' : overallScore >= 80 ? 'B' : overallScore >= 70 ? 'C' : 'D';
     const deductionRate = billingRuleSnap.empty ? 100 : (billingRuleSnap.docs[0].data().deductionRate ?? 100);
 
-    // OBHS score-aligned bill: billable = monthlyBase × (1 − (deductionRate/100) × (1 − overallScore/100))
-    const billableAmount = Math.max(0, Math.round(monthlyBase * (1 - (deductionRate / 100) * ((100 - overallScore) / 100))));
-    penalties.totalPenaltyAmount = Math.round(Math.max(0, monthlyBase - billableAmount));
-    if (penalties.deductions.length === 0 && penalties.totalPenaltyAmount > 0) {
-      penalties.deductions.push({ reason: 'Score Based Deduction', percentage: Math.round((100 - overallScore) * 100) / 100, amount: penalties.totalPenaltyAmount });
+    // OBHS score-aligned bill: billable = monthlyBase × (1 − (deductionRate/100) × (1 − overallScore/100)).
+    // Specific operational penalties (attendance, score, machine downtime, unapproved runs)
+    // are deducted on top; execution-sheet and inspection shortfalls are already reflected
+    // via the Cleaning and Inspection components of overallScore.
+    const scoreBasedBill = Math.max(0, Math.round(monthlyBase * (1 - (deductionRate / 100) * ((100 - overallScore) / 100))));
+    const scoreDeductionAmount = Math.max(0, monthlyBase - scoreBasedBill);
+    const billableAmount = Math.max(0, scoreBasedBill - extraPenaltyAmount);
+    const deductions = [...extraPenalties];
+    if (scoreDeductionAmount > 0) {
+      deductions.push({ reason: 'OBHS Score Based Deduction', percentage: Math.round((100 - overallScore) * 100) / 100, amount: Math.round(scoreDeductionAmount) });
     }
+    deductions.sort((a, b) => b.amount - a.amount);
+    const penalties = { deductions, totalPenaltyAmount: Math.round(Math.max(0, monthlyBase - billableAmount)) };
 
     const ref = db.collection('station_billing_packs').doc();
     const now = new Date().toISOString();
