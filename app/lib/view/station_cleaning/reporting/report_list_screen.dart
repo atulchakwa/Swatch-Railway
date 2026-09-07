@@ -40,9 +40,9 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
   int _filterMonth = DateTime.now().month;
   int _filterYear = DateTime.now().year;
 
-  bool get _isSupervisor {
+  bool get _showLiveDashboard {
     final r = (widget.role ?? '').toUpperCase();
-    return r == 'CONTRACTOR_SUPERVISOR';
+    return r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN';
   }
 
   final List<String> _allReportTypes = [
@@ -64,10 +64,10 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _isSupervisor ? 3 : 2, vsync: this);
+    _tabController = TabController(length: _showLiveDashboard ? 3 : 2, vsync: this);
     _loadReports();
     _loadSchedules();
-    if (_isSupervisor) _loadLiveDashboard();
+    if (_showLiveDashboard) _loadLiveDashboard();
   }
 
   List<String> _getReportTypes() {
@@ -372,7 +372,7 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          tabs: _isSupervisor
+          tabs: _showLiveDashboard
               ? const [
                   Tab(text: 'Live Dashboard'),
                   Tab(text: 'Generated Reports'),
@@ -386,7 +386,7 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       ),
       body: TabBarView(
         controller: _tabController,
-        children: _isSupervisor
+        children: _showLiveDashboard
             ? [
                 _buildLiveDashboardTab(),
                 _buildReportsTab(),

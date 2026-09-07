@@ -328,11 +328,11 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         "roles": ["Contractor Master", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"],
         "children": [
           {"title": "User Management", "route": "users"},
-          {"title": "Entity Management", "route": "entities"},
-          {"title": "Contract Management", "route": "contracts"},
+          {"title": "Entity Management", "route": "entities", "roles": ["Contractor Master", "Company Master", "Railway Master", "Railway Admin"]},
+          {"title": "Contract Management", "route": "contracts", "roles": ["Contractor Master", "Company Master", "Railway Master", "Railway Admin"]},
           {"title": "Station Management", "route": "station_management_master", "contractTypes": ["station_cleaning"]},
           {"title": "Train Management", "route": "trains", "contractTypes": ["obhs"]},
-          {"title": "Division Management", "route": "divisions"},
+          {"title": "Division Management", "route": "divisions", "roles": ["Contractor Master", "Company Master", "Railway Master", "Railway Admin"]},
           {"title": "Billing Rules", "route": "billing_rules"},
         ]
       },
@@ -432,6 +432,10 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     }).map((item) {
       if (item.containsKey('children')) {
         final children = (item['children'] as List<Map<String, dynamic>>).where((child) {
+          if (child.containsKey('roles')) {
+            final allowedRoles = child['roles'] as List<String>;
+            if (!allowedRoles.contains(userRole)) return false;
+          }
           if (child.containsKey('contractTypes') && contractType != null) {
             final allowedTypes = child['contractTypes'] as List<String>;
             if (!allowedTypes.contains(contractType)) return false;

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/helper/api_error_handler.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/utills/app_colors.dart';
+import 'package:provider/provider.dart';
 
 class ShiftSummaryApprovalScreen extends StatefulWidget {
   final String? stationId;
@@ -43,6 +45,13 @@ class _ShiftSummaryApprovalScreenState extends State<ShiftSummaryApprovalScreen>
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  bool _canApprove(BuildContext context) {
+    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+    if (user == null) return true;
+    final r = user.role.toUpperCase().replaceAll(' ', '_');
+    return r != 'CONTRACTOR_ADMIN';
   }
 
   @override
@@ -181,7 +190,7 @@ class _ShiftSummaryApprovalScreenState extends State<ShiftSummaryApprovalScreen>
                         MaterialPageRoute(
                           builder: (_) => ShiftSummaryDetailScreen(
                             summary: s,
-                            canApprove: status == 'submitted',
+                            canApprove: status == 'submitted' && _canApprove(context),
                           ),
                         ),
                       );

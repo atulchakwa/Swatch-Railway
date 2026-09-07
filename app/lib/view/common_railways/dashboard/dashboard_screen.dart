@@ -426,7 +426,7 @@ class _CommonDashboardState extends State<CommonDashboard> {
         "title": "Add New Entity",
         "subtitle": "Entity Registration",
         "color": Colors.red,
-        "roles": ["Company Master", "Contractor Admin", "Railway Master"]
+        "roles": ["Super Admin", "Company Master", "Railway Master"]
       },
     ];
 
@@ -452,11 +452,11 @@ class _CommonDashboardState extends State<CommonDashboard> {
         "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"],
         "children": [
           {"title": "User Management", "route": "users"},
-          {"title": "Entity Management", "route": "entities"},
-          {"title": "Contract Management", "route": "contracts"},
+          {"title": "Entity Management", "route": "entities", "roles": ["Super Admin", "Company Master", "Railway Master", "Railway Admin"]},
+          {"title": "Contract Management", "route": "contracts", "roles": ["Super Admin", "Company Master", "Railway Master", "Railway Admin"]},
           {"title": "Station Management", "route": "station_management_master"},
           {"title": "Train Management", "route": "trains"},
-          {"title": "Division Management", "route": "divisions"},
+          {"title": "Division Management", "route": "divisions", "roles": ["Super Admin", "Company Master", "Railway Master", "Railway Admin"]},
           {"title": "Billing Rules", "route": "billing_rules"},
         ]
       },
@@ -1158,7 +1158,7 @@ class _CommonDashboardState extends State<CommonDashboard> {
 
               const SizedBox(height: 20),
 
-              if (user?.role != 'Railway Supervisor')
+              if (user?.role != 'Railway Supervisor' && user?.role != 'Contractor Admin')
               Column(
                 crossAxisAlignment:CrossAxisAlignment.start,
                 children: [
@@ -1173,7 +1173,7 @@ class _CommonDashboardState extends State<CommonDashboard> {
 
               const SizedBox(height: 10),
 
-              if (user?.role != "Railway Supervisor")
+              if (user?.role != "Railway Supervisor" && user?.role != "Contractor Admin")
                 _buildActionButton("Manage Entity",
                     Icons.location_city_outlined, Colors.blue, () {
                       Navigator.push(
