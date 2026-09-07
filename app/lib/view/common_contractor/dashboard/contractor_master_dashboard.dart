@@ -446,6 +446,9 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
   void _navigateWithStation(BuildContext context, Widget Function(String stationId, String stationName) screenBuilder, dynamic user) async {
     String stationId = user?.stationId ?? '';
+    if (stationId.isEmpty && (user?.stations is List) && (user.stations as List).isNotEmpty) {
+      stationId = (user.stations as List).first.toString();
+    }
     String stationName = '';
     if (stationId.isNotEmpty && stationName.isEmpty) {
       try {
