@@ -40,6 +40,7 @@ import '../../common_railways/station_management/area_performance_dashboard.dart
 import '../../station_cleaning/supervisor_task_screen.dart';
 import '../../station_cleaning/workers/worker_management_screen.dart';
 import '../../station_cleaning/shift_summary_screen.dart';
+import '../../station_cleaning/shift_summary_approval_screen.dart';
 import '../../station_cleaning/evidence/evidence_upload_screen.dart';
 import '../../station_cleaning/reporting/report_list_screen.dart';
 import '../../station_cleaning/schedule/station_schedule_screen.dart';
@@ -358,6 +359,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Area Management", "route": "sc_areas"},
           {"title": "Generate Tasks", "route": "sc_generate_tasks"},
           {"title": "Task Approval", "route": "sc_approval"},
+          {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval"},
           {"title": "Machines", "route": "sc_machines"},
           {"title": "Materials", "route": "sc_materials"},
         ]
@@ -525,6 +527,11 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "sc_materials":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const MaterialListScreen()));
+        break;
+      case "sc_shift_summary_approval":
+        _navigateWithStation(context, (stationId, stationName) => ShiftSummaryApprovalScreen(
+          stationId: stationId.isNotEmpty ? stationId : null,
+        ), user);
         break;
       case "sc_performance":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AreaPerformanceDashboard()));
