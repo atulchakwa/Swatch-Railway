@@ -169,18 +169,20 @@ class StationReportService {
 
   async generateDailyAttendanceReport(stationId, date, user) {
     const stationName = await this._getStationName(stationId);
-    // Attendance is captured only by the contractor supervisor via station_attendance.
-    // Workers do not self-mark station cleaning attendance (station_cleaning_attendance).
-    const stationAttSnap = await db.collection('station_attendance').where('stationId', '==', stationId).get();
+    const stationAttSnap = await db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get();
     const records = []; stationAttSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
-    const combinedRecords = records.map(r => ({ ...r, source: 'station_attendance' }));
-    const present = records.filter(r => r.status === 'present').length;
-    const late = records.filter(r => r.status === 'late').length;
-    const absent = records.filter(r => r.status === 'absent').length;
-    const onLeave = records.filter(r => r.status === 'on_leave').length;
+    const present = records.filter(r => r.attendanceStatus === 'PRESENT').length;
+    const late = records.filter(r => r.attendanceStatus === 'LATE').length;
+    const onLeave = records.filter(r => r.attendanceStatus === 'ON_LEAVE').length;
+    const absent = Math.max(0, records.length - present - late - onLeave);
+    const reportRecords = records.map(r => ({
+      worker: r.workerName || r.workerId || '', status: r.attendanceStatus || '',
+      startMarked: r.isStartMarked ? 'Yes' : 'No', midMarked: r.isMidMarked ? 'Yes' : 'No', endMarked: r.isEndMarked ? 'Yes' : 'No',
+      lateByMinutes: r.lateByMinutes || r.timingSnapshot?.lateByMinutes || 0,
+    }));
     const report = await this._storeReport({
       stationId, stationName, reportType: 'daily_attendance', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
-      summary: { totalExpected: combinedRecords.length, present, late, absent, onLeave, attendancePct: combinedRecords.length > 0 ? Math.round((present + late) / combinedRecords.length * 100) : 0, records: combinedRecords },
+      summary: { totalExpected: records.length, present, late, absent, onLeave, attendancePct: records.length > 0 ? Math.round(present / records.length * 100) : 0, records: reportRecords },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
@@ -188,18 +190,21 @@ class StationReportService {
 
   async generateDailyActivityReport(stationId, date, user) {
     const stationName = await this._getStationName(stationId);
-    const snap = await db.collection('station_daily_activities').where('stationId', '==', stationId).get();
-    const records = []; snap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
-    const now = new Date().toISOString();
-    const completed = records.filter(r => r.status === 'COMPLETED' || r.status === 'APPROVED').length;
-    const pending = records.filter(r => r.status === 'PENDING' || r.status === 'ASSIGNED').length;
-    const overdue = records.filter(r => r.status === 'PENDING' && r.scheduledEnd && r.scheduledEnd < now).length;
-    const rejected = records.filter(r => r.status === 'REJECTED').length;
-    const resubmitted = records.filter(r => r.status === 'RESUBMITTED').length;
-    const missedInf = records.filter(r => r.status === 'MISSED').length;
+    const snap = await db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date).get();
+    const records = snap.docs.map(d => d.data());
+    const nowTime = new Date().toISOString().substring(11, 16);
+    const completed = records.filter(r => r.status === 'completed' || r.status === 'approved').length;
+    const pending = records.filter(r => r.status === 'pending' || r.status === 'assigned').length;
+    const inProgress = records.filter(r => r.status === 'in_progress').length;
+    const rejected = records.filter(r => r.status === 'rejected').length;
+    const overdue = records.filter(r => (r.status === 'pending' || r.status === 'assigned') && r.scheduledTime && r.scheduledTime < nowTime).length;
+    const reportRecords = records.map(r => ({
+      area: r.areaName || r.areaId || '', shift: r.shift || '', time: r.scheduledTime || '',
+      status: r.status || '', worker: r.workerName || '', score: r.score != null ? r.score : '',
+    }));
     const report = await this._storeReport({
       stationId, stationName, reportType: 'daily_activity', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
-      summary: { total: records.length, completed, pending, overdue, rejected, resubmitted, missed: missedInf, completionRate: records.length > 0 ? Math.round(completed / records.length * 100) : 0 },
+      summary: { total: records.length, completed, pending, inProgress, overdue, rejected, completionRate: records.length > 0 ? Math.round(completed / records.length * 100) : 0, records: reportRecords },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
@@ -357,17 +362,16 @@ class StationReportService {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
-    // Attendance is captured only by the contractor supervisor via station_attendance.
     const [snap, overtimeSnap] = await Promise.all([
-      db.collection('station_attendance').where('stationId', '==', stationId).get(),
+      db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
       db.collection('overtime_records').where('stationId', '==', stationId).get(),
     ]);
     const records = []; snap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) records.push(r); });
     const overtime = []; overtimeSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) overtime.push(r); });
-    const combinedRecords = records.map(r => ({ ...r, source: 'station_attendance' }));
-    const daysPresent = new Set(combinedRecords.filter(r => r.status === 'present').map(r => r.date)).size;
+    const combinedRecords = records.map(r => ({ ...r, source: 'station_cleaning_attendance' }));
+    const daysPresent = new Set(combinedRecords.filter(r => r.attendanceStatus === 'PRESENT').map(r => r.date)).size;
     const totalDays = new Set(combinedRecords.map(r => r.date)).size;
-    const workerMap = {}; combinedRecords.forEach(r => { const w = r.workerId || r.userId; if (!w) return; if (!workerMap[w]) workerMap[w] = { present: 0, late: 0, absent: 0, leave: 0, total: 0 }; workerMap[w][r.status === 'present' ? 'present' : r.status === 'late' ? 'late' : r.status === 'absent' ? 'absent' : r.status === 'on_leave' ? 'leave' : 'total']++; workerMap[w].total++; });
+    const workerMap = {}; combinedRecords.forEach(r => { const w = r.workerId; if (!w) return; if (!workerMap[w]) workerMap[w] = { workerName: r.workerName || '', present: 0, late: 0, leave: 0, total: 0 }; workerMap[w][r.attendanceStatus === 'PRESENT' ? 'present' : r.attendanceStatus === 'LATE' ? 'late' : r.attendanceStatus === 'ON_LEAVE' ? 'leave' : 'total']++; workerMap[w].total++; });
     const totalOvertimeHours = overtime.reduce((s, o) => s + (o.hours || o.overtimeHours || 0), 0);
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_attendance', month, year, date: startDate,
@@ -381,24 +385,25 @@ class StationReportService {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
-    const [activitySnap, garbageSnap, pestSnap] = await Promise.all([
-      db.collection('station_daily_activities').where('stationId', '==', stationId).get(),
+    const [taskSnap, garbageSnap, pestSnap] = await Promise.all([
+      db.collection('cleaningTasks').where('stationId', '==', stationId).get(),
       db.collection('garbage_collections').where('stationId', '==', stationId).get(),
       db.collection('pest_treatment_plans').where('stationId', '==', stationId).get(),
     ]);
-    const activities = []; activitySnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) activities.push(r); });
+    const tasks = []; taskSnap.forEach(d => { const r = d.data(); const d2 = r.scheduledDate || r.date || ''; if (d2 >= startDate && d2 <= endDate) tasks.push(r); });
     const garbageRecords = []; garbageSnap.forEach(d => { const r = d.data(); const d2 = r.collectionDate || ''; if (d2 >= startDate && d2 <= endDate) garbageRecords.push(r); });
     const pestRecords = []; pestSnap.forEach(d => pestRecords.push(d.data()));
     const inMonthPest = pestRecords.filter(p => { const d = p.scheduledDate || ''; return d >= startDate && d <= endDate; });
     const totalWet = garbageRecords.reduce((s, g) => s + (g.wetKg || 0), 0);
     const totalDry = garbageRecords.reduce((s, g) => s + (g.dryKg || 0), 0);
     const totalHazardous = garbageRecords.reduce((s, g) => s + (g.hazardousKg || 0), 0);
+    const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'approved');
     const areaPct = {};
-    activities.filter(a => a.status === 'COMPLETED').forEach(a => { areaPct[a.areaId] = (areaPct[a.areaId] || 0) + 1; });
-    const totalCompleted = activities.filter(a => a.status === 'COMPLETED').length;
+    completedTasks.forEach(t => { areaPct[t.areaName || t.areaId] = (areaPct[t.areaName || t.areaId] || 0) + 1; });
+    const totalCompleted = completedTasks.length;
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_cleaning', month, year, date: startDate,
-      summary: { totalActivities: activities.length, completedActivities: totalCompleted, completionRate: activities.length > 0 ? Math.round(totalCompleted / activities.length * 100) : 0, garbageCollected: garbageRecords.length, wetWasteKg: totalWet, dryWasteKg: totalDry, hazardousWasteKg: totalHazardous, totalWasteKg: totalWet + totalDry + totalHazardous, pestTreatments: inMonthPest.length, areaCompletion: Object.entries(areaPct).map(([areaId, count]) => ({ areaId, completedCount: count })) },
+      summary: { totalActivities: tasks.length, completedActivities: totalCompleted, completionRate: tasks.length > 0 ? Math.round(totalCompleted / tasks.length * 100) : 0, pendingActivities: tasks.filter(t => t.status === 'pending' || t.status === 'assigned').length, inProgress: tasks.filter(t => t.status === 'in_progress').length, garbageCollected: garbageRecords.length, wetWasteKg: totalWet, dryWasteKg: totalDry, hazardousWasteKg: totalHazardous, totalWasteKg: totalWet + totalDry + totalHazardous, pestTreatments: inMonthPest.length, areaCompletion: Object.entries(areaPct).map(([areaId, count]) => ({ areaId, completedCount: count })) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
