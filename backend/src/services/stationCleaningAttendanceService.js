@@ -266,7 +266,7 @@ class StationCleaningAttendanceService {
   }
 
   async listAttendance(filters = {}, user) {
-    const { runInstanceId, stationId, callerId, role } = filters;
+    const { runInstanceId, stationId, callerId, role, workerType, date } = filters;
     let query = db.collection('station_cleaning_attendance');
     if (runInstanceId) query = query.where('runInstanceId', '==', runInstanceId);
     const roleUpper = (role || '').toUpperCase();
@@ -284,10 +284,38 @@ class StationCleaningAttendanceService {
     } else if (stationId) {
       query = query.where('stationId', '==', stationId);
     }
-    const snapshot = await query.limit(200).get();
+    const snapshot = await query.limit(500).get();
     let records = [];
     snapshot.forEach(doc => records.push(doc.data()));
     if (isWorker) records = records.filter(r => r.workerId === callerId);
+
+    // Classify each record as (contractor) supervisor vs worker so higher
+    // authorities can slice contractor-supervisor attendance (OBHS-style).
+    // Only CONTRACTOR_SUPERVISOR counts as a supervisor — railway supervisors
+    // are not part of the station-cleaning workforce attendance.
+    const supervisorRoleSet = new Set(['CONTRACTOR_SUPERVISOR']);
+    const classified = await Promise.all(records.map(async (r) => {
+      let wType = 'worker';
+      try {
+        if (r.workerId) {
+          const uDoc = await db.collection('users').doc(r.workerId).get();
+          const uRole = (uDoc.exists ? String(uDoc.data().role || '') : '').toUpperCase().replace(/\s+/g, '_');
+          wType = supervisorRoleSet.has(uRole) ? 'supervisor' : 'worker';
+        }
+      } catch (_) { /* keep default classification */ }
+      return { ...r, workerType: wType };
+    }));
+
+    const targetWorkerType = String(workerType || 'all').toLowerCase();
+    if (targetWorkerType === 'supervisor' || targetWorkerType === 'worker') {
+      records = classified.filter(r => r.workerType === targetWorkerType);
+    } else {
+      records = classified;
+    }
+    if (date) {
+      const targetDate = String(date);
+      records = records.filter(r => r.date === targetDate);
+    }
     records.sort((a, b) => ((b.updatedAt || '') > (a.updatedAt || '') ? 1 : -1));
     return { count: records.length, records };
   }

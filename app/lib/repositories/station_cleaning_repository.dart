@@ -679,10 +679,12 @@ class StationCleaningRepository {
 
   // ─── ATTENDANCE LIST ────────────────────────────────────────────────────
 
-  static Future<Map<String, dynamic>> getStationAttendanceList({String? stationId, String? runInstanceId}) async {
+  static Future<Map<String, dynamic>> getStationAttendanceList({String? stationId, String? runInstanceId, String? workerType, String? date}) async {
     final params = <String, String>{};
     if (stationId != null) params['stationId'] = stationId;
     if (runInstanceId != null) params['runInstanceId'] = runInstanceId;
+    if (workerType != null) params['workerType'] = workerType;
+    if (date != null) params['date'] = date;
     return await _apiCall(
       method: 'GET',
       path: '/api/station-cleaning/attendance/list',

@@ -42,6 +42,7 @@ import '../../repositories/station_run_repository.dart';
 import '../../repositories/station_cleaning_repository.dart';
 import '../../model/station_run_model.dart';
 import 'attendance/worker_attendance_screen.dart';
+import 'attendance/station_supervisor_attendance_screen.dart';
 import 'inspection/inspection_list_screen.dart';
 import 'petty_issue/petty_issue_list_screen.dart';
 import 'task_master/task_type_list_screen.dart';
@@ -112,19 +113,19 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     final r = role.toUpperCase().replaceAll(' ', '_');
     switch (r) {
       case 'RAILWAY_MASTER':
-        return {0, 1, 8, 9, 15, 16, 23, 24, 29, 30, 31, 35};
+        return {0, 1, 8, 9, 15, 16, 23, 24, 29, 30, 31, 35, 36};
       case 'RAILWAY_ADMIN':
-        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35};
+        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36};
       case 'RAILWAY_INSPECTOR':
         return {15, 35};
       case 'RAILWAY_SUPERVISOR':
-        return {0, 1, 14, 15, 22, 28, 30, 31, 35};
+        return {0, 1, 14, 15, 22, 28, 30, 31, 35, 36};
       case 'COMPANY_MASTER':
-        return {0, 1, 8, 9, 15, 18, 30, 31, 35};
+        return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36};
       case 'CONTRACTOR_MASTER':
-        return {0, 1, 8, 9, 15, 18, 30, 31};
+        return {0, 1, 8, 9, 15, 18, 30, 31, 36};
       case 'CONTRACTOR_ADMIN':
-        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35};
+        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36};
       case 'CONTRACTOR_SUPERVISOR':
         return {0, 1, 9, 30, 32, 33, 34};
       case 'WORKER':
@@ -133,7 +134,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       case 'ATTENDANT':
         return {0, 1, 14, 20, 30};
       default:
-        return {0, 1, 5, 8, 9, 15, 21, 22, 29, 30, 31};
+        return {0, 1, 5, 8, 9, 15, 21, 22, 29, 30, 31, 36};
     }
   }
 
