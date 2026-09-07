@@ -488,7 +488,7 @@ class _CommonDashboardState extends State<CommonDashboard> {
           {"title": "Area Management", "route": "sc_areas", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
           {"title": "Generate Tasks", "route": "sc_generate_tasks", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]},
           {"title": "Task Approval", "route": "sc_approval", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector"]},
-          {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval", "roles": ["Railway Admin", "Railway Supervisor"]},
+          {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval", "roles": ["Railway Admin", "Railway Supervisor", "Contractor Admin"]},
           {"title": "Machines", "route": "sc_machines", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
           {"title": "Materials", "route": "sc_materials", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
         ]
@@ -683,9 +683,15 @@ class _CommonDashboardState extends State<CommonDashboard> {
       case "sc_approval":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const TaskApprovalScreen()));
         break;
-      case "sc_shift_summary_approval":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const ShiftSummaryApprovalScreen()));
+      case "sc_shift_summary_approval": {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final user = authProvider.currentUser;
+        final stationId = (user?.stationId != null && user!.stationId!.isNotEmpty)
+            ? user.stationId
+            : (user?.stations.isNotEmpty == true ? user!.stations.first : null);
+        Navigator.push(context, MaterialPageRoute(builder: (context) => ShiftSummaryApprovalScreen(stationId: stationId)));
         break;
+      }
       case "sc_machines":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const MachineMasterListScreen()));
         break;
