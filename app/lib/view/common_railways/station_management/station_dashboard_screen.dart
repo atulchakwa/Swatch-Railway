@@ -859,10 +859,11 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
                     icon: const Icon(Icons.cleaning_services, color: kSuccessGreen),
                     tooltip: 'Station Cleaning',
                     onPressed: () {
+                      final contractId = Provider.of<AuthProvider>(context, listen: false).currentUser?.contractId;
                       Navigator.push(context, MaterialPageRoute(
                         builder: (_) => StationCleaningHubScreen(
                           stationId: s.uid ?? '', stationName: s.stationName ?? '',
-                          contractId: null,
+                          contractId: contractId,
                         ),
                       ));
                     },

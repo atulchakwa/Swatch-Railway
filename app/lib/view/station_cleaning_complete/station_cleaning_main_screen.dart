@@ -35,10 +35,14 @@ class _StationCleaningMainScreenState extends State<StationCleaningMainScreen> {
         return seenIds.add(s.uid!);
       }).toList();
 
-      final role = Provider.of<AuthProvider>(context, listen: false).currentUser?.role ?? '';
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final role = auth.currentUser?.role ?? '';
       final lockedRoles = {'CONTRACTOR_ADMIN', 'CONTRACTOR_SUPERVISOR'};
       if (lockedRoles.contains(role.toUpperCase())) {
-        final userStationId = Provider.of<AuthProvider>(context, listen: false).currentUser?.stationId;
+        final user = auth.currentUser;
+        final userStationId = (user?.stationId != null && user!.stationId!.isNotEmpty)
+            ? user.stationId
+            : (user?.stations.isNotEmpty == true ? user!.stations.first : null);
         if (userStationId != null && userStationId.isNotEmpty && _stations.any((s) => s.uid == userStationId)) {
           final station = _stations.firstWhere((s) => s.uid == userStationId);
           _selectedStationId = userStationId;
@@ -46,7 +50,10 @@ class _StationCleaningMainScreenState extends State<StationCleaningMainScreen> {
           if (mounted) {
             setState(() => _stationsLoading = false);
             Navigator.push(context, MaterialPageRoute(
-              builder: (_) => StationCleaningHubScreen(stationId: userStationId, stationName: _selectedStationName),
+              builder: (_) => StationCleaningHubScreen(
+                stationId: userStationId, stationName: _selectedStationName,
+                contractId: user?.contractId,
+              ),
             ));
           }
           return;
@@ -63,9 +70,11 @@ class _StationCleaningMainScreenState extends State<StationCleaningMainScreen> {
       );
       return;
     }
+    final contractId = Provider.of<AuthProvider>(context, listen: false).currentUser?.contractId;
     Navigator.push(context, MaterialPageRoute(
       builder: (_) => StationCleaningHubScreen(
         stationId: _selectedStationId!, stationName: _selectedStationName,
+        contractId: contractId,
       ),
     ));
   }
@@ -120,8 +129,9 @@ class _StationCleaningMainScreenState extends State<StationCleaningMainScreen> {
                                   _selectedStationName = _stations.firstWhere((s) => s.uid == v, orElse: () => Station(stationCode: v ?? '', stationName: v ?? '', zone: '', division: '')).stationName;
                                 });
                                 if (v != null && v.isNotEmpty) {
+                                  final contractId = Provider.of<AuthProvider>(context, listen: false).currentUser?.contractId;
                                   Navigator.push(context, MaterialPageRoute(
-                                    builder: (_) => StationCleaningHubScreen(stationId: v, stationName: _selectedStationName),
+                                    builder: (_) => StationCleaningHubScreen(stationId: v, stationName: _selectedStationName, contractId: contractId),
                                   ));
                                 }
                               },
