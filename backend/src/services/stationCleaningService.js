@@ -1851,7 +1851,7 @@ class StationCleaningService {
     if (status) q = q.where('status', '==', status);
     const role = (user && user.role) ? String(user.role).toUpperCase() : '';
     const isRailwayOrMaster = ['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN', 'RAILWAY_ADMIN', 'RAILWAY_INSPECTOR', 'RAILWAY_SUPERVISOR'].includes(role);
-    const canViewStationSummaries = isRailwayOrMaster || role === 'CONTRACTOR_ADMIN';
+    const canViewStationSummaries = isRailwayOrMaster || ['CONTRACTOR_ADMIN', 'CONTRACTOR_MASTER'].includes(role);
     const userStationIds = new Set();
     if (user && user.stationId) userStationIds.add(user.stationId);
     if (user && Array.isArray(user.stations)) user.stations.forEach((s) => userStationIds.add(s));

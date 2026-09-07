@@ -123,7 +123,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       case 'COMPANY_MASTER':
         return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36};
       case 'CONTRACTOR_MASTER':
-        return {0, 1, 8, 9, 15, 18, 30, 31, 36};
+        return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36};
       case 'CONTRACTOR_ADMIN':
         return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36};
       case 'CONTRACTOR_SUPERVISOR':
