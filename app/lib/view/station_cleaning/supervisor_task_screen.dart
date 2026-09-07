@@ -312,6 +312,56 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
   Future<void> _promptShiftSummary() async {
     await _loadTasks();
 
+    // Gate: all tasks for this shift must be completed before the summary can submit.
+    final terminalStatuses = {'completed', 'approved', 'cancelled'};
+    final blockers = _tasks.where((t) {
+      return !terminalStatuses.contains((t['status'] ?? '').toString().toLowerCase());
+    }).toList();
+    if (blockers.isNotEmpty) {
+      final uniqAreas = <String>{};
+      for (final t in blockers) {
+        uniqAreas.add((t['areaName'] ?? 'Unknown area').toString());
+      }
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.rule, color: kWarningOrange),
+            title: const Text('Complete All Tasks First'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${blockers.length} task(s) are still incomplete for this shift. '
+                    'Shift summary can only be submitted after every task is completed.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    uniqAreas.take(10).join('\n'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                  if (uniqAreas.length > 10)
+                    const SizedBox(height: 6),
+                  if (uniqAreas.length > 10)
+                    Text('... and ${uniqAreas.length - 10} more', style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
     final doneStatuses = {'completed', 'approved'};
     final areaMap = <String, Map<String, dynamic>>{};
     for (final t in _tasks) {

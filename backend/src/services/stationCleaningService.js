@@ -1728,6 +1728,33 @@ class StationCleaningService {
 
     const now = new Date().toISOString();
     const ref = db.collection('stationShiftSummaries').doc();
+
+    // ─── Gate: all tasks for this supervisor/station/date/shift must be
+    // terminal (completed/approved/cancelled) before the summary can submit ───
+    const resolvedShift = String(shift || '').trim().toLowerCase();
+    const incompleteTasks = [];
+    const taskSnap = await db.collection('cleaningTasks')
+      .where('supervisorId', '==', supervisorId)
+      .get();
+    taskSnap.forEach(doc => {
+      const t = doc.data();
+      const taskDate = t.date || t.scheduledDate || '';
+      if (taskDate !== String(date)) return;
+      if (stationId && t.stationId && t.stationId !== stationId) return;
+      const taskShift = t.shift ? String(t.shift).trim().toLowerCase() : '';
+      if (taskShift && resolvedShift && taskShift !== resolvedShift) return;
+      if (!taskShift && resolvedShift && resolvedShift !== 'morning') return;
+      const status = String(t.status || '').toLowerCase();
+      if (['completed', 'approved', 'cancelled'].includes(status)) return;
+      incompleteTasks.push({ areaName: t.areaName || 'Unknown area', scheduledTime: t.scheduledTime || '', status });
+    });
+    if (incompleteTasks.length > 0) {
+      const uniqAreas = [...new Set(incompleteTasks.map(x => x.areaName))].slice(0, 10);
+      const extra = incompleteTasks.length > uniqAreas.length ? `, ... (${incompleteTasks.length} total)` : '';
+      throw new ValidationError(
+        `Complete all tasks before submitting the shift summary. ${incompleteTasks.length} task(s) still incomplete: ${uniqAreas.join(', ')}${extra}`
+      );
+    }
     const enriched = await Promise.all(areas.map(async (a) => {
       let areaBasicAreaSqFt = parseFloat(a.basicAreaSqFt) || 0;
       let areaTimesPerPeriod = parseInt(a.boqTimesPerPeriod, 10) || 1;
