@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:crm_train/model/station_cleaning_models.dart';
+import 'package:crm_train/providers/station_cleaning_provider.dart';
 import 'package:crm_train/repositories/station_report_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/services/pdf_report_service.dart';
@@ -25,13 +26,24 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
 
   bool _isLoadingReports = false;
   bool _isLoadingSchedules = false;
+  bool _isLoadingLive = false;
 
   List<StationReport> _reports = [];
   List<Map<String, dynamic>> _schedules = [];
 
+  // Live dashboard data
+  Map<String, dynamic>? _dailyReport;
+  Map<String, dynamic>? _weeklyReport;
+  Map<String, dynamic>? _monthlyReport;
+
   String? _filterReportType;
   int _filterMonth = DateTime.now().month;
   int _filterYear = DateTime.now().year;
+
+  bool get _isSupervisor {
+    final r = (widget.role ?? '').toUpperCase();
+    return r == 'CONTRACTOR_SUPERVISOR';
+  }
 
   final List<String> _allReportTypes = [
     'daily_attendance', 'daily_activity', 'daily_scorecard', 'daily_complaint',
@@ -52,9 +64,10 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: _isSupervisor ? 3 : 2, vsync: this);
     _loadReports();
     _loadSchedules();
+    if (_isSupervisor) _loadLiveDashboard();
   }
 
   List<String> _getReportTypes() {
@@ -108,6 +121,32 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       }
     } finally {
       if (mounted) setState(() => _isLoadingSchedules = false);
+    }
+  }
+
+  Future<void> _loadLiveDashboard() async {
+    setState(() => _isLoadingLive = true);
+    try {
+      final provider = StationCleaningProvider();
+      final results = await Future.wait([
+        provider.fetchDailyReport(widget.stationId),
+        provider.fetchWeeklyReport(widget.stationId),
+        provider.fetchMonthlyReport(widget.stationId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _dailyReport = results[0];
+        _weeklyReport = results[1];
+        _monthlyReport = results[2];
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load live dashboard: $e'), backgroundColor: kErrorRed),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingLive = false);
     }
   }
 
@@ -333,17 +372,158 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          tabs: const [
-            Tab(text: 'Generated Reports'),
-            Tab(text: 'Schedules'),
-          ],
+          tabs: _isSupervisor
+              ? const [
+                  Tab(text: 'Live Dashboard'),
+                  Tab(text: 'Generated Reports'),
+                  Tab(text: 'Schedules'),
+                ]
+              : const [
+                  Tab(text: 'Generated Reports'),
+                  Tab(text: 'Schedules'),
+                ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
+        children: _isSupervisor
+            ? [
+                _buildLiveDashboardTab(),
+                _buildReportsTab(),
+                _buildSchedulesTab(),
+              ]
+            : [
+                _buildReportsTab(),
+                _buildSchedulesTab(),
+              ],
+      ),
+    );
+  }
+
+  Widget _buildLiveDashboardTab() {
+    return RefreshIndicator(
+      onRefresh: _loadLiveDashboard,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
         children: [
-          _buildReportsTab(),
-          _buildSchedulesTab(),
+          if (_isLoadingLive && _dailyReport == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 60),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else ...[
+            _buildPeriodCard('Today', _dailyReport, showDate: true),
+            const SizedBox(height: 12),
+            _buildPeriodCard('This Week', _weeklyReport, showRange: true),
+            const SizedBox(height: 12),
+            _buildPeriodCard('This Month', _monthlyReport, showRange: true),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPeriodCard(String title, Map<String, dynamic>? data, {bool showDate = false, bool showRange = false}) {
+    if (data == null) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text('$title — no data available',
+              style: TextStyle(color: Colors.grey[600])),
+        ),
+      );
+    }
+
+    final total = (data['totalTasks'] ?? 0).toInt();
+    final completed = (data['completedTasks'] ?? 0).toInt();
+    final pending = (data['pendingTasks'] ?? total - completed).toInt();
+    final avgScore = (data['averageScore'] ?? 0).toInt();
+    final grade = data['grade']?.toString() ?? 'N/A';
+    final rate = (data['completionRate'] ?? (total > 0 ? (completed / total * 100).round() : 0)).toInt();
+
+    String subtitle = '';
+    if (showDate) subtitle = 'Date: ${data['date'] ?? ''}';
+    if (showRange) subtitle = data['period']?.toString() ?? '${data['startDate'] ?? ''} to ${data['endDate'] ?? ''}';
+
+    Color gradeColor = grade == 'A' ? Colors.green : grade == 'B' ? Colors.lightGreen : grade == 'C' ? Colors.orange : Colors.red;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: gradeColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text('Grade $grade',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: gradeColor)),
+                ),
+              ],
+            ),
+            if (subtitle.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(child: _statBox(Icons.cleaning_services, 'Total', '$total', Colors.blue)),
+                const SizedBox(width: 8),
+                Expanded(child: _statBox(Icons.check_circle, 'Completed', '$completed', Colors.green)),
+                const SizedBox(width: 8),
+                Expanded(child: _statBox(Icons.pending, 'Pending', '$pending', Colors.orange)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _statBox(Icons.star, 'Avg Score', '$avgScore%', Colors.purple)),
+                const SizedBox(width: 8),
+                Expanded(child: _statBox(Icons.percent, 'Completion', '$rate%', Colors.teal)),
+                const Spacer(),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: total > 0 ? completed / total : 0,
+                minHeight: 8,
+                backgroundColor: Colors.grey[200],
+                valueColor: AlwaysStoppedAnimation(rate >= 80 ? Colors.green : rate >= 50 ? Colors.orange : Colors.red),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statBox(IconData icon, String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 6),
+          Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+          const SizedBox(height: 2),
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         ],
       ),
     );

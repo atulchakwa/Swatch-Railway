@@ -43,6 +43,10 @@ class _AreaEntry {
   String cleaningFrequency;
   final String scheduledTime;
   final String? taskId;
+  final String? afterPhotoUrl;
+  final String? taskRemarks;
+  final double? taskGpsLat;
+  final double? taskGpsLng;
   XFile? photo;
   final TextEditingController remarkCtrl;
   double? latitude;
@@ -50,6 +54,8 @@ class _AreaEntry {
   bool gpsCaptured = false;
 
   double get workDone => basicAreaSqFt * times;
+  bool get hasReferencePhoto => afterPhotoUrl != null && afterPhotoUrl!.isNotEmpty;
+  bool get isVerified => photo != null && gpsCaptured;
 
   _AreaEntry({
     required this.key,
@@ -63,6 +69,10 @@ class _AreaEntry {
     this.cleaningFrequency = 'daily',
     this.scheduledTime = '',
     this.taskId,
+    this.afterPhotoUrl,
+    this.taskRemarks,
+    this.taskGpsLat,
+    this.taskGpsLng,
     required String remark,
   }) : remarkCtrl = TextEditingController(text: remark);
 
@@ -82,11 +92,13 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
   void initState() {
     super.initState();
     _entries = widget.areas.map((a) {
-      final key = (a['uid'] ?? a['areaId'] ?? a['areaName'] ?? '').toString();
+      final key = (a['areaId'] ?? a['areaName'] ?? '').toString();
       final master = _findMaster(key, (a['areaName'] ?? '').toString());
+      final taskRemarks = (a['taskRemarks'] ?? '').toString();
+      final afterPhotoUrl = (a['afterPhotoUrl'] ?? '').toString();
       return _AreaEntry(
         key: key.isEmpty ? 'area_${a['areaName']}' : key,
-        areaId: (a['areaId'] ?? a['uid'] ?? '').toString(),
+        areaId: (a['areaId'] ?? '').toString(),
         areaName: (a['areaName'] ?? master?.name ?? '').toString(),
         mainArea: (a['mainArea'] ?? master?.mainArea ?? '').toString(),
         basicAreaSqFt: (a['basicAreaSqFt'] ?? master?.basicAreaSqFt ?? 0).toDouble(),
@@ -95,8 +107,12 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
         tenderedAreaPerDay: (a['tenderedAreaPerDay'] ?? master?.tenderedAreaPerDay ?? 0).toDouble(),
         cleaningFrequency: (a['cleaningFrequency'] ?? master?.cleaningFrequency ?? 'daily').toString(),
         scheduledTime: (a['scheduledTime'] ?? '').toString(),
-        taskId: a['uid']?.toString() ?? a['taskId']?.toString(),
-        remark: (a['remark'] ?? '').toString(),
+        taskId: a['taskId']?.toString(),
+        afterPhotoUrl: afterPhotoUrl.isNotEmpty ? afterPhotoUrl : null,
+        taskRemarks: taskRemarks.isNotEmpty ? taskRemarks : null,
+        taskGpsLat: (a['gpsLat'] as num?)?.toDouble(),
+        taskGpsLng: (a['gpsLng'] as num?)?.toDouble(),
+        remark: taskRemarks,
       );
     }).toList();
     _loadMasterAreas();
@@ -144,11 +160,10 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
     }
   }
 
-  int get _takenCount => _entries.where((e) => e.photo != null && e.gpsCaptured).length;
+  int get _freshPhotoCount => _entries.where((e) => e.photo != null && e.gpsCaptured).length;
   int get _remarkCount => _entries.where((e) => e.remarkCtrl.text.trim().isNotEmpty).length;
   double get _totalWorkDone => _entries.fold(0, (sum, e) => sum + e.workDone);
-
-  bool get _canSubmit => _entries.length >= _minAreas && _takenCount == _entries.length && _remarkCount == _entries.length;
+  bool get _canSubmit => _entries.length >= _minAreas && _freshPhotoCount >= _minAreas && _remarkCount == _entries.length;
 
   Future<Position?> _captureGps() async {
     try {
@@ -213,8 +228,9 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
     setState(() => _isSubmitting = true);
     try {
       final areasPayload = <Map<String, dynamic>>[];
-      for (final e in _entries) {
+      for (final e in _entries.where((x) => x.isVerified)) {
         final photoUrl = await WorkerRepository.uploadMedia(e.photo!.path);
+
         areasPayload.add({
           'areaId': e.areaId.isNotEmpty ? e.areaId : e.key,
           'areaName': e.areaName,
@@ -280,11 +296,35 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                 Text('${widget.shift} Shift — ${widget.date}',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text('${_entries.length} area(s) — $_takenCount photo(s) with live location, $_remarkCount remarks',
+                Text('${_entries.length} completed area(s) — End-of-shift photos: $_freshPhotoCount/$_minAreas',
                     style: TextStyle(color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text('Total Work Done: ${_totalWorkDone.toStringAsFixed(0)} sqft',
                     style: TextStyle(color: const Color(0xFF1B5E20), fontWeight: FontWeight.w700)),
+                if (_freshPhotoCount < _minAreas) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: kWarningOrange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: kWarningOrange),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: kWarningOrange, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Please complete at least 5 end-of-shift area photos before ending attendance.',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -319,9 +359,9 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                           ? 'Submitting...'
                           : _entries.length < _minAreas
                               ? 'Select ${_minAreas - _entries.length} more area(s)'
-                              : (_takenCount < _entries.length || _remarkCount < _entries.length)
-                                  ? 'Take photo(s) with live location & add remark(s) ($_takenCount/${_entries.length} done)'
-                                  : 'Submit Summary ($_takenCount areas)'),
+                              : (_freshPhotoCount < _minAreas || _remarkCount < _entries.length)
+                                  ? 'End-of-shift photos: $_freshPhotoCount/$_minAreas'
+                                  : 'Submit Summary ($_freshPhotoCount areas)'),
                       onPressed: (_canSubmit && !_isSubmitting) ? _submit : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: kSuccessGreen,
@@ -341,6 +381,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
 
   Widget _buildAreaCard(_AreaEntry entry) {
     final photo = entry.photo;
+    final hasTaskPhoto = entry.afterPhotoUrl != null && entry.afterPhotoUrl!.isNotEmpty;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -398,19 +439,21 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
             Row(
               children: [
                 Icon(
-                  entry.gpsCaptured ? Icons.gps_fixed : Icons.gps_off,
+                  entry.isVerified ? Icons.gps_fixed : Icons.gps_off,
                   size: 14,
-                  color: entry.gpsCaptured ? Colors.green[700] : Colors.redAccent,
+                  color: entry.isVerified ? Colors.green[700] : Colors.redAccent,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    entry.gpsCaptured && entry.latitude != null && entry.longitude != null
-                        ? 'Lat: ${entry.latitude!.toStringAsFixed(5)}, Lng: ${entry.longitude!.toStringAsFixed(5)}'
-                        : 'Live location required — take photo to capture',
+                    entry.isVerified
+                        ? 'Live GPS: ${entry.latitude!.toStringAsFixed(5)}, ${entry.longitude!.toStringAsFixed(5)}'
+                        : entry.taskGpsLat != null
+                            ? 'Task GPS: ${entry.taskGpsLat!.toStringAsFixed(5)}, ${entry.taskGpsLng!.toStringAsFixed(5)} (reference)'
+                            : 'Fresh photo with live location required',
                     style: TextStyle(
                       fontSize: 12,
-                      color: entry.gpsCaptured ? Colors.green[800] : Colors.redAccent,
+                      color: entry.isVerified ? Colors.green[800] : Colors.grey[600],
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -419,13 +462,84 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
             ),
             const SizedBox(height: 12),
             if (photo != null)
-              Container(
-                width: double.infinity,
-                height: 160,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  image: DecorationImage(image: FileImage(File(photo.path)), fit: BoxFit.cover),
-                ),
+              Stack(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 160,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      image: DecorationImage(image: FileImage(File(photo.path)), fit: BoxFit.cover),
+                    ),
+                  ),
+                  if (entry.isVerified)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.green[700],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text('End-of-shift photo verified',
+                                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              )
+            else if (hasTaskPhoto)
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      entry.afterPhotoUrl!,
+                      width: double.infinity,
+                      height: 160,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        width: double.infinity,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.grey[50],
+                        ),
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.broken_image, size: 36, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('Task photo could not be loaded', style: TextStyle(color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey[600],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('Reference photo (from task)',
+                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
               )
             else
               Container(
@@ -442,36 +556,23 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                     children: [
                       Icon(Icons.camera_alt, size: 36, color: Colors.grey),
                       SizedBox(height: 8),
-                      Text('Photo required — tap to take', style: TextStyle(color: Colors.grey)),
+                      Text('Fresh photo required — tap to take', style: TextStyle(color: Colors.grey)),
                     ],
                   ),
                 ),
               ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: Icon(photo != null ? Icons.refresh : Icons.camera_alt, size: 16),
-                    label: Text(photo != null ? 'Retake' : 'Take Photo'),
-                    onPressed: () => _takePhoto(entry),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: photo != null ? Colors.green[800] : kRailwayBlue,
-                      backgroundColor: photo != null ? Colors.green[50] : null,
-                    ),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: Icon(entry.isVerified ? Icons.fact_check : Icons.camera_alt, size: 16),
+                label: Text(entry.isVerified ? 'Retake End-of-Shift Photo' : 'Take End-of-Shift Photo'),
+                onPressed: () => _takePhoto(entry),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: entry.isVerified ? Colors.green[800] : kRailwayBlue,
+                  backgroundColor: entry.isVerified ? Colors.green[50] : null,
                 ),
-                if (_entries.length > _minAreas) ...[
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                    onPressed: () => setState(() {
-                      entry.dispose();
-                      _entries.remove(entry);
-                    }),
-                  ),
-                ],
-              ],
+              ),
             ),
             const SizedBox(height: 8),
             TextField(

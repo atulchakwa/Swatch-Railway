@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -285,7 +284,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
               action: SnackBarAction(
                 label: 'SUBMIT',
                 textColor: Colors.white,
-                onPressed: _promptShiftSummary,
+                onPressed: () => _promptShiftSummary(),
               ),
             ),
           );
@@ -310,8 +309,9 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
     }
   }
 
-  void _promptShiftSummary() {
-    if (_tasks.isEmpty) return;
+  Future<void> _promptShiftSummary() async {
+    await _loadTasks();
+
     final doneStatuses = {'completed', 'approved'};
     final areaMap = <String, Map<String, dynamic>>{};
     for (final t in _tasks) {
@@ -323,23 +323,51 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
         existing['times'] = ((existing['times'] as int) + 1);
       } else {
         areaMap[areaId] = {
-          'uid': t['uid'],
           'key': areaId,
           'areaId': areaId,
           'areaName': t['areaName'] ?? '',
           'scheduledTime': t['scheduledTime'] ?? '',
           'taskId': t['uid'],
+          'afterPhotoUrl': t['afterPhoto'] ?? '',
+          'taskRemarks': t['remarks'] ?? '',
+          'gpsLat': t['gpsLat'],
+          'gpsLng': t['gpsLng'],
           'times': 1,
         };
       }
     }
     final areas = areaMap.values.toList();
-    if (areas.isEmpty) return;
+
+    if (areas.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No completed tasks found. Complete tasks before submitting shift summary.'),
+            backgroundColor: kWarningOrange,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (areas.length < 5) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Only ${areas.length} area(s) completed. Complete at least 5 areas before submitting shift summary.'),
+            backgroundColor: kWarningOrange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      return;
+    }
 
     final primaryShift = _tasks.isNotEmpty
         ? (_tasks.first['shift']?.toString() ?? 'Morning')
         : 'Morning';
 
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -348,8 +376,8 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
         child: AlertDialog(
           icon: const Icon(Icons.camera_alt, size: 48, color: Colors.orange),
           title: const Text('Shift Summary Required'),
-          content: const Text(
-            'You must photograph at least 5 critical areas and submit your shift summary to complete your shift.',
+          content: Text(
+            'You have $areas.length completed area(s). Submit your shift summary with photos to complete your shift.',
             textAlign: TextAlign.center,
           ),
           actions: [
@@ -997,12 +1025,8 @@ class _SupervisorTaskExecutionSheet extends StatefulWidget {
 }
 
 class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionSheet> {
-  int currentStep = 0;
-  XFile? beforePhoto;
-  XFile? afterPhoto;
   final TextEditingController _commentCtrl = TextEditingController();
   bool isSubmitting = false;
-  final _picker = ImagePicker();
 
   @override
   void dispose() {
@@ -1037,159 +1061,32 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
                 ],
               ),
               const SizedBox(height: 16),
-              Text('Step ${currentStep + 1} of 4', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(height: 8),
-              Row(
-                children: List.generate(4, (i) => Expanded(
-                  child: Container(
-                    height: 4,
-                    margin: EdgeInsets.only(right: i < 3 ? 8 : 0),
-                    decoration: BoxDecoration(
-                      color: i <= currentStep ? kRailwayBlue : Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                )),
+              const Text('Remark the location', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _commentCtrl,
+                minLines: 3,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  hintText: 'Enter remarks...',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
               ),
               const SizedBox(height: 20),
-              if (currentStep == 0) _photoStep('Before Photo', beforePhoto, true)
-              else if (currentStep == 1) _commentStep()
-              else if (currentStep == 2) _photoStep('After Photo', afterPhoto, false)
-              else _summaryStep(),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  if (currentStep > 0)
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => setState(() => currentStep--),
-                        child: const Text('Back'),
-                      ),
-                    ),
-                  if (currentStep > 0) const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _canProceed() && !isSubmitting ? () {
-                        if (currentStep < 3) {
-                          setState(() => currentStep++);
-                        } else {
-                          _submit();
-                        }
-                      } : null,
-                      style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
-                      child: Text(isSubmitting ? 'Submitting...' : currentStep == 3 ? 'Submit' : 'Next'),
-                    ),
-                  ),
-                ],
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: (_commentCtrl.text.trim().isNotEmpty && !isSubmitting) ? _submit : null,
+                  style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
+                  child: Text(isSubmitting ? 'Submitting...' : (widget.mode == 'complete' ? 'Complete Task' : 'Resubmit Task')),
+                ),
               ),
             ],
           ),
         ),
       ),
     );
-  }
-
-  Widget _photoStep(String label, XFile? photo, bool isBefore) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-        const SizedBox(height: 12),
-        if (photo != null)
-          Container(
-            width: double.infinity,
-            height: 200,
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(12),
-              image: DecorationImage(image: FileImage(File(photo.path)), fit: BoxFit.cover),
-            ),
-          )
-        else
-          GestureDetector(
-            onTap: () => _capturePhoto(isBefore: isBefore),
-            child: Container(
-              width: double.infinity,
-              height: 200,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[300]!, width: 2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.camera_alt, size: 48, color: Colors.grey[600]),
-                  const SizedBox(height: 12),
-                  Text('Tap to take photo', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _commentStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Add Comments', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _commentCtrl,
-          minLines: 3,
-          maxLines: 3,
-          decoration: InputDecoration(
-            hintText: 'Enter remarks...',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            contentPadding: const EdgeInsets.all(12),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _summaryStep() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.green[50],
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.green[200]!),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.check_circle, color: kSuccessGreen, size: 20),
-              SizedBox(width: 8),
-              Text('Review & Submit', style: TextStyle(fontWeight: FontWeight.w600, color: kSuccessGreen)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text('Before Photo: ${beforePhoto != null ? 'Captured' : 'Not captured'}'),
-          Text('Comments: ${_commentCtrl.text.isEmpty ? 'None' : _commentCtrl.text}'),
-          Text('After Photo: ${afterPhoto != null ? 'Captured' : 'Not captured'}'),
-        ],
-      ),
-    );
-  }
-
-  bool _canProceed() {
-    if (currentStep == 0) return true;
-    if (currentStep == 1) return _commentCtrl.text.isNotEmpty;
-    if (currentStep == 2) return true;
-    return true;
-  }
-
-  Future<void> _capturePhoto({required bool isBefore}) async {
-    final photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80, maxWidth: 1280);
-    if (photo == null) return;
-    setState(() {
-      if (isBefore) beforePhoto = photo;
-      else afterPhoto = photo;
-    });
   }
 
   Future<void> _submit() async {
@@ -1198,15 +1095,6 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
       if (token == null) throw Exception('AUTH_ERROR');
-
-      String? beforeUrl;
-      String? afterUrl;
-      if (beforePhoto != null) {
-        beforeUrl = await WorkerRepository.uploadMedia(beforePhoto!.path);
-      }
-      if (afterPhoto != null) {
-        afterUrl = await WorkerRepository.uploadMedia(afterPhoto!.path);
-      }
 
       double? lat, lng;
       try {
@@ -1220,8 +1108,6 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
       final body = <String, dynamic>{
         'remarks': _commentCtrl.text.trim(),
       };
-      if (beforeUrl != null) { body['beforePhoto'] = beforeUrl; }
-      if (afterUrl != null) { body['afterPhoto'] = afterUrl; }
       if (lat != null) { body['gpsLat'] = lat; body['gpsLng'] = lng; }
 
       final endpoint = widget.mode == 'complete' ? 'complete' : 'resubmit';
