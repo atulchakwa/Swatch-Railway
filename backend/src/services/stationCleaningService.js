@@ -1426,8 +1426,13 @@ class StationCleaningService {
     const station = stationDoc.data();
     const snapshot = await db.collection('cleaningTasks')
       .where('stationId', '==', stationId)
-      .where('scheduledDate', '>=', startStr).where('scheduledDate', '<=', end).get();
-    const tasks = snapshot.docs.map(d => d.data());
+      .get();
+    const tasks = snapshot.docs
+      .map(d => d.data())
+      .filter(t => {
+        const d = t.scheduledDate || t.date || '';
+        return d >= startStr && d <= end;
+      });
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'completed' || t.status === 'approved').length;
     const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total) : 0;
@@ -1454,8 +1459,13 @@ class StationCleaningService {
     const station = stationDoc.data();
     const snapshot = await db.collection('cleaningTasks')
       .where('stationId', '==', stationId)
-      .where('scheduledDate', '>=', startStr).where('scheduledDate', '<=', endStr).get();
-    const tasks = snapshot.docs.map(d => d.data());
+      .get();
+    const tasks = snapshot.docs
+      .map(d => d.data())
+      .filter(t => {
+        const d = t.scheduledDate || t.date || '';
+        return d >= startStr && d <= endStr;
+      });
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'completed' || t.status === 'approved').length;
     const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total) : 0;
@@ -1484,8 +1494,13 @@ class StationCleaningService {
       const endStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
       const snapshot = await db.collection('cleaningTasks')
         .where('stationId', '==', stationId)
-        .where('scheduledDate', '>=', startStr).where('scheduledDate', '<=', endStr).get();
-      const tasks = snapshot.docs.map(d => d.data());
+        .get();
+      const tasks = snapshot.docs
+        .map(d => d.data())
+        .filter(t => {
+          const d = t.scheduledDate || t.date || '';
+          return d >= startStr && d <= endStr;
+        });
       const withScore = tasks.filter(t => t.score);
       const avgScore = withScore.length > 0 ? Math.round(withScore.reduce((s, t) => s + (t.score || 0), 0) / withScore.length) : 0;
       data.push({ month: m, year: y, label: `${y}-${String(m).padStart(2, '0')}`, averageScore: avgScore, taskCount: tasks.length });
