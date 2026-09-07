@@ -445,6 +445,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
   }
 
   void _navigateWithStation(BuildContext context, Widget Function(String stationId, String stationName) screenBuilder, dynamic user) async {
+    final navigator = Navigator.of(context);
     String stationId = user?.stationId ?? '';
     if (stationId.isEmpty && (user?.stations is List) && (user.stations as List).isNotEmpty) {
       stationId = (user.stations as List).first.toString();
@@ -458,7 +459,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       } catch (_) {}
     }
     if (mounted) {
-      Navigator.push(context, MaterialPageRoute(builder: (context) => screenBuilder(stationId, stationName)));
+      navigator.push(MaterialPageRoute(builder: (context) => screenBuilder(stationId, stationName)));
     }
   }
 
