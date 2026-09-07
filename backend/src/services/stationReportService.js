@@ -192,7 +192,7 @@ class StationReportService {
     const stationName = await this._getStationName(stationId);
     const snap = await db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date).get();
     const records = snap.docs.map(d => d.data());
-    const nowTime = new Date().toISOString().substring(11, 16);
+    const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
     const completed = records.filter(r => r.status === 'completed' || r.status === 'approved').length;
     const pending = records.filter(r => r.status === 'pending' || r.status === 'assigned').length;
     const inProgress = records.filter(r => r.status === 'in_progress').length;
