@@ -51,7 +51,7 @@ class _ShiftSummaryApprovalScreenState extends State<ShiftSummaryApprovalScreen>
     final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
     if (user == null) return true;
     final r = user.role.toUpperCase().replaceAll(' ', '_');
-    return r != 'CONTRACTOR_ADMIN';
+    return !r.startsWith('CONTRACTOR_');
   }
 
   @override
