@@ -3793,6 +3793,25 @@ class ApiService {
     }
   }
 
+  static Future<Station> getStationById(String stationUid) async {
+    try {
+      final token = await getToken();
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/stations/$stationUid'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final payload = Map<String, dynamic>.from(data);
+        payload['uid'] = payload['uid'] ?? payload['id'];
+        return Station.fromJson(payload);
+      }
+      throw Exception('Failed to fetch station');
+    } catch (e) {
+      throw Exception('Error fetching station: $e');
+    }
+  }
+
   static Future<Map<String, dynamic>> createStationArea(Map<String, dynamic> data) async {
     try {
       final token = await getToken();

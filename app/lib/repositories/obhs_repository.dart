@@ -450,6 +450,39 @@ class OBHSRepository {
 
   // --- Supervisor / Contractor APIs ---
 
+  // Contractor supervisors scoped server-side to the requester's entity and station.
+  // Avoids fetching the entire workers collection (previously all users were loaded).
+  static Future<List<RailwayWorkerModel>> getContractorSupervisors({String? stationId}) async {
+    try {
+      final token = await _getToken();
+      if (token == null) throw Exception('AUTH_ERROR');
+
+      final uri = Uri.parse('$baseUrl/api/users/contractor-supervisors').replace(
+        queryParameters: stationId != null && stationId.isNotEmpty ? {'stationId': stationId} : null,
+      );
+      final response = await _handleRequest(() => http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      ));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final supervisorsData = data['supervisors'] as List<dynamic>? ?? [];
+        return supervisorsData.map((w) => RailwayWorkerModel.fromJson(w as Map<String, dynamic>)).toList();
+      } else if (response.statusCode == 401) {
+        throw Exception('AUTH_ERROR');
+      } else {
+        throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
+      }
+    } catch (e) {
+      if (e.toString().contains('AUTH_ERROR')) rethrow;
+      throw Exception(ApiErrorHandler.getErrorMessage(e, null));
+    }
+  }
+
   static Future<List<RailwayWorkerModel>> getWorkers() async {
     try {
       final token = await _getToken();

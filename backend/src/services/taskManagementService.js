@@ -552,6 +552,37 @@ class TaskManagementService {
     let cancelledTotal = 0;
     const allTaskIds = [];
 
+    // Pre-resolve area data so the main loop does not re-fetch each document.
+    // When the caller passed activity selections (the task generation screen),
+    // every area must resolve to at least one activity BEFORE any writes happen —
+    // areas without an activity never generate tasks.
+    const activityHintsPresent = data && (
+      'taskActivities' in data ||
+      'areaActivities' in data ||
+      data.activityType ||
+      data.taskTypeId ||
+      data.taskTypeName
+    );
+    const activitiesByArea = new Map();
+    const missingActivityAreas = [];
+    for (const areaId of areaIds) {
+      let areaDoc = await db.collection('areas').doc(areaId).get();
+      if (!areaDoc.exists) {
+        areaDoc = await db.collection('stationAreas').doc(areaId).get();
+      }
+      const areaData = areaDoc.exists ? areaDoc.data() : {};
+      const resolved = this._resolveActivitiesForArea(areaId, areaData, data);
+      activitiesByArea.set(areaId, { doc: areaDoc, data: areaData, activities: resolved });
+      if (activityHintsPresent && resolved.length === 0) {
+        missingActivityAreas.push(areaData.areaName || areaData.name || areaData.areaCode || areaId);
+      }
+    }
+    if (missingActivityAreas.length > 0) {
+      throw new ValidationError(
+        `No cleaning activity selected for: ${missingActivityAreas.join(', ')}. Select at least one activity per area before generating tasks.`
+      );
+    }
+
     // Resolve the supervisor if provided
     let assignedSupervisorId = null;
     let assignedSupervisorName = '';
@@ -609,16 +640,12 @@ class TaskManagementService {
     }
 
     for (const areaId of areaIds) {
-      const [workersSnap, areaSnap] = await Promise.all([
-        assignedWorker || assignedWorkers.length > 0 ? null : db.collection('areaWorkerAssignments').where('areaId', '==', areaId).where('isActive', '==', true).limit(200).get(),
-        db.collection('areas').doc(areaId).get()
-      ]);
-      let areaDoc = areaSnap;
-      if (!areaDoc.exists) {
-        areaDoc = await db.collection('stationAreas').doc(areaId).get();
-      }
-      const areaData = areaDoc.exists ? areaDoc.data() : {};
-      const activities = this._resolveActivitiesForArea(areaId, areaData, data);
+      const workersSnap = assignedWorker || assignedWorkers.length > 0
+        ? null
+        : await db.collection('areaWorkerAssignments').where('areaId', '==', areaId).where('isActive', '==', true).limit(200).get();
+      const cachedArea = activitiesByArea.get(areaId) || { doc: null, data: {}, activities: [] };
+      const areaData = cachedArea.data;
+      const activities = cachedArea.activities;
       const taskActivities = activities.length > 0 ? activities : [null];
       const cleaningFrequency = frequency || areaData.cleaningFrequency || areaData.frequency || 'daily';
       // Per-area override: contractor admin assigns how many times per day.

@@ -91,69 +91,33 @@ class _TaskGenerationScreenState extends State<TaskGenerationScreen> {
       final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
       final role = user?.role ?? '';
 
-      List<Station> filtered = [];
-      bool stationLocked = false;
-      try {
-        final stData = await ApiService.getStations(active: true);
-        if (widget.stationId != null) {
-          filtered = stData.where((s) => s.uid == widget.stationId).toList();
-          stationLocked = true;
-        } else if (role == 'Contractor Admin' || role == 'Contractor Master') {
-          final userStationIds = <String>{};
-          if (user?.stationId != null && user!.stationId!.isNotEmpty) {
-            userStationIds.add(user.stationId!);
-          }
-          if (user?.stations != null && user!.stations.isNotEmpty) {
-            userStationIds.addAll(user.stations);
-          }
-          if (userStationIds.isNotEmpty) {
-            filtered = stData.where((s) => s.uid != null && userStationIds.contains(s.uid)).toList();
-            stationLocked = true;
-          } else {
-            filtered = stData;
-          }
-        } else {
-          filtered = stData;
-        }
-      } catch (e) {
-        debugPrint('Error loading stations: $e');
-        if (mounted) {
-          setState(() => _loadError = 'Failed to load stations. Check your connection and try again.');
-        }
+      final userStationIds = <String>{};
+      if (user?.stationId != null && user!.stationId!.isNotEmpty) {
+        userStationIds.add(user.stationId!);
+      }
+      if (user?.stations != null && user!.stations.isNotEmpty) {
+        userStationIds.addAll(user.stations);
       }
 
-      List<RailwayWorkerModel> uniqueWorkers = [];
-      try {
-        final wkData = await OBHSRepository.getWorkers();
-        final seen = <String>{};
-        uniqueWorkers = wkData.where((w) => seen.add(w.uid)).toList();
-      } catch (e) {
-        debugPrint('Error loading workers: $e');
-      }
+      final contractorRole = role == 'Contractor Admin' || role == 'Contractor Master';
+      final lockedStationId = widget.stationId ?? (contractorRole && userStationIds.length == 1 ? userStationIds.first : null);
 
-      // Load only Contractor Supervisors (approved, real users)
-      final supList = uniqueWorkers.where((w) {
-        final role = w.role.toLowerCase().replaceAll('_', ' ');
-        return role.contains('contractor supervisor') && w.status == 'APPROVED';
-      }).toList();
+      final results = await Future.wait<Object>([
+        _loadStations(lockedStationId, contractorRole, userStationIds),
+        _loadSupervisors(lockedStationId),
+        _loadTaskTypes(),
+      ]);
 
-      // Load cleaning activities (task types) for per-area selection
-      List<TaskType> taskTypes = [];
-      try {
-        taskTypes = await TaskTypeRepository.list(category: 'cleaning', isActive: true);
-      } catch (e) {
-        debugPrint('Error loading task types: $e');
-      }
-      if (taskTypes.isEmpty) {
-        taskTypes = _defaultActivities();
-      }
+      final stations = results[0] as List<Station>;
+      final supervisors = results[1] as List<RailwayWorkerModel>;
+      final taskTypes = results[2] as List<TaskType>;
 
       if (mounted) {
         setState(() {
-          _stations = filtered;
-          _supervisors = supList;
+          _stations = stations;
+          _supervisors = supervisors;
           _taskTypes = taskTypes;
-          _isStationLocked = stationLocked;
+          _isStationLocked = lockedStationId != null;
           if (_stations.isNotEmpty) {
             if (widget.stationId != null) {
               _selectedStation = _stations.where((s) => s.uid == widget.stationId).firstOrNull ?? _stations.first;
@@ -171,6 +135,71 @@ class _TaskGenerationScreenState extends State<TaskGenerationScreen> {
       debugPrint('Error loading data: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Fetch only the assigned station(s) instead of pulling every station in the system.
+  Future<List<Station>> _loadStations(String? lockedStationId, bool contractorRole, Set<String> userStationIds) async {
+    try {
+      if (lockedStationId != null) {
+        return [await ApiService.getStationById(lockedStationId)];
+      }
+      // Multi-station contractor: fetch their assigned stations individually.
+      if (contractorRole && userStationIds.isNotEmpty) {
+        final stations = <Station>[];
+        for (final id in userStationIds) {
+          try {
+            stations.add(await ApiService.getStationById(id));
+          } catch (_) {
+            // Skip stations that cannot be resolved individually.
+          }
+        }
+        if (stations.isNotEmpty) return stations;
+      }
+      final stData = await ApiService.getStations(active: true);
+      if (contractorRole && userStationIds.isNotEmpty) {
+        return stData.where((s) => s.uid != null && userStationIds.contains(s.uid)).toList();
+      }
+      return stData;
+    } catch (e) {
+      debugPrint('Error loading stations: $e');
+      if (mounted) {
+        setState(() => _loadError = 'Failed to load stations. Check your connection and try again.');
+      }
+      return <Station>[];
+    }
+  }
+
+  // Contractor supervisors scoped server-side to the requester's entity (and station when locked).
+  Future<List<RailwayWorkerModel>> _loadSupervisors(String? lockedStationId) async {
+    try {
+      final supList = await OBHSRepository.getContractorSupervisors(stationId: lockedStationId);
+      final seen = <String>{};
+      return supList.where((w) => seen.add(w.uid)).toList();
+    } catch (e) {
+      debugPrint('Error loading contractor supervisors: $e');
+      try {
+        final wkData = await OBHSRepository.getWorkers();
+        final seen = <String>{};
+        final uniqueWorkers = wkData.where((w) => seen.add(w.uid)).toList();
+        return uniqueWorkers.where((w) {
+          final role = w.role.toLowerCase().replaceAll('_', ' ');
+          return role.contains('contractor supervisor') && w.status == 'APPROVED';
+        }).toList();
+      } catch (e2) {
+        debugPrint('Error loading workers fallback: $e2');
+        return <RailwayWorkerModel>[];
+      }
+    }
+  }
+
+  Future<List<TaskType>> _loadTaskTypes() async {
+    try {
+      final taskTypes = await TaskTypeRepository.list(category: 'cleaning', isActive: true);
+      return taskTypes.isNotEmpty ? taskTypes : _defaultActivities();
+    } catch (e) {
+      debugPrint('Error loading task types: $e');
+      return _defaultActivities();
     }
   }
 
@@ -534,6 +563,25 @@ int _defaultFrequencyForArea(StationArea area) {
     }
     if (_selectedAreaIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select at least one area')));
+      return;
+    }
+
+    final missingActivities = _selectedAreaIds.where((a) {
+      final acts = _areaActivities[a] ?? const <TaskType>[];
+      return acts.isEmpty;
+    }).map((a) {
+      final area = _allAreas.where((x) => (x.uid ?? x.name) == a).firstOrNull;
+      return area?.name ?? a;
+    }).toList();
+    if (missingActivities.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Select at least one activity for: ${missingActivities.join(', ')}. Tasks cannot be generated without an activity.'),
+            backgroundColor: kWarningOrange,
+          ),
+        );
+      }
       return;
     }
 

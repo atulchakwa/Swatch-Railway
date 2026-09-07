@@ -26,6 +26,8 @@ class RailwayWorkerModel {
   final String? workerType; // 'Janitor' or 'Attendant'
   final List<String>? trainIds;
   final String? stationId;
+  final String? contractId;
+  final List<String>? stationsFields;
 
   RailwayWorkerModel({
     required this.uid,
@@ -55,6 +57,8 @@ class RailwayWorkerModel {
     this.workerType,
     this.trainIds,
     this.stationId,
+    this.contractId,
+    this.stationsFields,
   });
 
   factory RailwayWorkerModel.fromJson(Map<String, dynamic> json) {
@@ -96,6 +100,10 @@ class RailwayWorkerModel {
           ? List<String>.from((json['trainIds'] ?? json['train_ids']) as List)
           : null,
       stationId: json['stationId'] as String?,
+      contractId: json['contractId'] as String?,
+      stationsFields: (json['stations'] != null)
+          ? List<String>.from(json['stations'] as List)
+          : null,
     );
   }
 
