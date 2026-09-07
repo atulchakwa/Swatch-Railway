@@ -180,6 +180,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.groups, 'Workers', Colors.teal, () => _openWorkers(context)),                     // 33
       _moduleCard(context, Icons.camera_alt, 'Field\nWork', Colors.deepOrange, () => _openFieldWork(context)),     // 34
       _moduleCard(context, Icons.approval, 'Shift\nSummary', Colors.teal.shade700, () => _openShiftSummaryApproval(context)), // 35
+      _moduleCard(context, Icons.badge, 'Supervisor\nAttendance', Colors.indigo.shade700, () => _openSupervisorAttendance(context)), // 36
     ];
 
     final cards = <Widget>[];
@@ -274,6 +275,13 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     } else {
       Navigator.push(context, MaterialPageRoute(builder: (_) => StationAttendanceScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
     }
+  }
+
+  void _openSupervisorAttendance(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => StationSupervisorAttendanceScreen(
+      stationId: _selectedStationId,
+      stationName: _selectedStationName,
+    )));
   }
 
   void _openWorkerAttendance(BuildContext context, String workerId, String workerName) {
