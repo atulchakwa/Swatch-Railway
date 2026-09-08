@@ -224,8 +224,15 @@ class StationReportService {
 
   async generateDailyAttendanceReport(stationId, date, user) {
     const stationName = await this._getStationName(stationId);
-    const stationAttSnap = await db.collection('station_attendance').where('stationId', '==', stationId).get();
-    const records = []; stationAttSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
+    // Station-cleaning contracts write worker attendance (start/mid/end + face
+    // verification) into station_cleaning_attendance. The generic attendance
+    // service writes to station_attendance. Read both so the report is never empty.
+    const [attSnap, scAttSnap] = await Promise.all([
+      db.collection('station_attendance').where('stationId', '==', stationId).get(),
+      db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
+    ]);
+    const records = []; attSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
+    scAttSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
 
     // In station-cleaning contracts work is performed by contract supervisors,
     // so we enrich each supervisor's attendance with the activities they did.
@@ -500,11 +507,13 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
-    const [snap, overtimeSnap] = await Promise.all([
+    const [snap, scAttSnap, overtimeSnap] = await Promise.all([
       db.collection('station_attendance').where('stationId', '==', stationId).get(),
+      db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
       db.collection('overtime_records').where('stationId', '==', stationId).get(),
     ]);
     const records = []; snap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) records.push(r); });
+    scAttSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) records.push(r); });
     const overtime = []; overtimeSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) overtime.push(r); });
     const combinedRecords = records.map(r => ({ ...r, source: 'station_attendance' }));
     const isPresent = (r) => ['present', 'PRESENT', 'half_day'].includes(r.status) || r.attendanceStatus === 'PRESENT';
@@ -660,20 +669,22 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`;
     const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
-    const [attSnap, actSnap, scoreSnap, compSnap] = await Promise.all([
+    const [attSnap, scAttSnap, actSnap, scoreSnap, compSnap] = await Promise.all([
       db.collection('station_attendance').where('stationId', '==', stationId).get(),
+      db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
       db.collection('station_daily_activities').where('stationId', '==', stationId).get(),
       db.collection('daily_scorecards').where('stationId', '==', stationId).get(),
       db.collection('complaints').where('stationId', '==', stationId).get(),
     ]);
     const attRecords = []; attSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) attRecords.push(r); });
+    scAttSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) attRecords.push(r); });
     const actRecords = []; actSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) actRecords.push(r); });
     const scoreRecords = []; scoreSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) scoreRecords.push(r); });
     const compRecords = []; compSnap.forEach(d => compRecords.push(d.data()));
     const feedRecords = await this._getFeedbackRecords(stationId);
     const inMonthComps = compRecords.filter(r => { const c = r.createdAt || ''; return c >= startDate && c <= endDate + 'T23:59:59'; });
     const inMonthFeed = feedRecords.filter(r => { const c = r.createdAt || ''; return c >= startDate && c <= endDate + 'T23:59:59'; });
-    const presentLate = attRecords.filter(r => r.status === 'present' || r.status === 'late').length;
+    const presentLate = attRecords.filter(r => r.status === 'present' || r.status === 'late' || r.attendanceStatus === 'PRESENT' || r.attendanceStatus === 'LATE').length;
     const attPct = attRecords.length > 0 ? Math.round(presentLate / attRecords.length * 100) : 0;
     const completedActs = actRecords.filter(a => a.status === 'COMPLETED' || a.status === 'APPROVED').length;
     const completionRate = actRecords.length > 0 ? Math.round(completedActs / actRecords.length * 100) : 0;
