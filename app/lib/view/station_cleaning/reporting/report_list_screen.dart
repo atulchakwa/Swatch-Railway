@@ -25,13 +25,10 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
   late TabController _tabController;
 
   bool _isLoadingReports = false;
-  bool _isLoadingSchedules = false;
   bool _isLoadingLive = false;
 
   List<StationReport> _reports = [];
-  List<Map<String, dynamic>> _schedules = [];
 
-  // Live dashboard data
   Map<String, dynamic>? _dailyReport;
   Map<String, dynamic>? _weeklyReport;
   Map<String, dynamic>? _monthlyReport;
@@ -45,35 +42,141 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
     return r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN';
   }
 
-  final List<String> _allReportTypes = [
-    'daily_attendance', 'daily_activity', 'daily_scorecard', 'daily_complaint',
-    'daily_feedback', 'daily_inspection', 'daily_supervisor_log', 'missed_activity',
-    'archive_retrieval',
-    'monthly_attendance', 'monthly_cleaning', 'monthly_scorecard',
-    'monthly_complaint', 'monthly_feedback', 'monthly_billing', 'monthly_penalty',
-    'monthly_performance',
+  bool get _isContractor {
+    final r = (widget.role ?? '').toUpperCase();
+    return r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN';
+  }
+
+  static const Map<String, Map<String, dynamic>> _reportMeta = {
+    'daily_attendance': {
+      'icon': Icons.how_to_reg,
+      'title': 'Attendance Report',
+      'frequency': 'Daily',
+      'description': 'View biometric/API attendance and manpower availability per shift.',
+      'color': Color(0xFF1565C0),
+    },
+    'daily_activity': {
+      'icon': Icons.cleaning_services,
+      'title': 'Cleaning Activity Report',
+      'frequency': 'Daily',
+      'description': 'Track completed, pending, overdue, and rejected cleaning tasks.',
+      'color': Color(0xFF2E7D32),
+    },
+    'daily_inspection': {
+      'icon': Icons.fact_check,
+      'title': 'Inspection Report',
+      'frequency': 'Daily',
+      'description': 'Capture not-cleaned areas, scores, photo evidence, and inspection remarks.',
+      'color': Color(0xFF6A1B9A),
+    },
+    'daily_feedback': {
+      'icon': Icons.feedback,
+      'title': 'Passenger Feedback Report',
+      'frequency': 'Daily',
+      'description': 'View PNR-validated feedback, section-wise scores, and negative feedback trends.',
+      'color': Color(0xFFE65100),
+    },
+    'missed_activity': {
+      'icon': Icons.warning_amber,
+      'title': 'Overdue Task / Exception Report',
+      'frequency': 'Daily',
+      'description': 'Highlight missed, delayed, or overdue cleaning tasks and exceptions.',
+      'color': Color(0xFFC62828),
+    },
+    'daily_scorecard': {
+      'icon': Icons.score,
+      'title': 'Daily Scorecard',
+      'frequency': 'Daily',
+      'description': 'Daily quality score with grade distribution across all areas.',
+      'color': Color(0xFF00838F),
+    },
+    'daily_complaint': {
+      'icon': Icons.report_problem,
+      'title': 'Complaint Report',
+      'frequency': 'Daily',
+      'description': 'Track open, resolved, and escalated complaints by category.',
+      'color': Color(0xFFAD1457),
+    },
+    'daily_supervisor_log': {
+      'icon': Icons.list_alt,
+      'title': 'Supervisor Daily Log',
+      'frequency': 'Daily',
+      'description': 'View submitted supervisor logs, issues reported, and materials used.',
+      'color': Color(0xFF4527A0),
+    },
+    'monthly_attendance': {
+      'icon': Icons.calendar_month,
+      'title': 'Monthly Attendance',
+      'frequency': 'Monthly',
+      'description': 'Summary of supervisor attendance, overtime, and availability trends.',
+      'color': Color(0xFF1565C0),
+    },
+    'monthly_cleaning': {
+      'icon': Icons.cleaning_services,
+      'title': 'Monthly Cleaning Summary',
+      'frequency': 'Monthly',
+      'description': 'Completed activities, garbage collection, waste breakdown, and area completion rates.',
+      'color': Color(0xFF2E7D32),
+    },
+    'monthly_performance': {
+      'icon': Icons.assessment,
+      'title': 'Performance Score Report',
+      'frequency': 'Monthly',
+      'description': 'Combined score from task completion, inspections, feedback, and scorecard trends.',
+      'color': Color(0xFFFF6F00),
+    },
+    'monthly_billing': {
+      'icon': Icons.receipt_long,
+      'title': 'Billing Support Report',
+      'frequency': 'Monthly',
+      'description': 'Support billing verification with task, attendance, photo, score, and feedback data.',
+      'color': Color(0xFF00695C),
+    },
+    'monthly_feedback': {
+      'icon': Icons.rate_review,
+      'title': 'Monthly Feedback Summary',
+      'frequency': 'Monthly',
+      'description': 'Aggregate passenger feedback with rating distribution and category breakdown.',
+      'color': Color(0xFFE65100),
+    },
+    'monthly_complaint': {
+      'icon': Icons.gavel,
+      'title': 'Monthly Complaint Summary',
+      'frequency': 'Monthly',
+      'description': 'Complaint trends with SLA breaches, resolution times, and escalation stats.',
+      'color': Color(0xFFAD1457),
+    },
+    'monthly_penalty': {
+      'icon': Icons.money_off,
+      'title': 'Monthly Penalty Report',
+      'frequency': 'Monthly',
+      'description': 'Machine downtime, SLA breaches, and penalty amounts from low scores.',
+      'color': Color(0xFFC62828),
+    },
+  };
+
+  static const List<String> _allReportKeys = [
+    'daily_attendance', 'daily_activity', 'daily_inspection', 'daily_feedback',
+    'missed_activity', 'daily_scorecard', 'daily_complaint', 'daily_supervisor_log',
+    'monthly_attendance', 'monthly_cleaning', 'monthly_performance', 'monthly_billing',
+    'monthly_feedback', 'monthly_complaint', 'monthly_penalty',
   ];
 
-  static const _contractorSupervisorTypes = [
-    'daily_attendance', 'daily_activity', 'daily_scorecard', 'daily_complaint',
-    'daily_feedback', 'missed_activity',
+  static const List<String> _contractorReportKeys = [
+    'daily_attendance', 'daily_activity', 'daily_feedback', 'missed_activity',
+    'daily_inspection', 'monthly_performance', 'monthly_billing',
   ];
 
-  late final List<String> _reportTypes = _getReportTypes();
+  List<String> get _availableReportKeys => _isContractor ? _contractorReportKeys : _allReportKeys;
+  List<String> get _dailyKeys => _availableReportKeys.where((k) => k.startsWith('daily_') || k == 'missed_activity').toList();
+  List<String> get _monthlyKeys => _availableReportKeys.where((k) => k.startsWith('monthly_')).toList();
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _showLiveDashboard ? 3 : 2, vsync: this);
     _loadReports();
-    _loadSchedules();
     if (_showLiveDashboard) _loadLiveDashboard();
-  }
-
-  List<String> _getReportTypes() {
-    final r = (widget.role ?? '').toUpperCase();
-    if (r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN') return _contractorSupervisorTypes;
-    return _allReportTypes;
   }
 
   @override
@@ -91,11 +194,7 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
         'year': _filterYear.toString(),
       };
       if (_filterReportType != null) query['reportType'] = _filterReportType!;
-      var list = await StationReportRepository.list(query);
-      final r = (widget.role ?? '').toUpperCase();
-      if (r == 'CONTRACTOR_ADMIN' || r == 'CONTRACTOR_SUPERVISOR') {
-        list = list.where((report) => _contractorSupervisorTypes.contains(report.reportType)).toList();
-      }
+      final list = await StationReportRepository.list(query);
       setState(() => _reports = list);
     } catch (e) {
       if (mounted) {
@@ -105,22 +204,6 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       }
     } finally {
       if (mounted) setState(() => _isLoadingReports = false);
-    }
-  }
-
-  Future<void> _loadSchedules() async {
-    setState(() => _isLoadingSchedules = true);
-    try {
-      final list = await StationReportRepository.listSchedules();
-      setState(() => _schedules = list);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load schedules: $e'), backgroundColor: kErrorRed),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoadingSchedules = false);
     }
   }
 
@@ -150,161 +233,142 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
     }
   }
 
-  void _showGenerateDialog() {
-    String selectedType = _reportTypes.first;
+  void _showGenerateSheet(String reportKey) {
+    final meta = _reportMeta[reportKey]!;
+    final isDaily = reportKey.startsWith('daily_') || reportKey == 'missed_activity';
     DateTime selectedDate = DateTime.now();
-    DateTime archiveStartDate = DateTime.now().subtract(const Duration(days: 7));
-    DateTime archiveEndDate = DateTime.now();
     int selectedMonth = DateTime.now().month;
     int selectedYear = DateTime.now().year;
-    var isDaily = selectedType.startsWith('daily_') || selectedType == 'missed_activity';
-    var isArchive = selectedType == 'archive_retrieval';
-    bool datePicked = false;
+    bool isGenerating = false;
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Generate Report'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  value: selectedType,
-                  decoration: const InputDecoration(labelText: 'Report Type', border: OutlineInputBorder()),
-                  items: _reportTypes.map((t) => DropdownMenuItem(
-                    value: t,
-                    child: Text(t.replaceAll('_', ' ').toUpperCase()),
-                  )).toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setDialogState(() {
-                        selectedType = val;
-                        isDaily = val.startsWith('daily_') || val == 'missed_activity';
-                        isArchive = val == 'archive_retrieval';
-                        datePicked = true;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                if (isArchive) ...[
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: ctx,
-                        initialDate: archiveStartDate,
-                        firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) setDialogState(() { archiveStartDate = picked; datePicked = true; });
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(labelText: 'Start Date', border: OutlineInputBorder()),
-                      child: Text('${archiveStartDate.year}-${archiveStartDate.month.toString().padLeft(2, '0')}-${archiveStartDate.day.toString().padLeft(2, '0')}'),
-                    ),
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: meta['color'].withValues(alpha: 0.12),
+                        child: Icon(meta['icon'], color: meta['color'], size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(meta['title'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            Text(meta['frequency'], style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: ctx,
-                        initialDate: archiveEndDate,
-                        firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) setDialogState(() { archiveEndDate = picked; datePicked = true; });
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(labelText: 'End Date', border: OutlineInputBorder()),
-                      child: Text('${archiveEndDate.year}-${archiveEndDate.month.toString().padLeft(2, '0')}-${archiveEndDate.day.toString().padLeft(2, '0')}'),
+                  const SizedBox(height: 8),
+                  Text(meta['description'], style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                  const SizedBox(height: 20),
+                  if (isDaily) ...[
+                    const Text('Select Date', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: ctx,
+                          initialDate: selectedDate,
+                          firstDate: DateTime.now().subtract(const Duration(days: 90)),
+                          lastDate: DateTime.now(),
+                        );
+                        if (picked != null) setSheetState(() => selectedDate = picked);
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.calendar_today)),
+                        child: Text(DateFormat('yyyy-MM-dd').format(selectedDate)),
+                      ),
                     ),
-                  ),
-                ] else if (isDaily)
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: ctx,
-                        initialDate: selectedDate,
-                        firstDate: DateTime.now().subtract(const Duration(days: 90)),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) setDialogState(() { selectedDate = picked; datePicked = true; });
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(labelText: 'Date', border: OutlineInputBorder()),
-                      child: Text('${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}'),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            value: selectedMonth,
+                            decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder()),
+                            items: List.generate(12, (i) => DropdownMenuItem(
+                              value: i + 1,
+                              child: Text(DateFormat('MMMM').format(DateTime(2000, i + 1))),
+                            )),
+                            onChanged: (val) {
+                              if (val != null) setSheetState(() => selectedMonth = val);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            value: selectedYear,
+                            decoration: const InputDecoration(labelText: 'Year', border: OutlineInputBorder()),
+                            items: List.generate(5, (i) => DropdownMenuItem(
+                              value: DateTime.now().year - 2 + i,
+                              child: Text((DateTime.now().year - 2 + i).toString()),
+                            )),
+                            onChanged: (val) {
+                              if (val != null) setSheetState(() => selectedYear = val);
+                            },
+                          ),
+                        ),
+                      ],
                     ),
-                  )
-                else ...[
-                  DropdownButtonFormField<int>(
-                    value: selectedMonth,
-                    decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder()),
-                    items: List.generate(12, (i) => DropdownMenuItem(
-                      value: i + 1,
-                      child: Text(DateTime(2000, i + 1).month.toString()),
-                    )),
-                    onChanged: (val) {
-                      if (val != null) setDialogState(() { selectedMonth = val; datePicked = true; });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<int>(
-                    value: selectedYear,
-                    decoration: const InputDecoration(labelText: 'Year', border: OutlineInputBorder()),
-                    items: List.generate(5, (i) => DropdownMenuItem(
-                      value: DateTime.now().year - 2 + i,
-                      child: Text((DateTime.now().year - 2 + i).toString()),
-                    )),
-                    onChanged: (val) {
-                      if (val != null) setDialogState(() { selectedYear = val; datePicked = true; });
-                    },
+                  ],
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: isGenerating ? null : () async {
+                        setSheetState(() => isGenerating = true);
+                        try {
+                          if (isDaily) {
+                            await StationReportRepository.generateDaily(reportKey, widget.stationId, DateFormat('yyyy-MM-dd').format(selectedDate));
+                          } else {
+                            await StationReportRepository.generateMonthly(reportKey, widget.stationId, selectedMonth, selectedYear);
+                          }
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('${meta["title"]} generated'), backgroundColor: kSuccessGreen),
+                            );
+                            _loadReports();
+                            Navigator.pop(ctx);
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Generation failed: $e'), backgroundColor: kErrorRed),
+                            );
+                          }
+                        } finally {
+                          if (mounted) setSheetState(() => isGenerating = false);
+                        }
+                      },
+                      icon: isGenerating
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.auto_awesome),
+                      label: Text(isGenerating ? 'Generating...' : 'Generate Report'),
+                      style: ElevatedButton.styleFrom(backgroundColor: meta['color'], foregroundColor: Colors.white),
+                    ),
                   ),
                 ],
-              ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: datePicked ? () async {
-                Navigator.pop(ctx);
-                setState(() => _isLoadingReports = true);
-                try {
-                  if (selectedType == 'archive_retrieval') {
-                    final startStr = '${archiveStartDate.year}-${archiveStartDate.month.toString().padLeft(2, '0')}-${archiveStartDate.day.toString().padLeft(2, '0')}';
-                    final endStr = '${archiveEndDate.year}-${archiveEndDate.month.toString().padLeft(2, '0')}-${archiveEndDate.day.toString().padLeft(2, '0')}';
-                    await StationReportRepository.generateArchiveRetrieval(widget.stationId, startStr, endStr);
-                  } else if (selectedType.startsWith('daily_') || selectedType == 'missed_activity') {
-                    final dateStr = '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}';
-                    await StationReportRepository.generateDaily(selectedType, widget.stationId, dateStr);
-                  } else {
-                    await StationReportRepository.generateMonthly(selectedType, widget.stationId, selectedMonth, selectedYear);
-                  }
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Report generated'), backgroundColor: kSuccessGreen),
-                    );
-                    _loadReports();
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Generation failed: $e'), backgroundColor: kErrorRed),
-                    );
-                  }
-                } finally {
-                  if (mounted) setState(() => _isLoadingReports = false);
-                }
-              } : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kRailwayBlue,
-                foregroundColor: Colors.white,
-              ),
-              child: datePicked ? const Text('Generate') : const Text('Select a date first'),
-            ),
-          ],
         ),
       ),
     );
@@ -315,7 +379,7 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       if (report.reportType == 'archive_retrieval') {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Archive retrieval reports are on-demand only; no email dispatch'), backgroundColor: kWarningOrange),
+            const SnackBar(content: Text('Archive retrieval reports are on-demand only'), backgroundColor: kWarningOrange),
           );
         }
         return;
@@ -363,8 +427,9 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text('Reports - ${widget.stationName}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Reports — ${widget.stationName}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
         bottom: TabBar(
@@ -373,34 +438,20 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           tabs: _showLiveDashboard
-              ? const [
-                  Tab(text: 'Live Dashboard'),
-                  Tab(text: 'Generated Reports'),
-                  Tab(text: 'Schedules'),
-                ]
-              : const [
-                  Tab(text: 'Generated Reports'),
-                  Tab(text: 'Schedules'),
-                ],
+              ? const [Tab(text: 'Overview'), Tab(text: 'Generate'), Tab(text: 'History')]
+              : const [Tab(text: 'Generate'), Tab(text: 'History')],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: _showLiveDashboard
-            ? [
-                _buildLiveDashboardTab(),
-                _buildReportsTab(),
-                _buildSchedulesTab(),
-              ]
-            : [
-                _buildReportsTab(),
-                _buildSchedulesTab(),
-              ],
+            ? [_buildOverviewTab(), _buildGenerateTab(), _buildHistoryTab()]
+            : [_buildGenerateTab(), _buildHistoryTab()],
       ),
     );
   }
 
-  Widget _buildLiveDashboardTab() {
+  Widget _buildOverviewTab() {
     return RefreshIndicator(
       onRefresh: _loadLiveDashboard,
       child: ListView(
@@ -428,12 +479,10 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       return Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Text('$title — no data available',
-              style: TextStyle(color: Colors.grey[600])),
+          child: Text('$title — no data available', style: TextStyle(color: Colors.grey[600])),
         ),
       );
     }
-
     final total = (data['totalTasks'] ?? 0).toInt();
     final completed = (data['completedTasks'] ?? 0).toInt();
     final pending = (data['pendingTasks'] ?? total - completed).toInt();
@@ -448,7 +497,6 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
     Color gradeColor = grade == 'A' ? Colors.green : grade == 'B' ? Colors.lightGreen : grade == 'C' ? Colors.orange : Colors.red;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -465,8 +513,7 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
                     color: gradeColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text('Grade $grade',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: gradeColor)),
+                  child: Text('Grade $grade', style: TextStyle(fontWeight: FontWeight.bold, color: gradeColor)),
                 ),
               ],
             ),
@@ -479,18 +526,17 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
               children: [
                 Expanded(child: _statBox(Icons.cleaning_services, 'Total', '$total', Colors.blue)),
                 const SizedBox(width: 8),
-                Expanded(child: _statBox(Icons.check_circle, 'Completed', '$completed', Colors.green)),
+                Expanded(child: _statBox(Icons.check_circle, 'Done', '$completed', Colors.green)),
                 const SizedBox(width: 8),
                 Expanded(child: _statBox(Icons.pending, 'Pending', '$pending', Colors.orange)),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(child: _statBox(Icons.star, 'Avg Score', '$avgScore%', Colors.purple)),
+                Expanded(child: _statBox(Icons.star, 'Score', '$avgScore%', Colors.purple)),
                 const SizedBox(width: 8),
-                Expanded(child: _statBox(Icons.percent, 'Completion', '$rate%', Colors.teal)),
-                const Spacer(),
+                Expanded(child: _statBox(Icons.percent, 'Rate', '$rate%', Colors.teal)),
               ],
             ),
             const SizedBox(height: 12),
@@ -511,25 +557,119 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
 
   Widget _statBox(IconData icon, String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(height: 6),
-          Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
           const SizedBox(height: 2),
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+          Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
         ],
       ),
     );
   }
 
-  Widget _buildReportsTab() {
+  Widget _buildGenerateTab() {
+    return RefreshIndicator(
+      onRefresh: () async { _loadReports(); },
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          _buildSectionHeader('Daily Reports', Icons.wb_sunny),
+          const SizedBox(height: 8),
+          ..._dailyKeys.map((k) => _buildReportCard(k)),
+          const SizedBox(height: 20),
+          _buildSectionHeader('Monthly Reports', Icons.calendar_month),
+          const SizedBox(height: 8),
+          ..._monthlyKeys.map((k) => _buildReportCard(k)),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: kRailwayBlue),
+        const SizedBox(width: 8),
+        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+      ],
+    );
+  }
+
+  Widget _buildReportCard(String reportKey) {
+    final meta = _reportMeta[reportKey];
+    if (meta == null) return const SizedBox.shrink();
+    final color = meta['color'] as Color;
+
+    final existing = _reports.where((r) => r.reportType == reportKey).toList();
+    final latestDate = existing.isNotEmpty ? existing.first.date : null;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 1,
+      child: InkWell(
+        onTap: () => _showGenerateSheet(reportKey),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(meta['icon'], color: color, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(meta['title'], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    const SizedBox(height: 2),
+                    Text(
+                      meta['description'],
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.access_time, size: 12, color: Colors.grey[500]),
+                        const SizedBox(width: 4),
+                        Text(meta['frequency'], style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                        if (latestDate != null) ...[
+                          const SizedBox(width: 12),
+                          Icon(Icons.check_circle, size: 12, color: Colors.green),
+                          const SizedBox(width: 4),
+                          Text('Last: $latestDate', style: const TextStyle(fontSize: 11, color: Colors.green)),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: Colors.grey[400]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryTab() {
     return Column(
       children: [
         Card(
@@ -542,9 +682,9 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
                   value: _filterReportType,
                   hint: const Text('All Report Types'),
                   isExpanded: true,
-                  items: _reportTypes.map((t) => DropdownMenuItem(
+                  items: _availableReportKeys.map((t) => DropdownMenuItem(
                     value: t,
-                    child: Text(t.replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontSize: 12)),
+                    child: Text((_reportMeta[t]?['title'] ?? t).toString(), style: const TextStyle(fontSize: 12)),
                   )).toList()..insert(0, const DropdownMenuItem(value: null, child: Text('All Report Types'))),
                   onChanged: (val) {
                     setState(() => _filterReportType = val);
@@ -558,12 +698,9 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
                       child: DropdownButtonFormField<int>(
                         value: _filterMonth,
                         decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                        items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text((i + 1).toString()))),
+                        items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text(DateFormat('MMM').format(DateTime(2000, i + 1))))),
                         onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _filterMonth = val);
-                            _loadReports();
-                          }
+                          if (val != null) { setState(() => _filterMonth = val); _loadReports(); }
                         },
                       ),
                     ),
@@ -574,10 +711,7 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
                         decoration: const InputDecoration(labelText: 'Year', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
                         items: List.generate(5, (i) => DropdownMenuItem(value: DateTime.now().year - 2 + i, child: Text((DateTime.now().year - 2 + i).toString()))),
                         onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _filterYear = val);
-                            _loadReports();
-                          }
+                          if (val != null) { setState(() => _filterYear = val); _loadReports(); }
                         },
                       ),
                     ),
@@ -591,35 +725,55 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
           child: _isLoadingReports
               ? const Center(child: CircularProgressIndicator())
               : _reports.isEmpty
-                  ? const Center(child: Text('No reports found'))
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.description, size: 48, color: Colors.grey[300]),
+                          const SizedBox(height: 12),
+                          Text('No reports found', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+                          const SizedBox(height: 4),
+                          Text('Go to Generate tab and create your first report', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                        ],
+                      ),
+                    )
                   : RefreshIndicator(
                       onRefresh: _loadReports,
                       child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
                         itemCount: _reports.length,
                         itemBuilder: (context, idx) {
                           final report = _reports[idx];
-                          final previewKeys = report.summary.keys.take(2).join(', ');
+                          final meta = _reportMeta[report.reportType];
+                          final color = meta?['color'] ?? Colors.grey;
+                          final preview = report.summary.entries.take(3).map((e) => '${e.key}: ${e.value}').join(' · ');
                           return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
-                              title: Text(report.reportType.replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                              subtitle: Text('${report.date} | ${report.generatedAt.toString().split('.').first}\n$previewKeys'),
+                              leading: CircleAvatar(
+                                radius: 20,
+                                backgroundColor: color.withValues(alpha: 0.12),
+                                child: Icon(meta?['icon'] ?? Icons.description, color: color, size: 20),
+                              ),
+                              title: Text(meta?['title'] ?? report.reportType, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(report.date, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                                  if (preview.isNotEmpty) Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                                ],
+                              ),
                               isThreeLine: true,
-                              trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.download, color: kSuccessGreen),
-                                  onPressed: () => _downloadReport(report),
-                                  tooltip: 'Download PDF',
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.email, color: kRailwayBlue),
-                                  onPressed: () => _sendEmail(report),
-                                  tooltip: 'Send Email',
-                                ),
-                              ],
-                            ),
+                              trailing: PopupMenuButton<String>(
+                                onSelected: (v) {
+                                  if (v == 'pdf') _downloadReport(report);
+                                  if (v == 'email') _sendEmail(report);
+                                },
+                                itemBuilder: (_) => [
+                                  const PopupMenuItem(value: 'pdf', child: Row(children: [Icon(Icons.download, size: 18), SizedBox(width: 8), Text('Download PDF')])),
+                                  const PopupMenuItem(value: 'email', child: Row(children: [Icon(Icons.email, size: 18), SizedBox(width: 8), Text('Send Email')])),
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -628,51 +782,6 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
         ),
       ],
     );
-  }
-
-  Widget _buildSchedulesTab() {
-    return _isLoadingSchedules
-        ? const Center(child: CircularProgressIndicator())
-        : _schedules.isEmpty
-            ? const Center(child: Text('No schedules found'))
-            : RefreshIndicator(
-                onRefresh: _loadSchedules,
-                child: ListView.builder(
-                  itemCount: _schedules.length,
-                  itemBuilder: (context, idx) {
-                    final schedule = _schedules[idx];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      child: ListTile(
-                        title: Text(schedule['reportType']?.toString().replaceAll('_', ' ').toUpperCase() ?? 'Report', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text('Cron: ${schedule['cronExpression'] ?? 'N/A'}'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: kErrorRed),
-                          onPressed: () async {
-                            final uid = schedule['uid'] ?? schedule['id'];
-                            if (uid == null) return;
-                            try {
-                              await StationReportRepository.deleteSchedule(uid.toString());
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Schedule deleted'), backgroundColor: kSuccessGreen),
-                                );
-                                _loadSchedules();
-                              }
-                            } catch (e) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Failed: $e'), backgroundColor: kErrorRed),
-                                );
-                              }
-                            }
-                          },
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
   }
 }
 
