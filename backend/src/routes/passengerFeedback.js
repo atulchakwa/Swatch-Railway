@@ -1,12 +1,17 @@
 import express from 'express';
 import { verifyToken } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/authorization.js';
+import { rateLimiter } from '../middleware/rateLimiter.js';
 import { PERMISSIONS } from '../permissions/roles.js';
 import * as passengerFeedbackController from '../controllers/passengerFeedbackController.js';
 
 const router = express.Router();
 
+const feedbackOtpRateLimit = rateLimiter({ windowMs: 15 * 60 * 1000, max: 100 });
+
 router.post('/api/passenger-feedback', verifyToken, requirePermission(PERMISSIONS.SUBMIT_FEEDBACK), passengerFeedbackController.create);
+router.post('/api/passenger-feedback/send-otp', verifyToken, requirePermission(PERMISSIONS.SUBMIT_FEEDBACK), feedbackOtpRateLimit, passengerFeedbackController.sendOtp);
+router.post('/api/passenger-feedback/verify-otp', verifyToken, requirePermission(PERMISSIONS.SUBMIT_FEEDBACK), feedbackOtpRateLimit, passengerFeedbackController.verifyOtp);
 router.get('/api/passenger-feedback', verifyToken, requirePermission(PERMISSIONS.VIEW_FEEDBACK), passengerFeedbackController.list);
 router.get('/api/passenger-feedback/summary/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_FEEDBACK), passengerFeedbackController.summary);
 router.get('/api/passenger-feedback/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_FEEDBACK), passengerFeedbackController.getById);

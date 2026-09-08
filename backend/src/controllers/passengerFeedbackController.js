@@ -25,3 +25,11 @@ export const remove = asyncHandler(async (req, res) => {
 export const summary = asyncHandler(async (req, res) => {
   res.json(await passengerFeedbackService.getFeedbackSummary(req.params.stationId, req.query));
 });
+
+export const sendOtp = asyncHandler(async (req, res) => {
+  res.json(await passengerFeedbackService.sendOtp(req.body.phone));
+});
+
+export const verifyOtp = asyncHandler(async (req, res) => {
+  res.json(await passengerFeedbackService.verifyOtp(req.body.phone, req.body.otp));
+});

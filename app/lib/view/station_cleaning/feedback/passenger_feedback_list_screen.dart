@@ -212,7 +212,7 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
                                               border: Border.all(color: kRailwayBlue.withValues(alpha: 0.3)),
                                             ),
                                             child: Text(
-                                              fb.pnr,
+                                              fb.pnr.isNotEmpty ? fb.pnr : (fb.passengerPhone.isNotEmpty ? fb.passengerPhone : 'OTP verified'),
                                               style: const TextStyle(color: kRailwayBlue, fontSize: 12, fontWeight: FontWeight.bold),
                                             ),
                                           ),

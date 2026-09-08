@@ -24,10 +24,14 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
   final _pnrCtrl = TextEditingController();
   final _passengerNameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _otpCtrl = TextEditingController();
   final _commentsCtrl = TextEditingController();
   final Map<String, Map<String, String?>> _sectionGrades = {};
   DateTime? _journeyDate;
   bool _isLoading = false;
+  bool _isOtpMode = false;
+  bool _phoneVerified = false;
+  bool _sendingOtp = false;
 
   bool get isEdit => widget.feedback != null;
   bool get isCancelled => widget.feedback?.status == 'CANCELLED';
@@ -76,6 +80,8 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
     _phoneCtrl.text = r?.passengerPhone ?? '';
     _commentsCtrl.text = r?.comments ?? '';
     _journeyDate = DateTime.tryParse(r?.journeyDate ?? '');
+    _isOtpMode = r != null && (r.verificationMethod == 'otp' || r.pnr.isEmpty);
+    _phoneVerified = _isOtpMode;
     for (final entry in sectionConfig.entries) {
       final paramKeys = (entry.value['parameters'] as List).cast<String>();
       _sectionGrades[entry.key] = {for (final pk in paramKeys) pk: null};
@@ -98,6 +104,7 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
     _pnrCtrl.dispose();
     _passengerNameCtrl.dispose();
     _phoneCtrl.dispose();
+    _otpCtrl.dispose();
     _commentsCtrl.dispose();
     super.dispose();
   }
@@ -115,7 +122,7 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
   }
 
   Map<String, dynamic> _buildPayload() {
-    return {
+    final payload = <String, dynamic>{
       'stationId': widget.stationId,
       'pnr': _pnrCtrl.text.trim(),
       'passengerName': _passengerNameCtrl.text.trim(),
@@ -125,6 +132,10 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
       'sections': _buildSectionsPayload(),
       'comments': _commentsCtrl.text.trim(),
     };
+    if (_isOtpMode && _phoneVerified) {
+      payload['phoneVerified'] = true;
+    }
+    return payload;
   }
 
   Future<void> _save() async {
@@ -132,6 +143,18 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
     if (_ratedCount < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Rate at least 3 parameters to submit'), backgroundColor: kWarningOrange),
+      );
+      return;
+    }
+    if (_isOtpMode && !_phoneVerified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verify the mobile number with OTP before submitting'), backgroundColor: kWarningOrange),
+      );
+      return;
+    }
+    if (!_isOtpMode && _pnrCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter PNR number or switch to Mobile OTP verification'), backgroundColor: kWarningOrange),
       );
       return;
     }
@@ -152,6 +175,69 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: kErrorRed),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _sendOtp() async {
+    final phone = _phoneCtrl.text.trim();
+    if (!RegExp(r'^[6-9]\d{9}$').hasMatch(phone)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid 10-digit mobile number'), backgroundColor: kWarningOrange),
+      );
+      return;
+    }
+    setState(() => _sendingOtp = true);
+    try {
+      await PassengerFeedbackRepository.sendOtp(phone);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('OTP sent to mobile number'), backgroundColor: kSuccessGreen),
+        );
+        setState(() => _phoneVerified = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send OTP: $e'), backgroundColor: kErrorRed),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sendingOtp = false);
+    }
+  }
+
+  Future<void> _verifyOtp() async {
+    final phone = _phoneCtrl.text.trim();
+    final otp = _otpCtrl.text.trim();
+    if (!RegExp(r'^[6-9]\d{9}$').hasMatch(phone)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid 10-digit mobile number'), backgroundColor: kWarningOrange),
+      );
+      return;
+    }
+    if (otp.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter the OTP received on mobile'), backgroundColor: kWarningOrange),
+      );
+      return;
+    }
+    setState(() => _isLoading = true);
+    try {
+      await PassengerFeedbackRepository.verifyOtp(phone, otp);
+      if (mounted) {
+        setState(() => _phoneVerified = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Mobile verified. You can now submit feedback.'), backgroundColor: kSuccessGreen),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Verification failed: $e'), backgroundColor: kErrorRed),
         );
       }
     } finally {
@@ -346,19 +432,36 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      TextFormField(
-                        controller: _pnrCtrl,
-                        textCapitalization: TextCapitalization.characters,
-                        decoration: const InputDecoration(
-                          labelText: 'PNR Number *',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.confirmation_number),
-                          hintText: 'e.g. 1234567890',
+                      if (!isEdit) ...[
+                        SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(value: false, label: Text('PNR'), icon: Icon(Icons.confirmation_number)),
+                            ButtonSegment(value: true, label: Text('Mobile OTP'), icon: Icon(Icons.sms)),
+                          ],
+                          selected: {_isOtpMode},
+                          onSelectionChanged: isCancelled ? null : (s) => setState(() {
+                            _isOtpMode = s.first;
+                            _phoneVerified = false;
+                            _otpCtrl.clear();
+                          }),
                         ),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'PNR number is required' : null,
-                        readOnly: isCancelled,
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 16),
+                      ],
+                      if (!_isOtpMode) ...[
+                        TextFormField(
+                          controller: _pnrCtrl,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            labelText: 'PNR Number *',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.confirmation_number),
+                            hintText: 'e.g. 1234567890',
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'PNR number is required' : null,
+                          readOnly: isCancelled,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       TextFormField(
                         controller: _passengerNameCtrl,
                         decoration: const InputDecoration(
@@ -369,18 +472,84 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
                         readOnly: isCancelled,
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        maxLength: 10,
-                        decoration: const InputDecoration(
-                          labelText: 'Mobile Number',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.phone),
-                          counterText: '',
-                        ),
-                        readOnly: isCancelled,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _phoneCtrl,
+                              keyboardType: TextInputType.phone,
+                              maxLength: 10,
+                              decoration: InputDecoration(
+                                labelText: _isOtpMode ? 'Mobile Number (verify OTP)' : 'Mobile Number',
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(Icons.phone),
+                                counterText: '',
+                                suffixIcon: _phoneVerified
+                                    ? const Icon(Icons.verified, color: kSuccessGreen)
+                                    : null,
+                              ),
+                              readOnly: isCancelled,
+                              onChanged: _isOtpMode ? (v) { if (_phoneVerified) setState(() => _phoneVerified = false); } : null,
+                            ),
+                          ),
+                          if (_isOtpMode && !_phoneVerified) ...[
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              height: 48,
+                              child: ElevatedButton(
+                                onPressed: _sendingOtp ? null : _sendOtp,
+                                style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
+                                child: _sendingOtp
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                    : const Text('Send OTP'),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
+                      if (_isOtpMode && !_phoneVerified) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _otpCtrl,
+                                keyboardType: TextInputType.number,
+                                maxLength: 6,
+                                decoration: const InputDecoration(
+                                  labelText: 'Enter OTP',
+                                  border: OutlineInputBorder(),
+                                  prefixIcon: Icon(Icons.password),
+                                  counterText: '',
+                                ),
+                                readOnly: isCancelled,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              height: 48,
+                              child: ElevatedButton.icon(
+                                onPressed: _isLoading ? null : _verifyOtp,
+                                style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+                                icon: const Icon(Icons.check_circle, size: 18),
+                                label: const Text('Verify'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (_phoneVerified) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.verified, size: 16, color: kSuccessGreen),
+                            const SizedBox(width: 6),
+                            Text('Mobile verified via OTP', style: TextStyle(fontSize: 12, color: kSuccessGreen, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       InkWell(
                         onTap: isCancelled

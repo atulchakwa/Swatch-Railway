@@ -2,6 +2,13 @@ import { db } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import { paginate } from '../utils/paginate.js';
 import { auditService } from './auditService.js';
+import otpStore from '../utils/otpStore.js';
+import { notificationService } from '../notifications/index.js';
+
+const OTP_PREFIX = 'PFB_';
+const OTP_VERIFIED_PREFIX = 'PFB_VERIFIED_';
+const OTP_TTL_MS = 10 * 60 * 1000; // verified-mobile grants last 10 minutes
+const _isValidIndianMobile = (phone) => /^[6-9]\d{9}$/.test(String(phone || ''));
 
 const _getISTDate = (date) => {
   const ist = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
@@ -59,9 +66,22 @@ class PassengerFeedbackService {
   }
 
   async createFeedback(userData, body) {
-    const { stationId, pnr, passengerName, passengerPhone, journeyDate, sections, comments } = body;
+    const { stationId, pnr, passengerName, passengerPhone, journeyDate, sections, comments, phoneVerified } = body;
     if (!stationId) throw new ValidationError('stationId is required');
-    if (!pnr || !String(pnr).trim()) throw new ValidationError('PNR number is required');
+
+    const hasPnr = !!(pnr && String(pnr).trim());
+    const hasPhone = !!(passengerPhone && String(passengerPhone).trim());
+    let verificationMethod = 'pnr';
+    if (!hasPnr) {
+      // OTP-verified mobile path: passengerPhone + phoneVerified must be present.
+      if (!hasPhone) throw new ValidationError('PNR number or a verified mobile number is required');
+      if (phoneVerified !== true) throw new ValidationError('Please verify the mobile number with OTP before submitting feedback');
+      const verifiedKey = `${OTP_VERIFIED_PREFIX}${String(passengerPhone).trim()}`;
+      const granted = await otpStore.get(verifiedKey);
+      if (!granted) throw new ValidationError('Mobile number is not verified. Please request and enter the OTP first.');
+      await otpStore.delete(verifiedKey); // one-time use
+      verificationMethod = 'otp';
+    }
 
     const stationDoc = await db.collection('stations').doc(stationId).get();
     if (!stationDoc.exists) throw new NotFoundError('Station not found');
@@ -77,13 +97,14 @@ class PassengerFeedbackService {
       uid: ref.id,
       stationId,
       stationName: stationDoc.data().stationName || '',
-      pnr: String(pnr).trim().toUpperCase(),
+      pnr: hasPnr ? String(pnr).trim().toUpperCase() : '',
       passengerName: passengerName || '',
-      passengerPhone: passengerPhone || '',
+      passengerPhone: hasPhone ? String(passengerPhone).trim() : '',
       journeyDate: journeyDate || '',
       sections: normalized,
       ...aggregates,
       comments: comments || '',
+      verificationMethod,
       takenBy: { uid: userData.uid, name: userData.fullName || userData.name || '', role: userData.role || '' },
       status: 'SUBMITTED',
       date: _getISTDate(new Date()),
@@ -91,8 +112,39 @@ class PassengerFeedbackService {
       updatedAt: now,
     };
     await ref.set(data);
-    await auditService.logAudit('PASSENGER_FEEDBACK_SUBMITTED', userData.uid, data.takenBy.name, ref.id, 'passenger_feedback', `Passenger feedback recorded for PNR ${data.pnr}. Rating: ${data.overallRating}, Grade: ${data.overallGrade}`);
+    await auditService.logAudit('PASSENGER_FEEDBACK_SUBMITTED', userData.uid, data.takenBy.name, ref.id, 'passenger_feedback', `Passenger feedback recorded via ${verificationMethod}. Rating: ${data.overallRating}, Grade: ${data.overallGrade}`);
     return { message: 'Passenger feedback recorded', uid: ref.id, feedback: data };
+  }
+
+  // Sends a 6-digit OTP to the passenger's mobile for feedback verification.
+  async sendOtp(phone) {
+    if (!_isValidIndianMobile(phone)) {
+      throw new ValidationError('Enter a valid 10-digit mobile number');
+    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await otpStore.set(`${OTP_PREFIX}${String(phone).trim()}`, otp);
+    await notificationService.sendOtpSms(String(phone).trim(), otp);
+    return { success: true, message: 'OTP has been sent to the mobile number.' };
+  }
+
+  // Verifies the OTP and grants a short-lived verified-mobile token.
+  async verifyOtp(phone, otp) {
+    if (!_isValidIndianMobile(phone)) throw new ValidationError('Enter a valid 10-digit mobile number');
+    if (!otp || !String(otp).trim()) throw new ValidationError('OTP is required');
+    const key = `${OTP_PREFIX}${String(phone).trim()}`;
+    const stored = await otpStore.get(key);
+    if (!stored) throw new ValidationError('OTP expired or not requested. Please request a new OTP.');
+    if (String(stored).trim() !== String(otp).trim()) {
+      throw new ValidationError('Invalid OTP. Please check and try again.');
+    }
+    await otpStore.delete(key);
+    const verifiedKey = `${OTP_VERIFIED_PREFIX}${String(phone).trim()}`;
+    await db.collection('_otpStore').doc(verifiedKey).set({
+      value: 'verified',
+      createdAt: new Date().toISOString(),
+      expireAt: new Date(Date.now() + OTP_TTL_MS).toISOString(),
+    });
+    return { success: true, message: 'Mobile number verified. You can now submit feedback.', verified: true, phone: String(phone).trim() };
   }
 
   async listFeedback(query = {}) {
@@ -182,7 +234,7 @@ class PassengerFeedbackService {
       overallGrade: _numericToGrade(avg * 2),
       negativeCount,
       positiveCount: filtered.length - negativeCount,
-      uniquePnrCount: new Set(filtered.map(f => f.pnr)).size,
+      uniquePnrCount: new Set(filtered.map(f => f.pnr || f.passengerPhone || '')).size,
       categoryBreakdown: catBreakdown,
     };
   }

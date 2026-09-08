@@ -17,6 +17,18 @@ class PassengerFeedbackRepository {
     throw Exception('Failed to submit feedback');
   }
 
+  static Future<Map<String, dynamic>> sendOtp(String phone) async {
+    final res = await http.post(Uri.parse('$baseUrl/api/passenger-feedback/send-otp'), headers: await _headers(), body: jsonEncode({'phone': phone}));
+    if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
+    throw Exception(res.statusCode == 200 ? '' : 'Failed to send OTP');
+  }
+
+  static Future<Map<String, dynamic>> verifyOtp(String phone, String otp) async {
+    final res = await http.post(Uri.parse('$baseUrl/api/passenger-feedback/verify-otp'), headers: await _headers(), body: jsonEncode({'phone': phone, 'otp': otp}));
+    if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
+    throw Exception('Failed to verify OTP');
+  }
+
   static Future<List<PassengerFeedback>> list(Map<String, String> query) async {
     final uri = Uri.parse('$baseUrl/api/passenger-feedback').replace(queryParameters: query);
     final res = await http.get(uri, headers: await _headers());

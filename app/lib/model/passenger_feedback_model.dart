@@ -7,6 +7,7 @@ class PassengerFeedback {
   final String pnr;
   final String passengerName;
   final String passengerPhone;
+  final String verificationMethod;
   final String journeyDate;
   final Map<String, dynamic> sections;
   final double overallRating;
@@ -27,6 +28,7 @@ class PassengerFeedback {
     this.passengerName = '',
     this.passengerPhone = '',
     this.journeyDate = '',
+    this.verificationMethod = 'pnr',
     this.sections = const {},
     this.overallRating = 0,
     this.overallScore = 0,
@@ -48,6 +50,7 @@ class PassengerFeedback {
       passengerName: json['passengerName'] ?? '',
       passengerPhone: json['passengerPhone'] ?? '',
       journeyDate: json['journeyDate'] ?? '',
+      verificationMethod: json['verificationMethod'] ?? 'pnr',
       sections: json['sections'] is Map ? Map<String, dynamic>.from(json['sections'] as Map) : <String, dynamic>{},
       overallRating: (json['overallRating'] as num?)?.toDouble() ?? 0,
       overallScore: (json['overallScore'] as num?)?.toDouble() ?? 0,
