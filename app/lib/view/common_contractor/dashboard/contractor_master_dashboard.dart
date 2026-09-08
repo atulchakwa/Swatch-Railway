@@ -363,6 +363,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval"},
           {"title": "Machines", "route": "sc_machines"},
           {"title": "Materials", "route": "sc_materials"},
+          {"title": "Passenger Feedback", "route": "sc_passenger_feedback"},
         ]
       },
       {
@@ -613,6 +614,12 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         ), user);
         break;
       case "sc_supervisor_passenger_feedback":
+        _navigateWithStation(context, (stationId, stationName) => _PassengerFeedbackChooser(
+          stationId: stationId,
+          stationName: stationName,
+        ), user);
+        break;
+      case "sc_passenger_feedback":
         _navigateWithStation(context, (stationId, stationName) => _PassengerFeedbackChooser(
           stationId: stationId,
           stationName: stationName,
