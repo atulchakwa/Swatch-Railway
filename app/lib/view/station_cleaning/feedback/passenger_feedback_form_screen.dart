@@ -79,7 +79,7 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
     _passengerNameCtrl.text = r?.passengerName ?? '';
     _phoneCtrl.text = r?.passengerPhone ?? '';
     _commentsCtrl.text = r?.comments ?? '';
-    _journeyDate = DateTime.tryParse(r?.journeyDate ?? '');
+    _journeyDate = DateTime.tryParse(r?.journeyDate ?? '') ?? DateTime.now();
     _isOtpMode = r != null && (r.verificationMethod == 'otp' || r.pnr.isEmpty);
     _phoneVerified = _isOtpMode;
     for (final entry in sectionConfig.entries) {
