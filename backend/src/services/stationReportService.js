@@ -39,6 +39,27 @@ class StationReportService {
     return doc.data().stationName || '';
   }
 
+  async _getFeedbackRecords(stationId) {
+    const [sfSnap, pfSnap] = await Promise.all([
+      db.collection('station_feedback').where('stationId', '==', stationId).get(),
+      db.collection('passenger_feedback').where('stationId', '==', stationId).get(),
+    ]);
+    const records = [];
+    sfSnap.forEach(d => records.push(d.data()));
+    pfSnap.forEach(d => {
+      const r = d.data();
+      const cats = Object.keys(r.ratings || {});
+      if (cats.length === 0) {
+        records.push({ ...r, rating: r.overallRating || 0, category: 'overall', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
+      } else {
+        for (const cat of cats) {
+          records.push({ ...r, rating: r.ratings[cat], category: cat, status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
+        }
+      }
+    });
+    return records;
+  }
+
   async _storeReport(data) {
     const ref = db.collection('station_reports').doc();
     const now = new Date().toISOString();
@@ -282,8 +303,7 @@ class StationReportService {
 
   async generateDailyFeedbackReport(stationId, date, user) {
     const stationName = await this._getStationName(stationId);
-    const snap = await db.collection('station_feedback').where('stationId', '==', stationId).get();
-    const records = []; snap.forEach(d => records.push(d.data()));
+    const records = await this._getFeedbackRecords(stationId);
     const dayRecords = records.filter(r => { const c = r.createdAt || ''; return c.startsWith(date); });
     const approved = dayRecords.filter(r => r.status === 'approved').length;
     const pendingMod = dayRecords.filter(r => r.status === 'pending').length;
@@ -492,8 +512,7 @@ class StationReportService {
     const stationName = await this._getStationName(stationId);
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`;
-    const snap = await db.collection('station_feedback').where('stationId', '==', stationId).get();
-    const records = []; snap.forEach(d => records.push(d.data()));
+    const records = await this._getFeedbackRecords(stationId);
     const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const inMonth = records.filter(r => { const c = r.createdAt || ''; return c >= startDate && c <= endDate + 'T23:59:59'; });
     const ratings = inMonth.filter(r => r.rating).map(r => r.rating);
@@ -558,18 +577,17 @@ class StationReportService {
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`;
     const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
-    const [attSnap, actSnap, scoreSnap, compSnap, feedSnap] = await Promise.all([
+    const [attSnap, actSnap, scoreSnap, compSnap] = await Promise.all([
       db.collection('station_attendance').where('stationId', '==', stationId).get(),
       db.collection('station_daily_activities').where('stationId', '==', stationId).get(),
       db.collection('daily_scorecards').where('stationId', '==', stationId).get(),
       db.collection('complaints').where('stationId', '==', stationId).get(),
-      db.collection('station_feedback').where('stationId', '==', stationId).get(),
     ]);
     const attRecords = []; attSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) attRecords.push(r); });
     const actRecords = []; actSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) actRecords.push(r); });
     const scoreRecords = []; scoreSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) scoreRecords.push(r); });
     const compRecords = []; compSnap.forEach(d => compRecords.push(d.data()));
-    const feedRecords = []; feedSnap.forEach(d => feedRecords.push(d.data()));
+    const feedRecords = await this._getFeedbackRecords(stationId);
     const inMonthComps = compRecords.filter(r => { const c = r.createdAt || ''; return c >= startDate && c <= endDate + 'T23:59:59'; });
     const inMonthFeed = feedRecords.filter(r => { const c = r.createdAt || ''; return c >= startDate && c <= endDate + 'T23:59:59'; });
     const presentLate = attRecords.filter(r => r.status === 'present' || r.status === 'late').length;

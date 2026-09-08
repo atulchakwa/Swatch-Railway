@@ -18,6 +18,8 @@ import 'garbage/garbage_management_screen.dart';
 import 'reporting/report_list_screen.dart';
 import 'reporting/audit_report_list_screen.dart';
 import 'feedback/feedback_qr_screen.dart';
+import 'feedback/passenger_feedback_form_screen.dart';
+import 'feedback/passenger_feedback_list_screen.dart';
 import 'cleaning_form/station_cleaning_form_list_screen.dart';
 import 'schedule/station_schedule_screen.dart';
 import 'area_config/area_config_screen.dart';
@@ -410,31 +412,50 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(padding: EdgeInsets.all(16), child: Text('Feedback Options', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-            ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.qr_code, color: Colors.white)),
-              title: const Text('Generate QR Code'),
-              subtitle: const Text('Print & display for passenger feedback'),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => FeedbackQrScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
-              },
-            ),
-            ListTile(
-              leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list, color: Colors.white)),
-              title: const Text('View Feedback'),
-              subtitle: const Text('Browse submitted passenger feedback'),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => StationFeedbackListScreen(stationId: _selectedStationId)));
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
+child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(padding: EdgeInsets.all(16), child: Text('Feedback Options', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+              ListTile(
+                leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.edit_note, color: Colors.white)),
+                title: const Text('Submit Passenger Feedback'),
+                subtitle: const Text('Ask a passenger, record PNR + ratings'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackFormScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
+                },
+              ),
+              ListTile(
+                leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list_alt, color: Colors.white)),
+                title: const Text('View PNR Feedback'),
+                subtitle: const Text('Browse feedback recorded against PNRs'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackListScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.qr_code, color: Colors.white)),
+                title: const Text('Generate QR Code'),
+                subtitle: const Text('Print & display for passenger feedback'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => FeedbackQrScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
+                },
+              ),
+              ListTile(
+                leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list, color: Colors.white)),
+                title: const Text('View Feedback'),
+                subtitle: const Text('Browse submitted passenger feedback'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => StationFeedbackListScreen(stationId: _selectedStationId)));
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
       ),
     );
   }

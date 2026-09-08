@@ -47,6 +47,7 @@ import frequencyRoutes from './routes/frequency.js';
 import materialRoutes from './routes/material.js';
 import machineRoutes from './routes/machine.js';
 import stationFeedbackRoutes from './routes/stationFeedback.js';
+import passengerFeedbackRoutes from './routes/passengerFeedback.js';
 import stationAttendanceRoutes from './routes/stationAttendance.js';
 import dailyActivitiesRoutes from './routes/dailyActivities.js';
 import stationBillingRoutes from './routes/stationBilling.js';
@@ -138,6 +139,7 @@ app.use(frequencyRoutes);                         // /api/frequencies/*
 app.use(materialRoutes);                          // /api/materials/*
 app.use(machineRoutes);                           // /api/machines/*
 app.use(stationFeedbackRoutes);                   // /api/station-feedback/*
+app.use(passengerFeedbackRoutes);                 // /api/passenger-feedback/* (PNR feedback)
 app.use(stationAttendanceRoutes);                 // /api/station-attendance/*
 app.use(dailyActivitiesRoutes);                   // /api/station-activities/*
 app.use(stationBillingRoutes);                    // /api/station-billing/*

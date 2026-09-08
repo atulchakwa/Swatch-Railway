@@ -36,13 +36,14 @@ class StationBillingService {
     const existingPack = existingPacks.find(p => p.status !== 'DELETED');
     if (existingPack) return { message: 'Existing billing support pack returned', uid: existingPack.id, pack: existingPack };
 
-    const [attendanceSnap, cleaningAttSnap, activitySnap, scorecardSnap, complaintSnap, feedbackSnap, inspectionSnap, machineSnap, downtimeSnap, stationRunSnap, formsSnap] = await Promise.all([
+    const [attendanceSnap, cleaningAttSnap, activitySnap, scorecardSnap, complaintSnap, feedbackSnap, passengerFeedbackSnap, inspectionSnap, machineSnap, downtimeSnap, stationRunSnap, formsSnap] = await Promise.all([
       db.collection('station_attendance').where('stationId', '==', stationId).get(),
       db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
       db.collection('cleaningTasks').where('stationId', '==', stationId).get(),
       db.collection('daily_scorecards').where('stationId', '==', stationId).get(),
       db.collection('complaints').where('stationId', '==', stationId).get(),
       db.collection('station_feedback').where('stationId', '==', stationId).get(),
+      db.collection('passenger_feedback').where('stationId', '==', stationId).get(),
       db.collection('inspections').where('stationId', '==', stationId).get(),
       db.collection('machines').where('stationId', '==', stationId).get(),
       db.collection('machine_downtime').where('stationId', '==', stationId).get(),
@@ -72,6 +73,15 @@ class StationBillingService {
     const cmpSummary = { total: complaints.length, closed: complaints.filter(c => c.status === 'CLOSED').length, open: complaints.filter(c => ['REPORTED', 'ASSIGNED', 'IN_PROGRESS'].includes(c.status)).length, rejected: complaints.filter(c => c.status === 'REJECTED').length };
 
     const feedbackRecords = []; feedbackSnap.forEach(d => { const r = d.data(); const ts = r.createdAt || ''; if (ts >= startDate && ts <= endDate + 'T23:59:59') feedbackRecords.push(r); });
+    passengerFeedbackSnap.forEach(d => {
+      const r = d.data();
+      if (r.status === 'CANCELLED') return;
+      const ts = r.createdAt || '';
+      if (ts >= startDate && ts <= endDate + 'T23:59:59') {
+        const rating = r.overallRating || 0;
+        feedbackRecords.push({ ...r, rating, isNegative: r.isNegative || rating <= 2 });
+      }
+    });
     const totalRating = feedbackRecords.reduce((s, f) => s + (f.rating || 0), 0);
     const feedbackSummary = { totalFeedbacks: feedbackRecords.length, averageRating: feedbackRecords.length > 0 ? Math.round(totalRating / feedbackRecords.length * 10) / 10 : 0, negativeFeedbacks: feedbackRecords.filter(f => f.isNegative).length };
 

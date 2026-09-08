@@ -323,10 +323,11 @@ class DashboardService {
     if (cached) return cached;
 
     const safe = (fn) => this._safeQuery(fn);
-    const [scoreSnap, attendSnap, feedbackSnap, complaintSnap, machineSnap, actSnap, logSnap, freqSnap, billingSnap, emailSnap, platSnap, stationSnap, tasksSnap] = await Promise.all([
+    const [scoreSnap, attendSnap, feedbackSnap, passengerFeedbackSnap, complaintSnap, machineSnap, actSnap, logSnap, freqSnap, billingSnap, emailSnap, platSnap, stationSnap, tasksSnap] = await Promise.all([
       safe(() => db.collection('daily_scorecards').where('stationId', '==', stationId).where('date', '>=', sDate).where('date', '<=', eDate).get()),
       safe(() => db.collection('station_attendance').where('stationId', '==', stationId).where('date', '>=', sDate).where('date', '<=', eDate).get()),
       safe(() => db.collection('station_feedback').where('stationId', '==', stationId).where('createdAt', '>=', sDate).where('createdAt', '<=', eDate + 'T23:59:59').get()),
+      safe(() => db.collection('passenger_feedback').where('stationId', '==', stationId).where('createdAt', '>=', sDate).where('createdAt', '<=', eDate + 'T23:59:59').get()),
       safe(() => db.collection('complaints').where('stationId', '==', stationId).where('createdAt', '>=', sDate).where('createdAt', '<=', eDate + 'T23:59:59').get()),
       safe(() => db.collection('machines').where('stationId', '==', stationId).get()),
       safe(() => db.collection('station_daily_activities').where('stationId', '==', stationId).where('date', '>=', sDate).where('date', '<=', eDate).get()),
@@ -350,6 +351,11 @@ class DashboardService {
     const absent = attendance.filter(r => r.status === 'absent').length;
 
     const feedbacks = []; feedbackSnap.forEach(d => feedbacks.push(d.data()));
+    passengerFeedbackSnap.forEach(d => {
+      const r = d.data();
+      if (r.status === 'CANCELLED') return;
+      feedbacks.push({ ...r, rating: r.overallRating || 0 });
+    });
     const avgFeedback = feedbacks.length > 0 ? Math.round(feedbacks.reduce((s, f) => s + (f.rating || 0), 0) / feedbacks.length * 10) / 10 : 0;
 
     const complaints = []; complaintSnap.forEach(d => complaints.push(d.data()));
