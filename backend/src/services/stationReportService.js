@@ -44,11 +44,31 @@ class StationReportService {
       db.collection('station_feedback').where('stationId', '==', stationId).get(),
       db.collection('passenger_feedback').where('stationId', '==', stationId).get(),
     ]);
+    const gradeScores = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
+    // Normalize a stored rating onto the shared 1-5 report scale. Values above 5
+    // are treated as 0-10 scores (e.g. passenger scores) and rescaled so the
+    // reports can mix both sources consistently.
+    const toReportScale = (v) => {
+      const n = Number(v);
+      if (Number.isNaN(n)) return 0;
+      return n > 5 ? Math.round(n / 2) : n;
+    };
     const records = [];
-    sfSnap.forEach(d => records.push(d.data()));
+    sfSnap.forEach(d => {
+      const r = d.data();
+      const status = (r.moderationStatus || 'approved').toLowerCase();
+      // Station feedback carries a native 1-5 rating; expose the fields the
+      // report summaries rely on so they are counted correctly.
+      records.push({
+        ...r,
+        rating: toReportScale(r.rating != null ? r.rating : r.overallRating),
+        status: status === 'rejected' ? 'rejected' : (status === 'pending' || status === 'under_review' ? 'pending' : 'approved'),
+        comment: r.comments || r.remark || '',
+        remarks: r.comments || r.remark || '',
+      });
+    });
     pfSnap.forEach(d => {
       const r = d.data();
-      const gradeScores = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
       const sections = r.sections || {};
       let expanded = false;
       for (const sec of Object.values(sections)) {
@@ -57,7 +77,7 @@ class StationReportService {
           const score = gradeScores[pval.grade];
           records.push({
             ...r,
-            rating: score != null ? score / 2 : (r.overallRating || 0),
+            rating: score != null ? score / 2 : toReportScale(r.overallRating),
             category: pk,
             grade: pval.grade,
             status: 'approved',
@@ -68,7 +88,7 @@ class StationReportService {
         }
       }
       if (!expanded) {
-        records.push({ ...r, rating: r.overallRating || 0, category: 'overall', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
+        records.push({ ...r, rating: toReportScale(r.overallRating), category: 'overall', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
       }
     });
     return records;
@@ -204,7 +224,7 @@ class StationReportService {
 
   async generateDailyAttendanceReport(stationId, date, user) {
     const stationName = await this._getStationName(stationId);
-    const stationAttSnap = await db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get();
+    const stationAttSnap = await db.collection('station_attendance').where('stationId', '==', stationId).get();
     const records = []; stationAttSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
 
     // In station-cleaning contracts work is performed by contract supervisors,
@@ -229,22 +249,23 @@ class StationReportService {
       });
     } catch (_) { /* task enrichment is optional */ }
 
-    const present = records.filter(r => r.attendanceStatus === 'PRESENT').length;
-    const late = records.filter(r => r.attendanceStatus === 'LATE').length;
-    const onLeave = records.filter(r => r.attendanceStatus === 'ON_LEAVE').length;
+    const present = records.filter(r => ['present', 'PRESENT', 'half_day'].includes(r.status) || r.attendanceStatus === 'PRESENT').length;
+    const late = records.filter(r => ['late', 'LATE'].includes(r.status) || r.attendanceStatus === 'LATE').length;
+    const onLeave = records.filter(r => ['on_leave', 'ON_LEAVE'].includes(r.status) || r.attendanceStatus === 'ON_LEAVE').length;
     const absent = Math.max(0, records.length - present - late - onLeave);
     const reportRecords = records.map(r => {
       const start = r.startAttendance || {};
       const mid = r.midAttendance || {};
       const end = r.endAttendance || {};
+      const st = r.status || r.attendanceStatus || '';
       return {
         supervisor: r.workerName || r.workerId || '',
-        status: r.attendanceStatus || '',
+        status: st,
         startMarked: r.isStartMarked ? 'Yes' : 'No',
         midMarked: r.isMidMarked ? 'Yes' : 'No',
         endMarked: r.isEndMarked ? 'Yes' : 'No',
         lateByMinutes: r.lateByMinutes || r.timingSnapshot?.lateByMinutes || 0,
-        photo: start.photoUrl || mid.photoUrl || end.photoUrl || '',
+        photo: start.photoUrl || mid.photoUrl || end.photoUrl || r.photoUrl || '',
         startPhoto: start.photoUrl || '',
         midPhoto: mid.photoUrl || '',
         endPhoto: end.photoUrl || '',
@@ -435,15 +456,18 @@ class StationReportService {
     const monthPad = String(month).padStart(2, '0');
     const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
     const [snap, overtimeSnap] = await Promise.all([
-      db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
+      db.collection('station_attendance').where('stationId', '==', stationId).get(),
       db.collection('overtime_records').where('stationId', '==', stationId).get(),
     ]);
     const records = []; snap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) records.push(r); });
     const overtime = []; overtimeSnap.forEach(d => { const r = d.data(); if (r.date >= startDate && r.date <= endDate) overtime.push(r); });
-    const combinedRecords = records.map(r => ({ ...r, source: 'station_cleaning_attendance' }));
-    const daysPresent = new Set(combinedRecords.filter(r => r.attendanceStatus === 'PRESENT').map(r => r.date)).size;
+    const combinedRecords = records.map(r => ({ ...r, source: 'station_attendance' }));
+    const isPresent = (r) => ['present', 'PRESENT', 'half_day'].includes(r.status) || r.attendanceStatus === 'PRESENT';
+    const isLate = (r) => ['late', 'LATE'].includes(r.status) || r.attendanceStatus === 'LATE';
+    const isLeave = (r) => ['on_leave', 'ON_LEAVE'].includes(r.status) || r.attendanceStatus === 'ON_LEAVE';
+    const daysPresent = new Set(combinedRecords.filter(isPresent).map(r => r.date)).size;
     const totalDays = new Set(combinedRecords.map(r => r.date)).size;
-    const workerMap = {}; combinedRecords.forEach(r => { const w = r.workerId; if (!w) return; if (!workerMap[w]) workerMap[w] = { supervisorName: r.workerName || '', present: 0, late: 0, leave: 0, total: 0 }; workerMap[w][r.attendanceStatus === 'PRESENT' ? 'present' : r.attendanceStatus === 'LATE' ? 'late' : r.attendanceStatus === 'ON_LEAVE' ? 'leave' : 'total']++; workerMap[w].total++; });
+    const workerMap = {}; combinedRecords.forEach(r => { const w = r.workerId; if (!w) return; if (!workerMap[w]) workerMap[w] = { supervisorName: r.workerName || '', present: 0, late: 0, leave: 0, total: 0 }; workerMap[w][isPresent(r) ? 'present' : isLate(r) ? 'late' : isLeave(r) ? 'leave' : 'total']++; workerMap[w].total++; });
     const totalOvertimeHours = overtime.reduce((s, o) => s + (o.hours || o.overtimeHours || 0), 0);
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_attendance', month, year, date: startDate,
