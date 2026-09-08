@@ -18,6 +18,7 @@ router.post('/api/station-reports/daily/complaint', verifyToken, ctrl.generateDa
 router.post('/api/station-reports/daily/feedback', verifyToken, ctrl.generateDailyFeedbackReport);
 router.post('/api/station-reports/daily/supervisor-log', verifyToken, ctrl.generateDailySupervisorLogReport);
 router.post('/api/station-reports/daily/inspection', verifyToken, ctrl.generateDailyInspectionReport);
+router.post('/api/station-reports/daily/petty-issue', verifyToken, ctrl.generateDailyPettyIssueReport);
 router.post('/api/station-reports/daily/missed-activity', verifyToken, ctrl.generateMissedActivityReport);
 router.post('/api/station-reports/archive-retrieval', verifyToken, ctrl.generateArchiveRetrievalReport);
 
@@ -30,6 +31,7 @@ router.post('/api/station-reports/monthly/feedback', verifyToken, ctrl.generateM
 router.post('/api/station-reports/monthly/billing', verifyToken, ctrl.generateMonthlyBillingReport);
 router.post('/api/station-reports/monthly/penalty', verifyToken, ctrl.generateMonthlyPenaltyReport);
 router.post('/api/station-reports/monthly/performance', verifyToken, ctrl.generateMonthlyPerformanceReport);
+router.post('/api/station-reports/monthly/petty-issue', verifyToken, ctrl.generateMonthlyPettyIssueReport);
 
 // 10.3 Audit Reports
 router.get('/api/station-reports/audit/user-activity', verifyToken, ctrl.generateUserActivityAudit);

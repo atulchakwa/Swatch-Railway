@@ -83,6 +83,13 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       'description': 'Highlight missed, delayed, or overdue cleaning tasks and exceptions.',
       'color': Color(0xFFC62828),
     },
+    'daily_petty_issue': {
+      'icon': Icons.construction,
+      'title': 'Petty Issue Report',
+      'frequency': 'Daily',
+      'description': 'Track station asset-related petty issues and their status.',
+      'color': Color(0xFF37474F),
+    },
     'daily_scorecard': {
       'icon': Icons.score,
       'title': 'Daily Scorecard',
@@ -153,18 +160,27 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       'description': 'Machine downtime, SLA breaches, and penalty amounts from low scores.',
       'color': Color(0xFFC62828),
     },
+    'monthly_petty_issue': {
+      'icon': Icons.construction,
+      'title': 'Monthly Petty Issue Summary',
+      'frequency': 'Monthly',
+      'description': 'Monthly summary of station asset-related petty issues by status and severity.',
+      'color': Color(0xFF37474F),
+    },
   };
 
   static const List<String> _allReportKeys = [
     'daily_attendance', 'daily_activity', 'daily_inspection', 'daily_feedback',
     'missed_activity', 'daily_scorecard', 'daily_complaint', 'daily_supervisor_log',
+    'daily_petty_issue',
     'monthly_attendance', 'monthly_cleaning', 'monthly_performance', 'monthly_billing',
-    'monthly_feedback', 'monthly_complaint', 'monthly_penalty',
+    'monthly_feedback', 'monthly_complaint', 'monthly_penalty', 'monthly_petty_issue',
   ];
 
   static const List<String> _contractorReportKeys = [
     'daily_attendance', 'daily_activity', 'daily_feedback', 'missed_activity',
-    'daily_inspection', 'monthly_performance', 'monthly_billing',
+    'daily_inspection', 'daily_petty_issue', 'monthly_performance', 'monthly_billing',
+    'monthly_petty_issue',
   ];
 
   List<String> get _availableReportKeys => _isContractor ? _contractorReportKeys : _allReportKeys;

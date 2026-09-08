@@ -12,12 +12,12 @@ import logger from '../logger/index.js';
 const DAILY_REPORT_TYPES = [
   'daily_attendance', 'daily_activity', 'daily_scorecard',
   'daily_complaint', 'daily_feedback', 'daily_supervisor_log',
-  'daily_inspection', 'missed_activity', 'archive_retrieval'
+  'daily_inspection', 'daily_petty_issue', 'missed_activity', 'archive_retrieval'
 ];
 const MONTHLY_REPORT_TYPES = [
   'monthly_attendance', 'monthly_cleaning', 'monthly_scorecard',
   'monthly_complaint', 'monthly_feedback', 'monthly_billing', 'monthly_penalty',
-  'monthly_performance'
+  'monthly_performance', 'monthly_petty_issue'
 ];
 const AUDIT_REPORT_TYPES = [
   'audit_user_activity', 'audit_image_archive', 'audit_rejected_forms',
@@ -463,13 +463,37 @@ class StationReportService {
         missedActivities: missed.map(m => ({ activityId: m.activityId, areaId: m.areaId, scheduledStart: m.scheduledStart, scheduledEnd: m.scheduledEnd, assignedWorkers: m.assignedWorkers })),
         overdueTasks,
       },
+generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
+    });
+    return report;
+  }
+
+  async generateDailyPettyIssueReport(stationId, date, user) {
+    const stationName = await this._getStationName(stationId);
+    const start = `${date}T00:00:00`; const end = `${date}T23:59:59`;
+    const snap = await db.collection('petty_issues').where('stationId', '==', stationId).get();
+    const dayRecords = []; snap.forEach(d => { const r = d.data(); const ts = r.reportedAt || r.createdAt || ''; if (ts >= start && ts <= end) dayRecords.push(r); });
+    const open = dayRecords.filter(r => ['REPORTED', 'ASSIGNED', 'IN_PROGRESS'].includes(r.status));
+    const resolved = dayRecords.filter(r => ['RESOLVED', 'CLOSED'].includes(r.status));
+    const rejected = dayRecords.filter(r => r.status === 'REJECTED');
+    const statusBreakdown = dayRecords.reduce((acc, r) => { acc[r.status || 'UNKNOWN'] = (acc[r.status || 'UNKNOWN'] || 0) + 1; return acc; }, {});
+    const severityBreakdown = dayRecords.reduce((acc, r) => { acc[r.severity || 'medium'] = (acc[r.severity || 'medium'] || 0) + 1; return acc; }, {});
+    const categoryBreakdown = dayRecords.reduce((acc, r) => { acc[r.category || 'other'] = (acc[r.category || 'other'] || 0) + 1; return acc; }, {});
+    const report = await this._storeReport({
+      stationId, stationName, reportType: 'daily_petty_issue', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      summary: {
+        total: dayRecords.length, open: open.length, resolved: resolved.length, rejected: rejected.length,
+        resolutionRate: dayRecords.length > 0 ? Math.round(resolved.length / dayRecords.length * 100) : 0,
+        statusBreakdown, severityBreakdown, categoryBreakdown,
+        issues: dayRecords.map(r => ({ uid: r.uid, category: r.category, description: r.description, areaId: r.areaId, platformId: r.platformId, severity: r.severity, status: r.status, reportedAt: r.reportedAt, reportedByName: r.reportedByName, resolvedAt: r.resolvedAt, photo: r.photo, gpsLatitude: r.gpsLatitude, gpsLongitude: r.gpsLongitude })),
+      },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
   }
 
   /* ==================================================================
-     4. MONTHLY REPORTS (Section 10.2)
+    4. MONTHLY REPORTS (Section 10.2)
      ================================================================== */
 
   async generateMonthlyAttendanceSummary(stationId, month, year, user) {
@@ -658,6 +682,33 @@ class StationReportService {
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_performance', month, year, date: startDate,
       summary: { attendanceRate: attPct, totalManpowerEntries: attRecords.length, activityCompletionRate: completionRate, totalActivities: actRecords.length, averageScorecardScore: avgScore, scorecardDays: scoreRecords.length, totalComplaints: inMonthComps.length, resolvedComplaints: inMonthComps.filter(r => ['CLOSED', 'RESOLVED', 'RAILWAY_VERIFIED'].includes(r.status)).length, totalFeedback: inMonthFeed.length, averageFeedbackRating: ratings.length > 0 ? (ratings.reduce((s, v) => s + v, 0) / ratings.length).toFixed(1) : 'N/A', overallPerformanceIndex: avgScore > 0 ? Math.round((attPct + completionRate + avgScore) / 3) : 0 },
+      generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
+    });
+    return report;
+  }
+
+  async generateMonthlyPettyIssueReport(stationId, month, year, user) {
+    const stationName = await this._getStationName(stationId);
+    const monthPad = String(month).padStart(2, '0');
+    const startDate = `${year}-${monthPad}-01`; const endDate = `${year}-${monthPad}-${this._getMonthEnd(year, month)}`;
+    const snap = await db.collection('petty_issues').where('stationId', '==', stationId).get();
+    const inMonth = []; snap.forEach(d => { const r = d.data(); const ts = r.reportedAt || r.createdAt || ''; const d2 = ts.split('T')[0]; if (d2 >= startDate && d2 <= endDate) inMonth.push(r); });
+    const open = inMonth.filter(r => ['REPORTED', 'ASSIGNED', 'IN_PROGRESS'].includes(r.status));
+    const resolved = inMonth.filter(r => ['RESOLVED', 'CLOSED'].includes(r.status));
+    const rejected = inMonth.filter(r => r.status === 'REJECTED');
+    const statusBreakdown = inMonth.reduce((acc, r) => { acc[r.status || 'UNKNOWN'] = (acc[r.status || 'UNKNOWN'] || 0) + 1; return acc; }, {});
+    const severityBreakdown = inMonth.reduce((acc, r) => { acc[r.severity || 'medium'] = (acc[r.severity || 'medium'] || 0) + 1; return acc; }, {});
+    const categoryBreakdown = inMonth.reduce((acc, r) => { acc[r.category || 'other'] = (acc[r.category || 'other'] || 0) + 1; return acc; }, {});
+    const avgResolutionDays = resolved.filter(r => r.resolvedAt).reduce((acc, r) => acc + (new Date(r.resolvedAt) - new Date(r.reportedAt || r.createdAt)) / 86400000, 0);
+    const resolvedWithTs = resolved.filter(r => r.resolvedAt).length;
+    const report = await this._storeReport({
+      stationId, stationName, reportType: 'monthly_petty_issue', month, year, date: startDate,
+      summary: {
+        total: inMonth.length, open: open.length, resolved: resolved.length, rejected: rejected.length,
+        resolutionRate: inMonth.length > 0 ? Math.round(resolved.length / inMonth.length * 100) : 0,
+        avgResolutionDays: resolvedWithTs > 0 ? (avgResolutionDays / resolvedWithTs).toFixed(1) : 'N/A',
+        statusBreakdown, severityBreakdown, categoryBreakdown,
+      },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
@@ -863,7 +914,7 @@ class StationReportService {
         const params = { stationId: schedule.parameters?.stationId, date: dateStr, month, year, ...schedule.parameters };
 
         if (schedule.reportType.startsWith('daily_') || schedule.reportType === 'missed_activity') {
-          const fnMap = { daily_attendance: 'generateDailyAttendanceReport', daily_activity: 'generateDailyActivityReport', daily_scorecard: 'generateDailyScorecardReport', daily_complaint: 'generateDailyComplaintReport', daily_feedback: 'generateDailyFeedbackReport', daily_inspection: 'generateDailyInspectionReport', daily_supervisor_log: 'generateDailySupervisorLog', missed_activity: 'generateMissedActivityReport', archive_retrieval: 'generateArchiveRetrievalReport' };
+          const fnMap = { daily_attendance: 'generateDailyAttendanceReport', daily_activity: 'generateDailyActivityReport', daily_scorecard: 'generateDailyScorecardReport', daily_complaint: 'generateDailyComplaintReport', daily_feedback: 'generateDailyFeedbackReport', daily_inspection: 'generateDailyInspectionReport', daily_supervisor_log: 'generateDailySupervisorLog', daily_petty_issue: 'generateDailyPettyIssueReport', missed_activity: 'generateMissedActivityReport', archive_retrieval: 'generateArchiveRetrievalReport' };
           if (fnMap[schedule.reportType]) {
             if (schedule.reportType === 'archive_retrieval') {
               await this[fnMap[schedule.reportType]](params.stationId, params.date, params.date, user);
@@ -875,7 +926,7 @@ class StationReportService {
             }
           }
         } else if (schedule.reportType.startsWith('monthly_')) {
-          const fnMap = { monthly_attendance: 'generateMonthlyAttendanceSummary', monthly_cleaning: 'generateMonthlyCleaningSummary', monthly_scorecard: 'generateMonthlyScorecardReport', monthly_complaint: 'generateMonthlyComplaintSummary', monthly_feedback: 'generateMonthlyFeedbackSummary', monthly_billing: 'generateMonthlyBillingReport', monthly_penalty: 'generateMonthlyPenaltyReport', monthly_performance: 'generateMonthlyPerformanceReport' };
+          const fnMap = { monthly_attendance: 'generateMonthlyAttendanceSummary', monthly_cleaning: 'generateMonthlyCleaningSummary', monthly_scorecard: 'generateMonthlyScorecardReport', monthly_complaint: 'generateMonthlyComplaintSummary', monthly_feedback: 'generateMonthlyFeedbackSummary', monthly_billing: 'generateMonthlyBillingReport', monthly_penalty: 'generateMonthlyPenaltyReport', monthly_performance: 'generateMonthlyPerformanceReport', monthly_petty_issue: 'generateMonthlyPettyIssueReport' };
           await this[fnMap[schedule.reportType]](params.stationId, params.month, params.year, user);
           await autoEmailService.dispatchMonthlyReport(schedule.reportType, params.stationId, params.month, params.year);
         } else if (schedule.reportType.startsWith('audit_')) {

@@ -15,6 +15,7 @@ export const generateDailyFeedbackReport = asyncHandler(async (req, res) => res.
 export const generateDailySupervisorLogReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateDailySupervisorLog(req.body.stationId, req.body.date, req.user)));
 export const generateMissedActivityReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateMissedActivityReport(req.body.stationId, req.body.date, req.user)));
 export const generateDailyInspectionReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateDailyInspectionReport(req.body.stationId, req.body.date, req.user)));
+export const generateDailyPettyIssueReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateDailyPettyIssueReport(req.body.stationId, req.body.date, req.user)));
 export const generateArchiveRetrievalReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateArchiveRetrievalReport(req.body.stationId, req.body.startDate, req.body.endDate, req.user)));
 export const generateMonthlyAttendanceSummary = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyAttendanceSummary(req.body.stationId, req.body.month, req.body.year, req.user)));
 export const generateMonthlyCleaningSummary = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyCleaningSummary(req.body.stationId, req.body.month, req.body.year, req.user)));
@@ -24,6 +25,7 @@ export const generateMonthlyFeedbackSummary = asyncHandler(async (req, res) => r
 export const generateMonthlyBillingReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyBillingReport(req.body.stationId, req.body.month, req.body.year, req.user)));
 export const generateMonthlyPenaltyReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyPenaltyReport(req.body.stationId, req.body.month, req.body.year, req.user)));
 export const generateMonthlyPerformanceReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyPerformanceReport(req.body.stationId, req.body.month, req.body.year, req.user)));
+export const generateMonthlyPettyIssueReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyPettyIssueReport(req.body.stationId, req.body.month, req.body.year, req.user)));
 export const generateUserActivityAudit = asyncHandler(async (req, res) => res.json(await stationReportService.generateUserActivityAudit(req.query, req.user)));
 export const generateImageArchiveReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateImageArchiveReport(req.query, req.user)));
 export const generateRejectedFormsReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateRejectedFormsReport(req.query, req.user)));
