@@ -470,44 +470,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     }
   }
 
-  Widget _openPassengerFeedbackChooser(BuildContext context, {required String stationId, required String stationName}) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Passenger Feedback - $stationName', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: kRailwayBlue,
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: ListView(
-        children: [
-          const SizedBox(height: 8),
-          ListTile(
-            leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.edit_note, color: Colors.white)),
-            title: const Text('Submit Passenger Feedback'),
-            subtitle: const Text('Ask a passenger, record PNR + ratings (min 3 categories)'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackFormScreen(
-              stationId: stationId,
-              stationName: stationName,
-            ))),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list_alt, color: Colors.white)),
-            title: const Text('View PNR Feedback'),
-            subtitle: const Text('Browse feedback recorded against PNRs'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackListScreen(
-              stationId: stationId,
-              stationName: stationName,
-            ))),
-          ),
-          const Divider(),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
   void _handleSidebarNavigation(String? route, BuildContext context, String? userRole) {
     if (route == null) {
       Navigator.pop(context); // Close drawer
@@ -651,8 +613,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         ), user);
         break;
       case "sc_supervisor_passenger_feedback":
-        _navigateWithStation(context, (stationId, stationName) => _openPassengerFeedbackChooser(
-          context,
+        _navigateWithStation(context, (stationId, stationName) => _PassengerFeedbackChooser(
           stationId: stationId,
           stationName: stationName,
         ), user);
@@ -1540,5 +1501,50 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       default:
         return type;
     }
+  }
+}
+
+class _PassengerFeedbackChooser extends StatelessWidget {
+  final String stationId;
+  final String stationName;
+  const _PassengerFeedbackChooser({required this.stationId, required this.stationName});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Passenger Feedback - $stationName', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: kRailwayBlue,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: ListView(
+        children: [
+          const SizedBox(height: 8),
+          ListTile(
+            leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.edit_note, color: Colors.white)),
+            title: const Text('Submit Passenger Feedback'),
+            subtitle: const Text('Ask a passenger, record PNR + ratings (min 3 categories)'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackFormScreen(
+              stationId: stationId,
+              stationName: stationName,
+            ))),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list_alt, color: Colors.white)),
+            title: const Text('View PNR Feedback'),
+            subtitle: const Text('Browse feedback recorded against PNRs'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackListScreen(
+              stationId: stationId,
+              stationName: stationName,
+            ))),
+          ),
+          const Divider(),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
   }
 }
