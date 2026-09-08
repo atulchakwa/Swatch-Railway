@@ -211,7 +211,14 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
       };
       if (_filterReportType != null) query['reportType'] = _filterReportType!;
       final list = await StationReportRepository.list(query);
-      setState(() => _reports = list);
+      list.sort((a, b) => b.generatedAt.compareTo(a.generatedAt));
+      final seen = <String>{};
+      final deduped = <StationReport>[];
+      for (final r in list) {
+        final key = '${r.reportType}|${r.stationId}|${r.date}';
+        if (seen.add(key)) deduped.add(r);
+      }
+      setState(() => _reports = deduped);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -352,10 +359,11 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
                       onPressed: isGenerating ? null : () async {
                         setSheetState(() => isGenerating = true);
                         try {
+                          late StationReport generated;
                           if (isDaily) {
-                            await StationReportRepository.generateDaily(reportKey, widget.stationId, DateFormat('yyyy-MM-dd').format(selectedDate));
+                            generated = await StationReportRepository.generateDaily(reportKey, widget.stationId, DateFormat('yyyy-MM-dd').format(selectedDate));
                           } else {
-                            await StationReportRepository.generateMonthly(reportKey, widget.stationId, selectedMonth, selectedYear);
+                            generated = await StationReportRepository.generateMonthly(reportKey, widget.stationId, selectedMonth, selectedYear);
                           }
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -363,6 +371,9 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
                             );
                             _loadReports();
                             Navigator.pop(ctx);
+                            _tabController.animateTo(_showLiveDashboard ? 2 : 1);
+                            await Future.delayed(const Duration(milliseconds: 250));
+                            _downloadReport(generated);
                           }
                         } catch (e) {
                           if (mounted) {

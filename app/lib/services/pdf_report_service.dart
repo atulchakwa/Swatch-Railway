@@ -1523,6 +1523,41 @@ class PDFReportService {
     return pdf.save();
   }
 
+  // Ordered, report-type-specific columns for array sections in station report summaries.
+  // Falls back to generic first-6-keys for report/array combos not listed.
+  static const Map<String, Map<String, List<String>>> _reportArrayColumns = {
+    'daily_attendance': {
+      'records': ['supervisor', 'status', 'startMarked', 'midMarked', 'endMarked', 'lateByMinutes'],
+    },
+    'daily_activity': {
+      'records': ['area', 'activity', 'shift', 'time', 'status', 'supervisor', 'score'],
+    },
+    'daily_feedback': {
+      'negativeTrends': ['category', 'count', 'sampleComments'],
+    },
+    'daily_inspection': {
+      'inspections': ['inspectionType', 'status', 'inspectorName', 'overallScore', 'remarks'],
+    },
+    'daily_petty_issue': {
+      'issues': ['uid', 'category', 'description', 'areaId', 'platformId', 'severity', 'status', 'reportedAt', 'reportedByName'],
+    },
+    'missed_activity': {
+      'overdueTasks': ['taskId', 'area', 'activity', 'shift', 'scheduledTime', 'supervisor'],
+      'overdueActivities': ['activityId', 'areaId', 'scheduledStart', 'scheduledEnd', 'assignedWorkers'],
+      'delayedActivities': ['activityId', 'areaId', 'scheduledStart', 'scheduledEnd', 'assignedWorkers'],
+      'missedActivities': ['activityId', 'areaId', 'scheduledStart', 'scheduledEnd', 'assignedWorkers'],
+    },
+    'monthly_attendance': {
+      'supervisorSummary': ['supervisorId', 'supervisorName', 'present', 'late', 'leave', 'total'],
+    },
+    'monthly_cleaning': {
+      'areaCompletion': ['areaId', 'completedCount'],
+    },
+    'monthly_scorecard': {
+      'scores': ['date', 'score', 'grade'],
+    },
+  };
+
   static Future<Uint8List> generateStationReportPdf(StationReport report) async {
     final pdf = pw.Document();
     final railway = await _getRailwayLogo();
@@ -1617,11 +1652,17 @@ class PDFReportService {
             if (entry.value.isEmpty) continue;
             widgets.add(_buildSectionHeader(_formatLabel(entry.key)));
             final records = entry.value;
-            final allKeys = <String>{};
-            for (final record in records) {
-              if (record is Map) allKeys.addAll(record.keys.cast<String>());
+            final mappedColumns = (_reportArrayColumns[report.reportType] ?? const {})[entry.key];
+            final List<String> keys;
+            if (mappedColumns != null) {
+              keys = mappedColumns;
+            } else {
+              final allKeys = <String>{};
+              for (final record in records) {
+                if (record is Map) allKeys.addAll(record.keys.cast<String>());
+              }
+              keys = allKeys.take(6).toList();
             }
-            final keys = allKeys.take(6).toList();
             if (keys.isEmpty) continue;
             final dataRows = records.map((record) {
               if (record is Map) {
@@ -1666,6 +1707,22 @@ class PDFReportService {
   static String _formatValue(dynamic value) {
     if (value == null) return 'N/A';
     if (value is double) return value.toStringAsFixed(1);
+    if (value is int || value is num) return value.toString();
+    if (value is bool) return value ? 'Yes' : 'No';
+    if (value is List) {
+      if (value.isEmpty) return '-';
+      return value.every((e) => e is Map)
+          ? '${value.length} item(s)'
+          : value.join(', ');
+    }
+    if (value is Map) return _formatMap(value);
     return value.toString();
+  }
+
+  static String _formatMap(Map value) {
+    if (value.isEmpty) return '-';
+    final parts = value.entries.map((e) => '${_formatLabel(e.key.toString())}: ${_formatValue(e.value)}');
+    final joined = parts.take(4).join(', ');
+    return joined.length > 60 ? '${joined.substring(0, 60)}...' : joined;
   }
 }
