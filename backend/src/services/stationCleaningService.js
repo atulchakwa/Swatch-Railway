@@ -2,6 +2,7 @@ import { db, admin } from '../database/index.js';
 import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
 import { paginate } from '../utils/paginate.js';
 import { fcmService } from './fcmService.js';
+import logger from '../logger/index.js';
 
 class StationCleaningService {
 
@@ -1824,6 +1825,16 @@ class StationCleaningService {
     };
     await ref.set(record);
 
+    // ─── End-of-shift attendance: submitting the shift summary auto-marks the
+    // contractor supervisor's END attendance in station_cleaning_attendance ───
+    try {
+      await this._autoMarkShiftEndAttendance({
+        supervisorId, supervisorName, stationId, stationName, date, shift, areas: enriched,
+      });
+    } catch (attErr) {
+      logger.error('StationCleaning', '(Shift Summary End Attendance) Error:', attErr);
+    }
+
     // Notify railway supervisors/admins for approval
     try {
       const notifyRoles = ['RAILWAY_SUPERVISOR', 'RAILWAY_ADMIN', 'RAILWAY_MASTER', 'SUPER_ADMIN'];
@@ -1843,6 +1854,97 @@ class StationCleaningService {
     } catch (_) { /* notification failure should not block submission */ }
 
     return { message: 'Shift summary submitted for approval', uid: ref.id, count: enriched.length, totalWorkDone, status: 'submitted' };
+  }
+
+  // Auto-marks the contractor supervisor's END attendance when a shift summary
+  // is submitted. Uses a submitted end-of-shift area photo (with live GPS) as
+  // the attendance evidence, so no separate face-capture step is required.
+  async _autoMarkShiftEndAttendance({ supervisorId, supervisorName, stationId, stationName, date, shift, areas }) {
+    if (!supervisorId) return;
+    const now = new Date().toISOString();
+
+    // Prefer a submitted area photo with live GPS as attendance evidence.
+    const evidence = Array.isArray(areas)
+      ? areas.find(a => a.photoUrl && String(a.photoUrl).trim() && a.latitude != null && a.longitude != null)
+      : null;
+    const photoUrl = evidence ? evidence.photoUrl : (Array.isArray(areas) && areas[0] ? areas[0].photoUrl || '' : '');
+    const latitude = evidence ? evidence.latitude : (Array.isArray(areas) && areas[0] ? areas[0].latitude : null);
+    const longitude = evidence ? evidence.longitude : (Array.isArray(areas) && areas[0] ? areas[0].longitude : null);
+
+    const endAttendance = {
+      photoUrl: photoUrl || '',
+      deviceTimestamp: now,
+      serverTimestamp: now,
+      location: (latitude != null && longitude != null) ? { latitude, longitude } : null,
+      mobileNumber: null, deviceId: null,
+      isLate: false, lateByMinutes: 0,
+      source: 'shift_summary_submit',
+      status: 'PRESENT',
+    };
+
+    // Find the supervisor's attendance record for today (station_cleaning_attendance).
+    let attendanceRef = null;
+    try {
+      const snapshot = await db.collection('station_cleaning_attendance').where('workerId', '==', supervisorId).get();
+      let candidate = null;
+      let latestTime = 0;
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        const t = new Date(d.createdAt || 0).getTime();
+        if (t > latestTime) { latestTime = t; candidate = doc; }
+      });
+      if (candidate && String(candidate.data().date) === String(date)) {
+        attendanceRef = db.collection('station_cleaning_attendance').doc(candidate.id);
+      }
+    } catch (e) {
+      logger.error('StationCleaning', '(Shift Summary End Attendance lookup) Error:', e);
+      return;
+    }
+
+    if (!attendanceRef) {
+      // No start-attendance record today — create an end-only record so history is preserved.
+      const docId = `summary_${supervisorId}_${date}_${shift || 'shift'}`;
+      attendanceRef = db.collection('station_cleaning_attendance').doc(docId);
+    }
+
+    const existing = await attendanceRef.get();
+    const current = existing.exists ? existing.data() : null;
+    if (current && current.isEndMarked === true) {
+      // End already marked — update the timestamp snapshot but don't overwrite.
+      await attendanceRef.update({ updatedAt: now, shiftSummaryEndRecordedAt: now });
+      return;
+    }
+
+    if (current) {
+      await attendanceRef.update({
+        endAttendance,
+        isEndMarked: true,
+        attendanceStatus: 'PRESENT',
+        identityAuditStatus: photoUrl ? 'VERIFIED_SUCCESS' : 'UNVERIFIED_REVIEW',
+        source: 'shift_summary_submit',
+        shiftSummaryEndRecordedAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await attendanceRef.set({
+        uid: attendanceRef.id,
+        runInstanceId: `summary_${supervisorId}_${date}_${shift || 'shift'}`,
+        stationId: stationId || null,
+        stationName: stationName || '',
+        workerId: supervisorId,
+        workerName: supervisorName || 'Supervisor',
+        workerType: 'supervisor',
+        date,
+        shift: shift || '',
+        isStartMarked: false, isMidMarked: false, isEndMarked: true,
+        attendanceStatus: 'PRESENT',
+        identityAuditStatus: photoUrl ? 'VERIFIED_SUCCESS' : 'UNVERIFIED_REVIEW',
+        startAttendance: null, midAttendance: null, endAttendance,
+        source: 'shift_summary_submit',
+        shiftSummaryEndRecordedAt: now,
+        createdAt: now, updatedAt: now,
+      });
+    }
   }
 
   async listShiftSummaries(query = {}, user) {

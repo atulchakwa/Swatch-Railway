@@ -420,9 +420,9 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
           ),
           actions: [
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(ctx);
-                Navigator.push(
+                final submitted = await Navigator.push<bool>(
                   context,
                   MaterialPageRoute(
                     builder: (_) => ShiftSummaryScreen(
@@ -436,6 +436,11 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
                     ),
                   ),
                 );
+                if (submitted == true && mounted) {
+                  // Submitting the shift summary auto-marks END attendance.
+                  setState(() => _endMarked = true);
+                  _loadAttendanceStatus();
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: kRailwayBlue,
@@ -684,16 +689,18 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
             icon: Icons.logout,
             marked: _endMarked,
             onMark: () => _markAttendance('end'),
-            description: 'Mark shift end',
-            unlocked: _midMarked && !_endMarked,
+            description: _endMarked
+                ? 'Auto-marked on shift summary submission'
+                : 'Auto-marked when you submit the shift summary',
+            unlocked: _startMarked && !_endMarked,
           ),
           const SizedBox(height: 24),
-          if (_endMarked)
+          if (_startMarked)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.camera_alt, size: 18),
-                label: const Text('Submit Shift Summary Photos'),
+                label: const Text('Submit Shift Summary (auto-marks End)'),
                 onPressed: () => _promptShiftSummary(),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange.shade800,
