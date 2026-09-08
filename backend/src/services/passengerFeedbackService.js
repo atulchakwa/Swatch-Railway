@@ -8,29 +8,58 @@ const _getISTDate = (date) => {
   return ist.toISOString().split('T')[0];
 };
 
+const FEEDBACK_GRADES = ['excellent', 'very_good', 'good', 'average', 'poor'];
+const GRADE_SCORES = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
+
+const _numericToGrade = (avg) => {
+  if (avg >= 9) return 'excellent';
+  if (avg >= 7) return 'very_good';
+  if (avg >= 5.5) return 'good';
+  if (avg >= 4) return 'average';
+  return 'poor';
+};
+
 class PassengerFeedbackService {
+  _processRatings(ratings) {
+    const raw = ratings || {};
+    if (typeof raw !== 'object' || Object.keys(raw).length === 0) {
+      throw new ValidationError('At least one category rating is required');
+    }
+    const processed = {};
+    for (const [key, val] of Object.entries(raw)) {
+      const grade = String(val).trim().toLowerCase();
+      if (!FEEDBACK_GRADES.includes(grade)) {
+        throw new ValidationError(`Invalid grade for ${key}. Expected one of ${FEEDBACK_GRADES.join(', ')}`);
+      }
+      processed[key] = grade;
+    }
+    return processed;
+  }
+
+  _computeAggregates(ratings) {
+    const scores = Object.values(ratings).map(g => GRADE_SCORES[g]);
+    const overallScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const overallRating = parseFloat((overallScore / 2).toFixed(2));
+    return {
+      overallScore: parseFloat(overallScore.toFixed(2)),
+      overallRating,
+      overallGrade: _numericToGrade(overallScore),
+      isNegative: overallRating <= 2,
+    };
+  }
+
   async createFeedback(userData, body) {
     const { stationId, pnr, passengerName, passengerPhone, journeyDate, ratings, comments } = body;
     if (!stationId) throw new ValidationError('stationId is required');
     if (!pnr || !String(pnr).trim()) throw new ValidationError('PNR number is required');
-    if (!ratings || typeof ratings !== 'object' || Object.keys(ratings).length === 0) {
-      throw new ValidationError('At least one category rating is required');
-    }
 
     const stationDoc = await db.collection('stations').doc(stationId).get();
     if (!stationDoc.exists) throw new NotFoundError('Station not found');
 
-    const processed = {};
-    for (const [cat, val] of Object.entries(ratings)) {
-      const rating = Number(val);
-      if (val === null || val === '' || isNaN(rating)) continue;
-      if (rating < 1 || rating > 5) throw new ValidationError(`Rating for category ${cat} must be between 1 and 5`);
-      processed[cat] = rating;
-    }
+    const processed = this._processRatings(ratings);
     if (Object.keys(processed).length < 3) throw new ValidationError('At least 3 category ratings are required');
 
-    const totalRating = Object.values(processed).reduce((a, b) => a + Number(b), 0);
-    const overallRating = parseFloat((totalRating / Object.keys(processed).length).toFixed(2));
+    const aggregates = this._computeAggregates(processed);
 
     const ref = db.collection('passenger_feedback').doc();
     const now = new Date().toISOString();
@@ -43,8 +72,7 @@ class PassengerFeedbackService {
       passengerPhone: passengerPhone || '',
       journeyDate: journeyDate || '',
       ratings: processed,
-      overallRating,
-      isNegative: overallRating <= 2,
+      ...aggregates,
       comments: comments || '',
       takenBy: { uid: userData.uid, name: userData.fullName || userData.name || '', role: userData.role || '' },
       status: 'SUBMITTED',
@@ -53,7 +81,7 @@ class PassengerFeedbackService {
       updatedAt: now,
     };
     await ref.set(data);
-    await auditService.logAudit('PASSENGER_FEEDBACK_SUBMITTED', userData.uid, data.takenBy.name, ref.id, 'passenger_feedback', `Passenger feedback recorded for PNR ${data.pnr}. Rating: ${overallRating}`);
+    await auditService.logAudit('PASSENGER_FEEDBACK_SUBMITTED', userData.uid, data.takenBy.name, ref.id, 'passenger_feedback', `Passenger feedback recorded for PNR ${data.pnr}. Rating: ${data.overallRating}, Grade: ${data.overallGrade}`);
     return { message: 'Passenger feedback recorded', uid: ref.id, feedback: data };
   }
 
@@ -85,24 +113,12 @@ class PassengerFeedbackService {
     }
     if (updates.pnr !== undefined) updates.pnr = String(updates.pnr).trim().toUpperCase();
     if (updates.ratings !== undefined) {
-      if (!updates.ratings || typeof updates.ratings !== 'object' || Object.keys(updates.ratings).length === 0) {
-        throw new ValidationError('At least one category rating is required');
-      }
-      const processed = {};
-      for (const [cat, val] of Object.entries(updates.ratings)) {
-        const rating = Number(val);
-        if (val === null || val === '' || isNaN(rating)) continue;
-        if (rating < 1 || rating > 5) throw new ValidationError(`Rating for category ${cat} must be between 1 and 5`);
-        processed[cat] = rating;
-      }
-      if (Object.keys(processed).length === 0) throw new ValidationError('At least one valid category rating is required');
+      const processed = this._processRatings(updates.ratings);
       const current = doc.data().ratings || {};
       const merged = { ...current, ...processed };
       if (Object.keys(merged).length < 3) throw new ValidationError('At least 3 category ratings are required');
-      const totalRating = Object.values(merged).reduce((a, b) => a + Number(b), 0);
       updates.ratings = merged;
-      updates.overallRating = parseFloat((totalRating / Object.keys(merged).length).toFixed(2));
-      updates.isNegative = updates.overallRating <= 2;
+      Object.assign(updates, this._computeAggregates(merged));
     }
     updates.updatedAt = new Date().toISOString();
     await ref.update(updates);
@@ -134,19 +150,23 @@ class PassengerFeedbackService {
     for (const fb of filtered) {
       totalRating += fb.overallRating || 0;
       if (fb.isNegative) negativeCount++;
-      for (const [cat, rating] of Object.entries(fb.ratings || {})) {
+      for (const [cat, grade] of Object.entries(fb.ratings || {})) {
+        const score = GRADE_SCORES[grade] ?? 0;
         if (!catBreakdown[cat]) catBreakdown[cat] = { count: 0, totalRating: 0 };
         catBreakdown[cat].count++;
-        catBreakdown[cat].totalRating += rating;
+        catBreakdown[cat].totalRating += score;
       }
     }
     for (const cat of Object.keys(catBreakdown)) {
       catBreakdown[cat].averageRating = catBreakdown[cat].count > 0 ? Math.round(catBreakdown[cat].totalRating / catBreakdown[cat].count * 10) / 10 : 0;
     }
+    const avg = filtered.length > 0 ? totalRating / filtered.length : 0;
     return {
       stationId,
       totalFeedback: filtered.length,
-      averageRating: filtered.length > 0 ? Math.round(totalRating / filtered.length * 10) / 10 : 0,
+      averageRating: Math.round(avg * 10) / 10,
+      overallScore: Math.round(avg * 2 * 10) / 10,
+      overallGrade: _numericToGrade(avg * 2),
       negativeCount,
       positiveCount: filtered.length - negativeCount,
       uniquePnrCount: new Set(filtered.map(f => f.pnr)).size,

@@ -8,8 +8,10 @@ class PassengerFeedback {
   final String passengerName;
   final String passengerPhone;
   final String journeyDate;
-  final Map<String, int> ratings;
+  final Map<String, String> ratings;
   final double overallRating;
+  final double overallScore;
+  final String overallGrade;
   final bool isNegative;
   final String comments;
   final Map<String, dynamic>? takenBy;
@@ -27,6 +29,8 @@ class PassengerFeedback {
     this.journeyDate = '',
     this.ratings = const {},
     this.overallRating = 0,
+    this.overallScore = 0,
+    this.overallGrade = '',
     this.isNegative = false,
     this.comments = '',
     this.takenBy,
@@ -37,11 +41,8 @@ class PassengerFeedback {
 
   factory PassengerFeedback.fromJson(Map<String, dynamic> json) {
     final rawRatings = json['ratings'] is Map ? (json['ratings'] as Map) : <dynamic, dynamic>{};
-    final ratings = <String, int>{};
-    rawRatings.forEach((k, v) {
-      final numVal = v is num ? v : int.tryParse(v.toString());
-      if (numVal != null) ratings[k.toString()] = numVal.toInt();
-    });
+    final ratings = <String, String>{};
+    rawRatings.forEach((k, v) => ratings[k.toString()] = v.toString());
     return PassengerFeedback(
       uid: json['uid'],
       stationId: json['stationId'] ?? '',
@@ -52,6 +53,8 @@ class PassengerFeedback {
       journeyDate: json['journeyDate'] ?? '',
       ratings: ratings,
       overallRating: (json['overallRating'] as num?)?.toDouble() ?? 0,
+      overallScore: (json['overallScore'] as num?)?.toDouble() ?? 0,
+      overallGrade: json['overallGrade'] ?? '',
       isNegative: json['isNegative'] ?? false,
       comments: json['comments'] ?? '',
       takenBy: json['takenBy'] is Map ? Map<String, dynamic>.from(json['takenBy'] as Map) : null,
@@ -60,6 +63,8 @@ class PassengerFeedback {
       createdAt: json['createdAt'] ?? '',
     );
   }
+
+  int get ratedCount => ratings.length;
 
   String get takenByName {
     final name = takenBy?['name']?.toString() ?? '';

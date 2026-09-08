@@ -49,11 +49,22 @@ class StationReportService {
     pfSnap.forEach(d => {
       const r = d.data();
       const cats = Object.keys(r.ratings || {});
+      const gradeScores = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
       if (cats.length === 0) {
         records.push({ ...r, rating: r.overallRating || 0, category: 'overall', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
       } else {
         for (const cat of cats) {
-          records.push({ ...r, rating: r.ratings[cat], category: cat, status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
+          const grade = r.ratings[cat];
+          const score = gradeScores[grade];
+          records.push({
+            ...r,
+            rating: score != null ? score / 2 : (r.overallRating || 0),
+            category: cat,
+            grade,
+            status: 'approved',
+            comment: r.comments || '',
+            remarks: r.comments || '',
+          });
         }
       }
     });

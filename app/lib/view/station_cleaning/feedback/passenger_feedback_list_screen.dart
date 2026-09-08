@@ -1,5 +1,5 @@
 import 'package:crm_train/model/passenger_feedback_model.dart';
-import 'package:crm_train/model/station_feedback_model.dart';
+import 'package:crm_train/model/station_cleaning_models.dart';
 import 'package:crm_train/repositories/passenger_feedback_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
@@ -67,8 +67,8 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
   }
 
   Color _ratingColor(double r) {
-    if (r >= 4) return kSuccessGreen;
-    if (r >= 3) return kWarningOrange;
+    if (r >= 8) return kSuccessGreen;
+    if (r >= 6) return kWarningOrange;
     return kErrorRed;
   }
 
@@ -189,7 +189,7 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
                           itemCount: _feedbacks.length,
                           itemBuilder: (context, idx) {
                             final fb = _feedbacks[idx];
-                            final rating = fb.overallRating;
+                            final rating = fb.overallScore; // or gradeScore avg
                             return Card(
                               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -229,7 +229,7 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
                                               children: [
                                                 const Icon(Icons.star, size: 14),
                                                 const SizedBox(width: 2),
-                                                Text(rating.toStringAsFixed(1),
+                                                Text('${rating.toStringAsFixed(1)}/10',
                                                     style: TextStyle(color: _ratingColor(rating), fontSize: 11, fontWeight: FontWeight.bold)),
                                               ],
                                             ),
@@ -256,7 +256,7 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
                                           const SizedBox(width: 4),
                                           Text('PNR', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                                           const SizedBox(width: 8),
-                                          const Icon(Icons.star, size: 14, color: kWarningOrange),
+                                          const Icon(Icons.rate_review, size: 14, color: kWarningOrange),
                                           const SizedBox(width: 4),
                                           Text('${fb.ratings.length} rated',
                                               style: const TextStyle(fontSize: 12, color: Colors.grey)),
@@ -266,13 +266,18 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
                                           Text(fb.takenByName, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
                                         ],
                                       ),
+                                      if (fb.overallGrade.isNotEmpty) ...[
+                                        const SizedBox(height: 6),
+                                        Text('Grade: ${gradeDisplayNames[fb.overallGrade] ?? fb.overallGrade}',
+                                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _ratingColor(rating))),
+                                      ],
                                       if (fb.ratings.isNotEmpty) ...[
                                         const SizedBox(height: 8),
                                         Wrap(
                                           spacing: 6,
                                           runSpacing: 4,
                                           children: fb.ratings.entries.take(6).map((e) {
-                                            final r = e.value.toDouble();
+                                            final grade = e.value;
                                             return Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                               decoration: BoxDecoration(
@@ -280,7 +285,7 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
                                                 borderRadius: BorderRadius.circular(6),
                                               ),
                                               child: Text(
-                                                '${feedbackCategoryLabel(e.key)} ${r.toStringAsFixed(1)}',
+                                                '${paramDisplayNames[e.key] ?? e.key}: ${gradeDisplayNames[grade] ?? grade}',
                                                 style: const TextStyle(fontSize: 11, color: Colors.black87),
                                               ),
                                             );
