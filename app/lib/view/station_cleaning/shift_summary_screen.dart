@@ -311,8 +311,11 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
     setState(() => _isSubmitting = true);
     try {
       final areasPayload = <Map<String, dynamic>>[];
-      for (final e in _entries.where((x) => x.isVerified)) {
-        final photoUrl = await WorkerRepository.uploadMedia(e.photo!.path);
+      for (final e in _entries) {
+        String photoUrl = '';
+        if (e.photo != null) {
+          photoUrl = await WorkerRepository.uploadMedia(e.photo!.path);
+        }
 
         areasPayload.add({
           'areaId': e.areaId.isNotEmpty ? e.areaId : e.key,
@@ -324,7 +327,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
           'cleaningFrequency': e.cleaningFrequency,
           'tenderedAreaPerDay': e.tenderedAreaPerDay,
           'photoUrl': photoUrl,
-          'remark': e.remarkCtrl.text.trim(),
+          'remark': e.isVerified ? e.remarkCtrl.text.trim() : (e.taskRemarks ?? e.remarkCtrl.text.trim()),
           'scheduledTime': e.scheduledTime,
           'taskId': e.taskId,
           'latitude': e.latitude ?? 0,

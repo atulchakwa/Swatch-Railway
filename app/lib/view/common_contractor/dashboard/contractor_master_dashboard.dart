@@ -43,7 +43,6 @@ import '../../station_cleaning/shift_summary_screen.dart';
 import '../../station_cleaning/shift_summary_approval_screen.dart';
 import '../../station_cleaning/evidence/evidence_upload_screen.dart';
 import '../../station_cleaning/reporting/report_list_screen.dart';
-import '../../station_cleaning/schedule/station_schedule_screen.dart';
 import '../../station_cleaning/dashboard/supervisor_dashboard_screen.dart';
 
 class ContractorMasterDashboard extends StatefulWidget {
@@ -340,7 +339,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       {
         "icon": Icons.cleaning_services,
         "title": "Operations",
-        "roles": ["Contractor Master", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Contractor Supervisor"],
+        "roles": ["Contractor Master", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"],
         "children": [
           {"title": "Coach Cleaning", "route": "coach_cleaning", "contractTypes": ["obhs"]},
           {"title": "Premise Cleaning", "route": "premise_cleaning", "contractTypes": ["obhs"]},
@@ -373,7 +372,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Dashboard", "route": "sc_supervisor_dashboard"},
           {"title": "My Tasks", "route": "sc_supervisor_tasks"},
           {"title": "Workers", "route": "sc_supervisor_workers"},
-          {"title": "Schedule", "route": "sc_supervisor_schedule"},
           {"title": "Shift Summary", "route": "sc_supervisor_shift_summary"},
           {"title": "Reports", "route": "sc_supervisor_reports"},
         ]
@@ -590,12 +588,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "sc_supervisor_workers":
         _navigateWithStation(context, (stationId, stationName) => WorkerManagementScreen(
-          stationId: stationId,
-          stationName: stationName,
-        ), user);
-        break;
-      case "sc_supervisor_schedule":
-        _navigateWithStation(context, (stationId, stationName) => StationScheduleScreen(
           stationId: stationId,
           stationName: stationName,
         ), user);

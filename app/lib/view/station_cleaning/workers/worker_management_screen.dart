@@ -224,6 +224,14 @@ class _WorkerFormDialogState extends State<_WorkerFormDialog> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_employeePhotoUrl == null || _employeePhotoUrl!.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Employee identity photo is required'), backgroundColor: kWarningOrange),
+        );
+      }
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final data = {

@@ -452,6 +452,46 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
   // ─── Task Assignment ─────────────────────────────────────────────────────
 
+  bool get _hasCompletedHalf => _tasks.length > 0 && _completedCount >= (_tasks.length / 2).ceil();
+
+  void _handleComplete(Map<String, dynamic> t) {
+    if (!_midMarked && _hasCompletedHalf) {
+      _promptMidAttendance();
+      return;
+    }
+    _showCompleteSheet(t['uid'] ?? t['id']);
+  }
+
+  Future<void> _promptMidAttendance() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.pause_circle, color: kWarningOrange, size: 40),
+        title: const Text('Mark Mid Attendance'),
+        content: const Text(
+          'You have completed half of your tasks. Mark your Mid attendance '
+          'before completing the remaining tasks.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _markAttendance('mid');
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: kWarningOrange, foregroundColor: Colors.white),
+            child: const Text('Mark Mid Attendance'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showAssignWorker(String taskId) async {
     if (_workers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -863,7 +903,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
                   ElevatedButton.icon(
                     icon: const Icon(Icons.check, size: 16),
                     label: const Text('Complete'),
-                    onPressed: () => _showCompleteSheet(taskId),
+                    onPressed: () => _handleComplete(t),
                   ),
                 if (status == 'rejected')
                   ElevatedButton.icon(

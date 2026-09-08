@@ -1538,6 +1538,7 @@ class StationCleaningService {
   async createWorker(body, user) {
     const { fullName, phone, employeePhotoUrl, aadhaarNumber, aadhaarPhotoUrl, panNumber, panPhotoUrl, pfUanNumber, pfDocumentUrl, policeVerificationNumber, policeVerificationDocUrl, stationId } = body;
     if (!fullName || !phone) throw new ValidationError('fullName and phone are required');
+    if (!employeePhotoUrl || !String(employeePhotoUrl).trim()) throw new ValidationError('Employee identity photo is required');
     const ref = db.collection('supervisorWorkers').doc();
     const data = {
       uid: ref.id,
@@ -1719,9 +1720,11 @@ class StationCleaningService {
       throw new ValidationError(`At least 5 areas must be submitted for the shift summary. Received ${areas.length}.`);
     }
     for (const a of areas) {
-      if (!a.photoUrl) throw new ValidationError(`Photo is required for area ${a.areaName || a.areaId || ''}`);
-      if (!a.remark || !String(a.remark).trim()) throw new ValidationError(`Remark is required for area ${a.areaName || a.areaId || ''}`);
-      if (a.latitude === undefined || a.latitude === null || a.longitude === undefined || a.longitude === null) {
+      const hasPhoto = !!(a.photoUrl && String(a.photoUrl).trim());
+      if (!String(a.remark || '').trim()) {
+        throw new ValidationError(`Remark is required for area ${a.areaName || a.areaId || ''}`);
+      }
+      if (hasPhoto && (a.latitude === undefined || a.latitude === null || a.longitude === undefined || a.longitude === null)) {
         throw new ValidationError(`Live location (latitude/longitude) is required for area ${a.areaName || a.areaId || ''}`);
       }
     }
