@@ -21,6 +21,7 @@ import '../../../services/station_cleaning_report_service.dart';
 import '../../../repositories/worker_repo.dart';
 import 'package:printing/printing.dart';
 import 'package:crm_train/model/station_models.dart';
+import 'package:crm_train/model/station_cleaning_models.dart';
 import 'package:crm_train/repositories/base_repository.dart';
 import 'package:crm_train/repositories/station_report_repository.dart';
 class CommonReportScreen extends StatefulWidget {
@@ -3291,7 +3292,17 @@ class _CommonReportScreenState extends State<CommonReportScreen>
 
       if (mounted) {
         final runList = (result['data'] as List?) ?? (result['runs'] as List?) ?? [];
-        final runs = runList.cast<Map<String, dynamic>>();
+        var runs = runList.cast<Map<String, dynamic>>();
+        final hasRange = startDate != null && endDate != null;
+        if (hasRange) {
+          final rangeStart = DateFormat('yyyy-MM-dd').format(startDate!);
+          final rangeEnd = DateFormat('yyyy-MM-dd').format(endDate!);
+          runs = runs.where((r) {
+            final d = (r['date'] ?? r['runDate'] ?? '').toString();
+            final day = d.length >= 10 ? d.substring(0, 10) : d;
+            return day.isNotEmpty && day.compareTo(rangeStart) >= 0 && day.compareTo(rangeEnd) <= 0;
+          }).toList();
+        }
         int completed = 0;
         int active = 0;
         int approved = 0;
@@ -3402,9 +3413,6 @@ class _CommonReportScreenState extends State<CommonReportScreen>
         throw Exception('Please select a station');
       }
 
-      final DateTime reportDate = endDate ?? DateTime.now();
-      final String dateStr = DateFormat('yyyy-MM-dd').format(reportDate);
-
       String backendType;
       switch (_stnCleaningSelectedReportType) {
         case 'Attendance Report':
@@ -3422,9 +3430,38 @@ class _CommonReportScreenState extends State<CommonReportScreen>
           break;
       }
 
+      final List<String> dateStrs;
+      if (startDate != null && endDate != null) {
+        dateStrs = [];
+        var day = DateTime(startDate!.year, startDate!.month, startDate!.day);
+        final last = DateTime(endDate!.year, endDate!.month, endDate!.day);
+        while (!day.isAfter(last)) {
+          dateStrs.add(DateFormat('yyyy-MM-dd').format(day));
+          day = day.add(const Duration(days: 1));
+        }
+      } else {
+        dateStrs = [DateFormat('yyyy-MM-dd').format(endDate ?? DateTime.now())];
+      }
+
+      final reports = <StationReport>[];
+      for (final dateStr in dateStrs) {
+        try {
+          final r = await StationReportRepository.generateDaily(backendType, station.uid!, dateStr);
+          reports.add(r);
+        } catch (_) {
+          // skip days without reportable data
+        }
+      }
+      if (reports.isEmpty) {
+        throw Exception('No data found for the selected date range');
+      }
+
       Uint8List? pdfBytes;
-      final report = await StationReportRepository.generateDaily(backendType, station.uid!, dateStr);
-      pdfBytes = await StationCleaningReportService.generateStationReportPdf(report);
+      if (reports.length == 1) {
+        pdfBytes = await StationCleaningReportService.generateStationReportPdf(reports.first);
+      } else {
+        pdfBytes = await StationCleaningReportService.generateStationReportRangePdf(reports);
+      }
 
       setState(() => isDownloading = false);
 

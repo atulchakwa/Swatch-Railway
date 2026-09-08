@@ -260,29 +260,36 @@ class StationCleaningReportService {
     }
   }
 
-  static Future<Uint8List> _generateAttendancePdf(
+  static Iterable<String> _attendancePhotoUrls(StationReport report) sync* {
+    final records = List<Map<String, dynamic>>.from((report.summary['records'] as List? ?? []).whereType<Map>());
+    for (final r in records) {
+      for (final key in const ['startPhoto', 'midPhoto', 'endPhoto']) {
+        final url = (r[key] ?? '').toString();
+        if (url.isNotEmpty) yield url;
+      }
+    }
+  }
+
+  static Future<Map<String, pw.ImageProvider?>> _prefetchAttendancePhotos(StationReport report) async {
+    final cache = <String, pw.ImageProvider?>{};
+    for (final url in _attendancePhotoUrls(report)) {
+      if (!cache.containsKey(url)) {
+        cache[url] = await _fetchPdfImage(url);
+      }
+    }
+    return cache;
+  }
+
+  static pw.MultiPage _buildAttendancePage(
     StationReport report,
     pw.ImageProvider railway,
     pw.ImageProvider mirtha,
     String timestamp,
-  ) async {
-    final pdf = pw.Document();
+    Map<String, pw.ImageProvider?> photoCache,
+  ) {
     final summary = report.summary;
     final records = List<Map<String, dynamic>>.from((summary['records'] as List? ?? []).whereType<Map>());
-
-    // Pre-fetch attendance photos (pdf widgets can't await network fetches).
-    final photoCache = <String, pw.ImageProvider?>{};
-    for (final r in records) {
-      for (final key in const ['startPhoto', 'midPhoto', 'endPhoto']) {
-        final url = (r[key] ?? '').toString();
-        if (url.isNotEmpty && !photoCache.containsKey(url)) {
-          photoCache[url] = await _fetchPdfImage(url);
-        }
-      }
-    }
-
-    pdf.addPage(
-      pw.MultiPage(
+    return pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(25),
         build: (pw.Context context) {
@@ -419,9 +426,7 @@ class StationCleaningReportService {
           widgets.add(_buildDigitalFooter(timestamp));
           return widgets;
         },
-      ),
     );
-    return pdf.save();
   }
 
   static pw.Widget _buildPhotoBox(pw.ImageProvider? img) {
@@ -441,20 +446,55 @@ class StationCleaningReportService {
   }
 
   static Future<Uint8List> generateStationReportPdf(StationReport report) async {
-    final pdf = pw.Document();
     final railway = await _getRailwayLogo();
     final mirtha = await _getMirthaLogo();
     final timestamp = DateFormat('dd-MMM-yyyy | hh:mm a').format(DateTime.now());
-
+    final pdf = pw.Document();
     if (report.reportType == 'daily_attendance') {
-      return _generateAttendancePdf(report, railway, mirtha, timestamp);
+      final photoCache = await _prefetchAttendancePhotos(report);
+      pdf.addPage(_buildAttendancePage(report, railway, mirtha, timestamp, photoCache));
+    } else {
+      pdf.addPage(_buildGenericPage(report, railway, mirtha, timestamp));
     }
+    return pdf.save();
+  }
 
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(25),
-        build: (pw.Context context) {
+  static Future<Uint8List> generateStationReportRangePdf(List<StationReport> reports) async {
+    if (reports.isEmpty) throw Exception('No reports found in the selected date range');
+    final railway = await _getRailwayLogo();
+    final mirtha = await _getMirthaLogo();
+    final timestamp = DateFormat('dd-MMM-yyyy | hh:mm a').format(DateTime.now());
+    final pdf = pw.Document();
+    final photoCache = <String, pw.ImageProvider?>{};
+    var added = 0;
+    for (final report in reports) {
+      if (report.reportType == 'daily_attendance') {
+        for (final url in _attendancePhotoUrls(report)) {
+          if (!photoCache.containsKey(url)) {
+            photoCache[url] = await _fetchPdfImage(url);
+          }
+        }
+        pdf.addPage(_buildAttendancePage(report, railway, mirtha, timestamp, photoCache));
+        added++;
+      } else if (report.reportType.startsWith('daily_')) {
+        pdf.addPage(_buildGenericPage(report, railway, mirtha, timestamp));
+        added++;
+      }
+    }
+    if (added == 0) throw Exception('No report data available in the selected date range');
+    return pdf.save();
+  }
+
+  static pw.MultiPage _buildGenericPage(
+    StationReport report,
+    pw.ImageProvider railway,
+    pw.ImageProvider mirtha,
+    String timestamp,
+  ) {
+    return pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(25),
+      build: (pw.Context context) {
           final summary = report.summary;
           final kpiEntries = <MapEntry<String, dynamic>>[];
           final arrayEntries = <MapEntry<String, List<dynamic>>>[];
@@ -570,8 +610,6 @@ class StationCleaningReportService {
           widgets.add(_buildDigitalFooter(timestamp));
           return widgets;
         },
-      ),
     );
-    return pdf.save();
   }
 }
