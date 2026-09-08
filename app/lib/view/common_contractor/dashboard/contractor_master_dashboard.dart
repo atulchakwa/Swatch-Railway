@@ -44,6 +44,8 @@ import '../../station_cleaning/shift_summary_approval_screen.dart';
 import '../../station_cleaning/evidence/evidence_upload_screen.dart';
 import '../../station_cleaning/reporting/report_list_screen.dart';
 import '../../station_cleaning/dashboard/supervisor_dashboard_screen.dart';
+import '../../station_cleaning/feedback/passenger_feedback_form_screen.dart';
+import '../../station_cleaning/feedback/passenger_feedback_list_screen.dart';
 
 class ContractorMasterDashboard extends StatefulWidget {
   final String? contractType;
@@ -373,6 +375,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "My Tasks", "route": "sc_supervisor_tasks"},
           {"title": "Workers", "route": "sc_supervisor_workers"},
           {"title": "Shift Summary", "route": "sc_supervisor_shift_summary"},
+          {"title": "Passenger Feedback", "route": "sc_supervisor_passenger_feedback"},
           {"title": "Reports", "route": "sc_supervisor_reports"},
         ]
       },
@@ -465,6 +468,44 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     if (mounted) {
       navigator.push(MaterialPageRoute(builder: (context) => screenBuilder(stationId, stationName)));
     }
+  }
+
+  Widget _openPassengerFeedbackChooser(BuildContext context, {required String stationId, required String stationName}) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Passenger Feedback - $stationName', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: kRailwayBlue,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: ListView(
+        children: [
+          const SizedBox(height: 8),
+          ListTile(
+            leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.edit_note, color: Colors.white)),
+            title: const Text('Submit Passenger Feedback'),
+            subtitle: const Text('Ask a passenger, record PNR + ratings (min 3 categories)'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackFormScreen(
+              stationId: stationId,
+              stationName: stationName,
+            ))),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list_alt, color: Colors.white)),
+            title: const Text('View PNR Feedback'),
+            subtitle: const Text('Browse feedback recorded against PNRs'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackListScreen(
+              stationId: stationId,
+              stationName: stationName,
+            ))),
+          ),
+          const Divider(),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
   }
 
   void _handleSidebarNavigation(String? route, BuildContext context, String? userRole) {
@@ -605,6 +646,13 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "sc_supervisor_reports":
         _navigateWithStation(context, (stationId, stationName) => ReportListScreen(
+          stationId: stationId,
+          stationName: stationName,
+        ), user);
+        break;
+      case "sc_supervisor_passenger_feedback":
+        _navigateWithStation(context, (stationId, stationName) => _openPassengerFeedbackChooser(
+          context,
           stationId: stationId,
           stationName: stationName,
         ), user);
