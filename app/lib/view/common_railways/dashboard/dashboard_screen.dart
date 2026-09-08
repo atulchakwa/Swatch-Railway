@@ -43,6 +43,7 @@ import '../station_management/area_list_screen.dart';
 import '../station_management/task_generation_screen.dart';
 import '../station_management/task_approval_screen.dart';
 import '../../station_cleaning/shift_summary_approval_screen.dart';
+import '../../station_cleaning/reporting/report_list_screen.dart';
 import '../station_management/machine_master_list_screen.dart';
 import '../station_management/material_list_screen.dart';
 import '../station_management/area_performance_dashboard.dart';
@@ -643,9 +644,19 @@ class _CommonDashboardState extends State<CommonDashboard> {
       case "premise_reports":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 0)));
         break;
-      case "station_reports":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 2)));
+      case "station_reports": {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final user = authProvider.currentUser;
+        final stationId = (user?.stationId != null && user!.stationId!.isNotEmpty)
+            ? user.stationId
+            : (user?.stations.isNotEmpty == true ? user!.stations.first : null);
+        Navigator.push(context, MaterialPageRoute(builder: (context) => ReportListScreen(
+          stationId: stationId ?? '',
+          stationName: '',
+          role: user?.role ?? '',
+        )));
         break;
+      }
       case "obhs_reports":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 3)));
         break;

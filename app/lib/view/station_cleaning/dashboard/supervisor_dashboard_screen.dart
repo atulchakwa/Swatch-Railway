@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:crm_train/providers/station_cleaning_provider.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/view/station_cleaning/supervisor_task_screen.dart';
@@ -275,9 +276,12 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
                   stationId: widget.stationId, stationName: _stationName,
                 ))))),
                 const SizedBox(width: 8),
-                Expanded(child: _actionChip(Icons.bar_chart, 'Reports', () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReportListScreen(
-                  stationId: widget.stationId, stationName: _stationName,
-                ))))),
+                Expanded(child: _actionChip(Icons.bar_chart, 'Reports', () {
+                  final role = Provider.of<AuthProvider>(context, listen: false).currentUser?.role ?? '';
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => ReportListScreen(
+                    stationId: widget.stationId, stationName: _stationName, role: role,
+                  )));
+                })),
               ],
             ),
           ],

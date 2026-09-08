@@ -38,13 +38,13 @@ class _ReportListScreenState extends State<ReportListScreen> with TickerProvider
   int _filterYear = DateTime.now().year;
 
   bool get _showLiveDashboard {
-    final r = (widget.role ?? '').toUpperCase();
-    return r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN';
+    final r = (widget.role ?? '').toUpperCase().replaceAll(' ', '_');
+    return r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN' || r == 'CONTRACTOR_MASTER' || r == 'COMPANY_MASTER';
   }
 
   bool get _isContractor {
-    final r = (widget.role ?? '').toUpperCase();
-    return r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN';
+    final r = (widget.role ?? '').toUpperCase().replaceAll(' ', '_');
+    return r == 'CONTRACTOR_SUPERVISOR' || r == 'CONTRACTOR_ADMIN' || r == 'CONTRACTOR_MASTER' || r == 'COMPANY_MASTER';
   }
 
   static const Map<String, Map<String, dynamic>> _reportMeta = {

@@ -557,7 +557,11 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 0)));
         break;
       case "station_reports":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 2)));
+        _navigateWithStation(context, (stationId, stationName) => ReportListScreen(
+          stationId: stationId,
+          stationName: stationName,
+          role: user?.role ?? '',
+        ), user);
         break;
       case "obhs_reports":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 3)));
@@ -614,6 +618,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         _navigateWithStation(context, (stationId, stationName) => ReportListScreen(
           stationId: stationId,
           stationName: stationName,
+          role: user?.role ?? '',
         ), user);
         break;
       case "sc_supervisor_passenger_feedback":

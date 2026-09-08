@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:crm_train/providers/station_cleaning_provider.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:crm_train/view/common_railways/widgets/hierarchy_breadcrumb.dart';
 import 'package:crm_train/view/station_cleaning/reporting/report_list_screen.dart';
@@ -122,7 +123,10 @@ class _StationMasterDashboardScreenState extends State<StationMasterDashboardScr
           child: OutlinedButton.icon(
             icon: const Icon(Icons.assessment),
             label: const Text('View Full Reports'),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReportListScreen(stationId: widget.stationId, stationName: widget.stationName))),
+            onPressed: () {
+              final role = Provider.of<AuthProvider>(context, listen: false).currentUser?.role ?? '';
+              Navigator.push(context, MaterialPageRoute(builder: (_) => ReportListScreen(stationId: widget.stationId, stationName: widget.stationName, role: role)));
+            },
           ),
         ),
       ],
