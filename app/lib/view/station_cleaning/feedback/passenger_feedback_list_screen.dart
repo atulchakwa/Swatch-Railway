@@ -258,7 +258,7 @@ class _PassengerFeedbackListScreenState extends State<PassengerFeedbackListScree
                                           const SizedBox(width: 8),
                                           const Icon(Icons.rate_review, size: 14, color: kWarningOrange),
                                           const SizedBox(width: 4),
-                                          Text('${fb.ratings.length} rated',
+                                          Text('${fb.ratedCount} rated',
                                               style: const TextStyle(fontSize: 12, color: Colors.grey)),
                                           const Spacer(),
                                           Icon(Icons.person_outline, size: 14, color: Colors.grey[600]),

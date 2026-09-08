@@ -20,25 +20,35 @@ const _numericToGrade = (avg) => {
 };
 
 class PassengerFeedbackService {
-  _processRatings(ratings) {
-    const raw = ratings || {};
-    if (typeof raw !== 'object' || Object.keys(raw).length === 0) {
-      throw new ValidationError('At least one category rating is required');
-    }
-    const processed = {};
-    for (const [key, val] of Object.entries(raw)) {
-      const grade = String(val).trim().toLowerCase();
-      if (!FEEDBACK_GRADES.includes(grade)) {
-        throw new ValidationError(`Invalid grade for ${key}. Expected one of ${FEEDBACK_GRADES.join(', ')}`);
+  _flattenSections(sections) {
+    const graded = [];
+    const normalized = {};
+    if (!sections || typeof sections !== 'object') return { graded, normalized };
+    for (const [sectionKey, sec] of Object.entries(sections)) {
+      if (!sec || typeof sec !== 'object') continue;
+      const params = sec.parameters || sec;
+      if (!params || typeof params !== 'object') continue;
+      const normParams = {};
+      for (const [pk, val] of Object.entries(params)) {
+        if (val === null || val === undefined || val === '') continue;
+        const entry = typeof val === 'string' ? { grade: val, remark: '' } : val;
+        const grade = String(entry.grade ?? '').trim().toLowerCase();
+        if (grade === '') continue;
+        if (!FEEDBACK_GRADES.includes(grade)) {
+          throw new ValidationError(`Invalid grade for ${sectionKey}.${pk}: ${grade}. Expected one of ${FEEDBACK_GRADES.join(', ')}`);
+        }
+        normParams[pk] = { grade, remark: entry.remark || '' };
+        graded.push({ sectionKey, param: pk, grade });
       }
-      processed[key] = grade;
+      if (Object.keys(normParams).length > 0) normalized[sectionKey] = { parameters: normParams };
     }
-    return processed;
+    return { graded, normalized };
   }
 
-  _computeAggregates(ratings) {
-    const scores = Object.values(ratings).map(g => GRADE_SCORES[g]);
-    const overallScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+  _computeAggregates(sections) {
+    const { graded } = this._flattenSections(sections);
+    const scores = graded.map(g => GRADE_SCORES[g.grade]);
+    const overallScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     const overallRating = parseFloat((overallScore / 2).toFixed(2));
     return {
       overallScore: parseFloat(overallScore.toFixed(2)),
@@ -49,17 +59,17 @@ class PassengerFeedbackService {
   }
 
   async createFeedback(userData, body) {
-    const { stationId, pnr, passengerName, passengerPhone, journeyDate, ratings, comments } = body;
+    const { stationId, pnr, passengerName, passengerPhone, journeyDate, sections, comments } = body;
     if (!stationId) throw new ValidationError('stationId is required');
     if (!pnr || !String(pnr).trim()) throw new ValidationError('PNR number is required');
 
     const stationDoc = await db.collection('stations').doc(stationId).get();
     if (!stationDoc.exists) throw new NotFoundError('Station not found');
 
-    const processed = this._processRatings(ratings);
-    if (Object.keys(processed).length < 3) throw new ValidationError('At least 3 category ratings are required');
+    const { graded, normalized } = this._flattenSections(sections);
+    if (graded.length < 3) throw new ValidationError('At least 3 parameter ratings are required');
 
-    const aggregates = this._computeAggregates(processed);
+    const aggregates = this._computeAggregates(normalized);
 
     const ref = db.collection('passenger_feedback').doc();
     const now = new Date().toISOString();
@@ -71,7 +81,7 @@ class PassengerFeedbackService {
       passengerName: passengerName || '',
       passengerPhone: passengerPhone || '',
       journeyDate: journeyDate || '',
-      ratings: processed,
+      sections: normalized,
       ...aggregates,
       comments: comments || '',
       takenBy: { uid: userData.uid, name: userData.fullName || userData.name || '', role: userData.role || '' },
@@ -106,19 +116,19 @@ class PassengerFeedbackService {
     const ref = db.collection('passenger_feedback').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Feedback not found');
-    const allowed = ['pnr', 'passengerName', 'passengerPhone', 'journeyDate', 'ratings', 'comments'];
+    const allowed = ['pnr', 'passengerName', 'passengerPhone', 'journeyDate', 'sections', 'comments'];
     const updates = {};
     for (const key of allowed) {
       if (body[key] !== undefined) updates[key] = body[key];
     }
     if (updates.pnr !== undefined) updates.pnr = String(updates.pnr).trim().toUpperCase();
-    if (updates.ratings !== undefined) {
-      const processed = this._processRatings(updates.ratings);
-      const current = doc.data().ratings || {};
-      const merged = { ...current, ...processed };
-      if (Object.keys(merged).length < 3) throw new ValidationError('At least 3 category ratings are required');
-      updates.ratings = merged;
-      Object.assign(updates, this._computeAggregates(merged));
+    if (updates.sections !== undefined) {
+      const { normalized } = this._flattenSections(updates.sections);
+      const current = doc.data().sections || {};
+      const { graded: mergedGraded, normalized: mergedNorm } = this._flattenSections({ ...current, ...normalized });
+      if (mergedGraded.length < 3) throw new ValidationError('At least 3 parameter ratings are required');
+      updates.sections = mergedNorm;
+      Object.assign(updates, this._computeAggregates(mergedNorm));
     }
     updates.updatedAt = new Date().toISOString();
     await ref.update(updates);
@@ -150,11 +160,14 @@ class PassengerFeedbackService {
     for (const fb of filtered) {
       totalRating += fb.overallRating || 0;
       if (fb.isNegative) negativeCount++;
-      for (const [cat, grade] of Object.entries(fb.ratings || {})) {
-        const score = GRADE_SCORES[grade] ?? 0;
-        if (!catBreakdown[cat]) catBreakdown[cat] = { count: 0, totalRating: 0 };
-        catBreakdown[cat].count++;
-        catBreakdown[cat].totalRating += score;
+      for (const [cat, val] of Object.entries(fb.sections || {})) {
+        const params = (val && val.parameters) || {};
+        for (const [pk, pval] of Object.entries(params)) {
+          const score = GRADE_SCORES[pval.grade] ?? 0;
+          if (!catBreakdown[pk]) catBreakdown[pk] = { count: 0, totalRating: 0 };
+          catBreakdown[pk].count++;
+          catBreakdown[pk].totalRating += score;
+        }
       }
     }
     for (const cat of Object.keys(catBreakdown)) {

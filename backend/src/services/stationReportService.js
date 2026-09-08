@@ -48,24 +48,27 @@ class StationReportService {
     sfSnap.forEach(d => records.push(d.data()));
     pfSnap.forEach(d => {
       const r = d.data();
-      const cats = Object.keys(r.ratings || {});
       const gradeScores = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
-      if (cats.length === 0) {
-        records.push({ ...r, rating: r.overallRating || 0, category: 'overall', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
-      } else {
-        for (const cat of cats) {
-          const grade = r.ratings[cat];
-          const score = gradeScores[grade];
+      const sections = r.sections || {};
+      let expanded = false;
+      for (const sec of Object.values(sections)) {
+        const params = (sec && sec.parameters) || {};
+        for (const [pk, pval] of Object.entries(params)) {
+          const score = gradeScores[pval.grade];
           records.push({
             ...r,
             rating: score != null ? score / 2 : (r.overallRating || 0),
-            category: cat,
-            grade,
+            category: pk,
+            grade: pval.grade,
             status: 'approved',
-            comment: r.comments || '',
-            remarks: r.comments || '',
+            comment: pval.remark || r.comments || '',
+            remarks: pval.remark || r.comments || '',
           });
+          expanded = true;
         }
+      }
+      if (!expanded) {
+        records.push({ ...r, rating: r.overallRating || 0, category: 'overall', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
       }
     });
     return records;

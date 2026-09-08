@@ -8,7 +8,7 @@ class PassengerFeedback {
   final String passengerName;
   final String passengerPhone;
   final String journeyDate;
-  final Map<String, String> ratings;
+  final Map<String, dynamic> sections;
   final double overallRating;
   final double overallScore;
   final String overallGrade;
@@ -27,7 +27,7 @@ class PassengerFeedback {
     this.passengerName = '',
     this.passengerPhone = '',
     this.journeyDate = '',
-    this.ratings = const {},
+    this.sections = const {},
     this.overallRating = 0,
     this.overallScore = 0,
     this.overallGrade = '',
@@ -40,9 +40,6 @@ class PassengerFeedback {
   });
 
   factory PassengerFeedback.fromJson(Map<String, dynamic> json) {
-    final rawRatings = json['ratings'] is Map ? (json['ratings'] as Map) : <dynamic, dynamic>{};
-    final ratings = <String, String>{};
-    rawRatings.forEach((k, v) => ratings[k.toString()] = v.toString());
     return PassengerFeedback(
       uid: json['uid'],
       stationId: json['stationId'] ?? '',
@@ -51,7 +48,7 @@ class PassengerFeedback {
       passengerName: json['passengerName'] ?? '',
       passengerPhone: json['passengerPhone'] ?? '',
       journeyDate: json['journeyDate'] ?? '',
-      ratings: ratings,
+      sections: json['sections'] is Map ? Map<String, dynamic>.from(json['sections'] as Map) : <String, dynamic>{},
       overallRating: (json['overallRating'] as num?)?.toDouble() ?? 0,
       overallScore: (json['overallScore'] as num?)?.toDouble() ?? 0,
       overallGrade: json['overallGrade'] ?? '',
@@ -64,7 +61,25 @@ class PassengerFeedback {
     );
   }
 
-  int get ratedCount => ratings.length;
+  int get ratedCount {
+    var count = 0;
+    sections.forEach((_, sec) {
+      count += (sec is Map && sec['parameters'] is Map) ? (sec['parameters'] as Map).length : 0;
+    });
+    return count;
+  }
+
+  Map<String, String> get ratings {
+    final flat = <String, String>{};
+    sections.forEach((_, sec) {
+      if (sec is Map && sec['parameters'] is Map) {
+        (sec['parameters'] as Map).forEach((pk, val) {
+          if (val is Map && val['grade'] != null) flat[pk.toString()] = val['grade'].toString();
+        });
+      }
+    });
+    return flat;
+  }
 
   String get takenByName {
     final name = takenBy?['name']?.toString() ?? '';

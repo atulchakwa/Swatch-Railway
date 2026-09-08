@@ -25,14 +25,47 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
   final _passengerNameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _commentsCtrl = TextEditingController();
-  final Map<String, String> _grades = {};
+  final Map<String, Map<String, String?>> _sectionGrades = {};
   DateTime? _journeyDate;
   bool _isLoading = false;
 
   bool get isEdit => widget.feedback != null;
   bool get isCancelled => widget.feedback?.status == 'CANCELLED';
 
-  int get _totalParams => sectionConfig.values.fold<int>(0, (sum, s) => sum + (s['parameters'] as List).length);
+  int get _ratedCount {
+    var count = 0;
+    for (final grades in _sectionGrades.values) {
+      count += grades.values.where((g) => g != null).length;
+    }
+    return count;
+  }
+
+  Map<String, double?> get _sectionAverages {
+    final result = <String, double?>{};
+    for (final entry in _sectionGrades.entries) {
+      final grades = entry.value.values.whereType<String>().toList();
+      final scores = grades.map((g) => gradeScores[g] ?? 0).toList();
+      result[entry.key] = scores.isEmpty ? null : (scores.reduce((a, b) => a + b) / scores.length);
+    }
+    return result;
+  }
+
+  double? get _overallAverage {
+    final all = <double>[];
+    for (final avg in _sectionAverages.values) {
+      if (avg != null) all.add(avg);
+    }
+    if (all.isEmpty) return null;
+    return all.reduce((a, b) => a + b) / all.length;
+  }
+
+  int? get _overallScore => _overallAverage == null ? null : (_overallAverage! * 10).round();
+
+  String get _overallGrade {
+    final avg = _overallAverage;
+    if (avg == null) return '';
+    return numericToGrade(avg);
+  }
 
   @override
   void initState() {
@@ -43,7 +76,21 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
     _phoneCtrl.text = r?.passengerPhone ?? '';
     _commentsCtrl.text = r?.comments ?? '';
     _journeyDate = DateTime.tryParse(r?.journeyDate ?? '');
-    if (r != null) _grades.addAll(r.ratings);
+    for (final entry in sectionConfig.entries) {
+      final paramKeys = (entry.value['parameters'] as List).cast<String>();
+      _sectionGrades[entry.key] = {for (final pk in paramKeys) pk: null};
+    }
+    if (r != null) {
+      r.sections.forEach((sectionKey, sec) {
+        if (sec is Map && sec['parameters'] is Map) {
+          (sec['parameters'] as Map).forEach((pk, val) {
+            if (val is Map && val['grade'] != null) {
+              _sectionGrades[sectionKey]?[pk.toString()] = val['grade'].toString();
+            }
+          });
+        }
+      });
+    }
   }
 
   @override
@@ -55,23 +102,16 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
     super.dispose();
   }
 
-  double? get _overallScore {
-    final scores = _grades.values.map((g) => gradeScores[g]).whereType<int>().toList();
-    if (scores.isEmpty) return null;
-    return scores.reduce((a, b) => a + b) / scores.length;
-  }
-
-  String get _overallGrade {
-    final score = _overallScore;
-    if (score == null) return '';
-    return numericToGrade(score);
-  }
-
-  double? _sectionAvg(String sectionKey) {
-    final params = (sectionConfig[sectionKey]!['parameters'] as List).cast<String>();
-    final scores = params.map((p) => _grades[p]).map((g) => gradeScores[g]).whereType<int>().toList();
-    if (scores.isEmpty) return null;
-    return scores.reduce((a, b) => a + b) / scores.length;
+  Map<String, dynamic> _buildSectionsPayload() {
+    final sections = <String, dynamic>{};
+    for (final entry in _sectionGrades.entries) {
+      final params = <String, dynamic>{};
+      entry.value.forEach((pk, grade) {
+        if (grade != null) params[pk] = {'grade': grade, 'remark': ''};
+      });
+      sections[entry.key] = {'parameters': params};
+    }
+    return sections;
   }
 
   Map<String, dynamic> _buildPayload() {
@@ -82,14 +122,14 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
       'passengerPhone': _phoneCtrl.text.trim(),
       if (_journeyDate != null)
         'journeyDate': "${_journeyDate!.year}-${_journeyDate!.month.toString().padLeft(2, '0')}-${_journeyDate!.day.toString().padLeft(2, '0')}",
-      'ratings': _grades,
+      'sections': _buildSectionsPayload(),
       'comments': _commentsCtrl.text.trim(),
     };
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_grades.length < 3) {
+    if (_ratedCount < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Rate at least 3 parameters to submit'), backgroundColor: kWarningOrange),
       );
@@ -152,133 +192,136 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
     }
   }
 
-  Color _gradeColor(String grade) {
-    switch (grade) {
-      case 'excellent':
-      case 'very_good':
-        return kSuccessGreen;
-      case 'good':
-      case 'average':
-        return kWarningOrange;
-      default:
-        return kErrorRed;
-    }
+  Widget _buildGradeChip(String? grade) {
+    if (grade == null) return Container();
+    final display = gradeDisplayNames[grade] ?? grade;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: _gradeColor(grade).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _gradeColor(grade)),
+      ),
+      child: Text(display, style: TextStyle(color: _gradeColor(grade), fontSize: 12, fontWeight: FontWeight.bold)),
+    );
   }
 
-  Color _scoreColor(double? score) {
-    if (score == null) return Colors.grey;
-    if (score >= 8) return kSuccessGreen;
-    if (score >= 6) return kWarningOrange;
-    return kErrorRed;
-  }
-
-  IconData _sectionIcon(String sectionKey) {
-    switch (sectionKey) {
-      case 'stairs':
-        return Icons.view_agenda;
-      case 'wallCladdings':
-        return Icons.dashboard;
-      case 'steelWorks':
-        return Icons.hardware;
-      case 'glassWorks':
-        return Icons.window;
-      case 'escalators':
-        return Icons.upgrade;
-      case 'toilets':
-        return Icons.wc;
-      default:
-        return Icons.grid_view;
-    }
-  }
-
-  Widget _buildParamRow(String sectionKey, String paramKey) {
-    final selected = _grades[paramKey];
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(paramDisplayNames[paramKey] ?? paramKey,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-              ),
-              if (selected != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _gradeColor(selected).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: _gradeColor(selected)),
-                  ),
-                  child: Text(gradeDisplayNames[selected] ?? selected,
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _gradeColor(selected))),
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 6,
-            children: gradeLabels.map((g) {
-              final isSelected = selected == g;
-              return ChoiceChip(
-                label: Text(gradeDisplayNames[g] ?? g, style: const TextStyle(fontSize: 11)),
-                selected: isSelected,
-                showCheckmark: false,
-                selectedColor: _gradeColor(g).withValues(alpha: 0.15),
-                side: BorderSide(color: isSelected ? _gradeColor(g) : Colors.grey.shade300),
-                labelStyle: TextStyle(
-                  fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected ? _gradeColor(g) : Colors.black87,
-                ),
-                onSelected: isCancelled
-                    ? null
-                    : (sel) => setState(() {
-                          if (sel) {
-                            _grades[paramKey] = g;
-                          } else {
-                            _grades.remove(paramKey);
-                          }
-                        }),
-              );
-            }).toList(),
-          ),
-        ],
+  Widget _buildGradeSelector(String sectionKey, String paramKey, String? value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: gradeLabels.contains(value) ? value : null,
+          hint: const Text('Grade', style: TextStyle(fontSize: 12)),
+          isExpanded: false,
+          style: const TextStyle(fontSize: 12, color: Colors.black87),
+          items: gradeLabels.map((g) => DropdownMenuItem(
+            value: g,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.circle, size: 8, color: _gradeColor(g)),
+                const SizedBox(width: 4),
+                Text(gradeDisplayNames[g] ?? g, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          )).toList(),
+          onChanged: isCancelled ? null : (v) => setState(() => _sectionGrades[sectionKey]![paramKey] = v),
+        ),
       ),
     );
   }
 
+  Color _gradeColor(String grade) {
+    switch (grade) {
+      case 'excellent': return kSuccessGreen;
+      case 'very_good': return Colors.teal;
+      case 'good': return Colors.blue;
+      case 'average': return kWarningOrange;
+      case 'poor': return kErrorRed;
+      default: return Colors.grey;
+    }
+  }
+
+  IconData _sectionIcon(String sectionKey) {
+    switch (sectionKey) {
+      case 'floor': return Icons.view_in_ar;
+      case 'stairs': return Icons.stairs;
+      case 'wallCladdings': return Icons.wallpaper;
+      case 'steelWorks': return Icons.handyman;
+      case 'glassWorks': return Icons.window;
+      case 'escalators': return Icons.upgrade;
+      case 'toilets': return Icons.wc;
+      default: return Icons.checklist;
+    }
+  }
+
   Widget _buildSectionCard(String sectionKey) {
     final config = sectionConfig[sectionKey]!;
-    final params = (config['parameters'] as List).cast<String>();
+    final displayName = config['displayName'] as String;
+    final paramKeys = (config['parameters'] as List).cast<String>();
+    final avg = _sectionAverages[sectionKey];
+    final sectionGrade = avg != null ? numericToGrade(avg) : null;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        leading: CircleAvatar(
+          radius: 18,
+          backgroundColor: _gradeColor(sectionGrade ?? 'none').withValues(alpha: 0.15),
+          child: Icon(_sectionIcon(sectionKey), size: 20, color: _gradeColor(sectionGrade ?? 'none')),
+        ),
+        title: Row(
           children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 14,
-                  backgroundColor: kRailwayBlue.withValues(alpha: 0.12),
-                  child: Icon(_sectionIcon(sectionKey), color: kRailwayBlue, size: 16),
-                ),
-                const SizedBox(width: 8),
-                Text(config['displayName'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                const Spacer(),
-                if (_sectionAvg(sectionKey) != null)
-                  Text('${_sectionAvg(sectionKey)!.toStringAsFixed(1)}/10',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: kTextSecondary)),
-              ],
-            ),
-            const Divider(height: 16),
-            ...params.map((p) => _buildParamRow(sectionKey, p)),
+            Expanded(child: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+            _buildGradeChip(sectionGrade),
           ],
         ),
+        subtitle: avg != null
+            ? Text('Score: ${(avg * 10).round()} / 100', style: TextStyle(fontSize: 11, color: Colors.grey[600]))
+            : Text('Not graded', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: paramKeys.map((pk) {
+                final grade = _sectionGrades[sectionKey]?[pk];
+                final hint = paramHints[pk] ?? '';
+                final paramDisplay = paramDisplayNames[pk] ?? pk;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(paramDisplay, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                            if (hint.isNotEmpty) Text(hint, style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        flex: 2,
+                        child: _buildGradeSelector(sectionKey, pk, grade),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -368,55 +411,71 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Card(
-                color: kRailwayBlue.withValues(alpha: 0.05),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+
+              if (_overallAverage != null) ...[
+                const SizedBox(height: 8),
+                Card(
+                  color: kRailwayBlue.withValues(alpha: 0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Overall Grade', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              const SizedBox(height: 4),
+                              Text(gradeDisplayNames[_overallGrade] ?? '-', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            const Text('Overall Score', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            const Text('Score', style: TextStyle(fontSize: 12, color: Colors.grey)),
                             const SizedBox(height: 4),
-                            Text(_overallScore == null ? '-' : '${_overallScore!.toStringAsFixed(1)}/10',
-                                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _scoreColor(_overallScore))),
-                            if (_overallGrade.isNotEmpty)
-                              Text(gradeDisplayNames[_overallGrade] ?? _overallGrade,
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _gradeColor(_overallGrade))),
+                            Text('${_overallScore ?? '-'} / 100', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kRailwayBlue)),
                           ],
                         ),
-                      ),
-                      Text('${_grades.length}/$_totalParams rated',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: _grades.length >= 3 ? kSuccessGreen : kWarningOrange)),
-                    ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Text('Section-wise Grading', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  Text('${sectionConfig.length} sections', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text('Rate at least 3 parameters',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _ratedCount >= 3 ? kSuccessGreen : kWarningOrange)),
+              const SizedBox(height: 8),
+              ...sectionConfig.keys.map(_buildSectionCard),
+
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: TextFormField(
+                    controller: _commentsCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Comments',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.comment),
+                    ),
+                    maxLines: 3,
+                    readOnly: isCancelled,
                   ),
                 ),
               ),
               const SizedBox(height: 12),
-              const Text('Cleanliness Ratings', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              const Text('Rate at least 3 parameters', style: TextStyle(fontSize: 11, color: kTextSecondary)),
-              const SizedBox(height: 8),
-              ...sectionConfig.keys.map(_buildSectionCard),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _commentsCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Comments',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.comment),
-                ),
-                maxLines: 3,
-                readOnly: isCancelled,
-              ),
-              const SizedBox(height: 24),
               if (_isLoading)
                 const Center(child: CircularProgressIndicator())
               else ...[
@@ -424,9 +483,13 @@ class _PassengerFeedbackFormScreenState extends State<PassengerFeedbackFormScree
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
-                    child: Text(isEdit ? 'Update Feedback' : 'Submit Feedback'),
+                    onPressed: _ratedCount < 3 ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kSuccessGreen,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey[300],
+                    ),
+                    child: Text(_ratedCount < 3 ? 'Rate 3 or more parameters first' : (isEdit ? 'Update Feedback' : 'Submit Feedback')),
                   ),
                 ),
                 if (isEdit && !isCancelled) ...[
