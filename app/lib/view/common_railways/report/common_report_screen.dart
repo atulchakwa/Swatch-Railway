@@ -3413,7 +3413,7 @@ class _CommonReportScreenState extends State<CommonReportScreen>
         case 'Complaint Report':
           backendType = 'daily_complaint';
           break;
-        case 'Worker Activity Report':
+        case 'Supervisor Activity Report':
           backendType = 'daily_activity';
           break;
         case 'Station Run Report':
@@ -3452,7 +3452,7 @@ class _CommonReportScreenState extends State<CommonReportScreen>
         if (runId.isNotEmpty) {
           String backendReportType = 'OPERATIONAL_AUDIT';
           if (_stnCleaningSelectedReportType == 'Attendance Report') backendReportType = 'ATTENDANCE_AUDIT';
-          else if (_stnCleaningSelectedReportType == 'Worker Activity Report') backendReportType = 'WORKER_ACTIVITY_AUDIT';
+          else if (_stnCleaningSelectedReportType == 'Supervisor Activity Report') backendReportType = 'WORKER_ACTIVITY_AUDIT';
           else if (_stnCleaningSelectedReportType == 'Complaint Report') backendReportType = 'COMPLAINT_AUDIT';
           
           await ApiService.sendAuditReportEmail(backendReportType, runId, 'hirenkodwani@gmail.com');
@@ -3597,7 +3597,7 @@ class _CommonReportScreenState extends State<CommonReportScreen>
                 items: [
                   "Station Run Report",
                   "Attendance Report",
-                  "Worker Activity Report",
+                  "Supervisor Activity Report",
                   "Complaint Report"
                 ].map((type) => DropdownMenuItem(value: type, child: Text(type, style: TextStyle(fontWeight: FontWeight.normal, fontSize: 13)))).toList(),
                 onChanged: (value) {

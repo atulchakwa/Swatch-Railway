@@ -171,15 +171,51 @@ class StationReportService {
     const stationName = await this._getStationName(stationId);
     const stationAttSnap = await db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get();
     const records = []; stationAttSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
+
+    // In station-cleaning contracts work is performed by contract supervisors,
+    // so we enrich each supervisor's attendance with the activities they did.
+    const tasksBySupervisor = {};
+    try {
+      const taskSnap = await db.collection('cleaningTasks')
+        .where('stationId', '==', stationId)
+        .where('scheduledDate', '==', date)
+        .get();
+      taskSnap.forEach(d => {
+        const t = d.data();
+        const supId = t.supervisorId || '';
+        if (!supId) return;
+        if (!tasksBySupervisor[supId]) tasksBySupervisor[supId] = [];
+        tasksBySupervisor[supId].push({
+          area: t.areaName || t.areaId || '',
+          activity: t.taskTypeName || t.activityType || 'Cleaning',
+          time: t.scheduledTime || '',
+          status: t.status || '',
+        });
+      });
+    } catch (_) { /* task enrichment is optional */ }
+
     const present = records.filter(r => r.attendanceStatus === 'PRESENT').length;
     const late = records.filter(r => r.attendanceStatus === 'LATE').length;
     const onLeave = records.filter(r => r.attendanceStatus === 'ON_LEAVE').length;
     const absent = Math.max(0, records.length - present - late - onLeave);
-    const reportRecords = records.map(r => ({
-      worker: r.workerName || r.workerId || '', status: r.attendanceStatus || '',
-      startMarked: r.isStartMarked ? 'Yes' : 'No', midMarked: r.isMidMarked ? 'Yes' : 'No', endMarked: r.isEndMarked ? 'Yes' : 'No',
-      lateByMinutes: r.lateByMinutes || r.timingSnapshot?.lateByMinutes || 0,
-    }));
+    const reportRecords = records.map(r => {
+      const start = r.startAttendance || {};
+      const mid = r.midAttendance || {};
+      const end = r.endAttendance || {};
+      return {
+        supervisor: r.workerName || r.workerId || '',
+        status: r.attendanceStatus || '',
+        startMarked: r.isStartMarked ? 'Yes' : 'No',
+        midMarked: r.isMidMarked ? 'Yes' : 'No',
+        endMarked: r.isEndMarked ? 'Yes' : 'No',
+        lateByMinutes: r.lateByMinutes || r.timingSnapshot?.lateByMinutes || 0,
+        photo: start.photoUrl || mid.photoUrl || end.photoUrl || '',
+        startPhoto: start.photoUrl || '',
+        midPhoto: mid.photoUrl || '',
+        endPhoto: end.photoUrl || '',
+        activities: tasksBySupervisor[r.workerId] || [],
+      };
+    });
     const report = await this._storeReport({
       stationId, stationName, reportType: 'daily_attendance', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: { totalExpected: records.length, present, late, absent, onLeave, attendancePct: records.length > 0 ? Math.round(present / records.length * 100) : 0, records: reportRecords },
@@ -199,8 +235,10 @@ class StationReportService {
     const rejected = records.filter(r => r.status === 'rejected').length;
     const overdue = records.filter(r => (r.status === 'pending' || r.status === 'assigned') && r.scheduledTime && r.scheduledTime < nowTime).length;
     const reportRecords = records.map(r => ({
-      area: r.areaName || r.areaId || '', shift: r.shift || '', time: r.scheduledTime || '',
-      status: r.status || '', worker: r.workerName || '', score: r.score != null ? r.score : '',
+      area: r.areaName || r.areaId || '',
+      activity: r.taskTypeName || r.activityType || 'Cleaning',
+      shift: r.shift || '', time: r.scheduledTime || '',
+      status: r.status || '', supervisor: r.supervisorName || r.workerName || 'Supervisor', score: r.score != null ? r.score : '',
     }));
     const report = await this._storeReport({
       stationId, stationName, reportType: 'daily_activity', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
@@ -371,11 +409,11 @@ class StationReportService {
     const combinedRecords = records.map(r => ({ ...r, source: 'station_cleaning_attendance' }));
     const daysPresent = new Set(combinedRecords.filter(r => r.attendanceStatus === 'PRESENT').map(r => r.date)).size;
     const totalDays = new Set(combinedRecords.map(r => r.date)).size;
-    const workerMap = {}; combinedRecords.forEach(r => { const w = r.workerId; if (!w) return; if (!workerMap[w]) workerMap[w] = { workerName: r.workerName || '', present: 0, late: 0, leave: 0, total: 0 }; workerMap[w][r.attendanceStatus === 'PRESENT' ? 'present' : r.attendanceStatus === 'LATE' ? 'late' : r.attendanceStatus === 'ON_LEAVE' ? 'leave' : 'total']++; workerMap[w].total++; });
+    const workerMap = {}; combinedRecords.forEach(r => { const w = r.workerId; if (!w) return; if (!workerMap[w]) workerMap[w] = { supervisorName: r.workerName || '', present: 0, late: 0, leave: 0, total: 0 }; workerMap[w][r.attendanceStatus === 'PRESENT' ? 'present' : r.attendanceStatus === 'LATE' ? 'late' : r.attendanceStatus === 'ON_LEAVE' ? 'leave' : 'total']++; workerMap[w].total++; });
     const totalOvertimeHours = overtime.reduce((s, o) => s + (o.hours || o.overtimeHours || 0), 0);
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_attendance', month, year, date: startDate,
-      summary: { totalEntries: combinedRecords.length, totalWorkers: Object.keys(workerMap).length, daysPresent, totalDays, attendancePct: totalDays > 0 ? Math.round(daysPresent / totalDays * 100) : 0, overtimeEntries: overtime.length, totalOvertimeHours, workerSummary: Object.entries(workerMap).map(([wid, stats]) => ({ workerId: wid, ...stats })) },
+      summary: { totalEntries: combinedRecords.length, totalSupervisors: Object.keys(workerMap).length, daysPresent, totalDays, attendancePct: totalDays > 0 ? Math.round(daysPresent / totalDays * 100) : 0, overtimeEntries: overtime.length, totalOvertimeHours, supervisorSummary: Object.entries(workerMap).map(([wid, stats]) => ({ supervisorId: wid, ...stats })) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
