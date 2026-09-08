@@ -413,6 +413,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         "icon": Icons.star_outline,
         "title": "Ratings",
         "route": "ratings",
+        "contractTypes": ["obhs"],
         "roles": ["Contractor Master", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]
       },
       {
