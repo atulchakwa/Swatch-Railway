@@ -44,6 +44,7 @@ import '../../station_cleaning/shift_summary_approval_screen.dart';
 import '../../station_cleaning/evidence/evidence_upload_screen.dart';
 import '../../station_cleaning/reporting/report_list_screen.dart';
 import '../../station_cleaning/dashboard/supervisor_dashboard_screen.dart';
+import '../../station_cleaning/attendance/station_supervisor_attendance_screen.dart';
 import '../../station_cleaning/feedback/passenger_feedback_form_screen.dart';
 import '../../station_cleaning/feedback/passenger_feedback_list_screen.dart';
 
@@ -364,6 +365,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Machines", "route": "sc_machines"},
           {"title": "Materials", "route": "sc_materials"},
           {"title": "Passenger Feedback", "route": "sc_passenger_feedback"},
+          {"title": "Supervisor Attendance", "route": "sc_supervisor_attendance"},
         ]
       },
       {
@@ -622,6 +624,12 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "sc_passenger_feedback":
         _navigateWithStation(context, (stationId, stationName) => _PassengerFeedbackChooser(
+          stationId: stationId,
+          stationName: stationName,
+        ), user);
+        break;
+      case "sc_supervisor_attendance":
+        _navigateWithStation(context, (stationId, stationName) => StationSupervisorAttendanceScreen(
           stationId: stationId,
           stationName: stationName,
         ), user);
