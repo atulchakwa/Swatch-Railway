@@ -1570,14 +1570,17 @@ class PDFReportService {
         margin: const pw.EdgeInsets.all(25),
         build: (pw.Context context) {
           final summary = report.summary;
-          final kpiEntries = <MapEntry<String, dynamic>>[];
+          final scalarEntries = <MapEntry<String, dynamic>>[];
+          final breakdownEntries = <MapEntry<String, Map<String, dynamic>>>[];
           final arrayEntries = <MapEntry<String, List<dynamic>>>[];
 
           summary.forEach((key, value) {
-            if (value is List) {
+            if (value is Map) {
+              breakdownEntries.add(MapEntry(key, Map<String, dynamic>.from(value)));
+            } else if (value is List) {
               arrayEntries.add(MapEntry(key, value));
             } else {
-              kpiEntries.add(MapEntry(key, value));
+              scalarEntries.add(MapEntry(key, value));
             }
           });
 
@@ -1590,67 +1593,22 @@ class PDFReportService {
             pw.SizedBox(height: 10),
           ];
 
-          if (kpiEntries.isNotEmpty) {
+          if (scalarEntries.isNotEmpty) {
             widgets.add(_buildSectionHeader('Key Metrics'));
-            final rows = <pw.TableRow>[];
-            final headerCells = <String>[];
-            final valueRows = <List<String>>[];
-            for (var i = 0; i < kpiEntries.length; i += 2) {
-              final left = kpiEntries[i];
-              final right = i + 1 < kpiEntries.length ? kpiEntries[i + 1] : null;
-              headerCells.add(_formatLabel(left.key));
-              if (right != null) headerCells.add(_formatLabel(right.key));
-              valueRows.add([
-                _formatValue(left.value),
-                right != null ? _formatValue(right.value) : '',
-              ]);
-            }
-            final uniqueHeaders = headerCells.toSet().toList();
-            if (uniqueHeaders.length <= 4) {
-              widgets.add(
-                pw.Table(
-                  border: pw.TableBorder.all(color: borderColor, width: 0.5),
-                  columnWidths: uniqueHeaders.length <= 2
-                      ? <int, pw.TableColumnWidth>{0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1)}
-                      : <int, pw.TableColumnWidth>{0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1), 2: pw.FlexColumnWidth(1), 3: pw.FlexColumnWidth(1)},
-                  children: [
-                    pw.TableRow(
-                      decoration: pw.BoxDecoration(color: primaryColor),
-                      children: uniqueHeaders.map((h) => pw.Padding(
-                        padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text(h, style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.center),
-                      )).toList(),
-                    ),
-                    ...valueRows.map((row) => pw.TableRow(
-                      children: row.map((v) => pw.Padding(
-                        padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text(v, style: const pw.TextStyle(fontSize: 8), textAlign: pw.TextAlign.center),
-                      )).toList(),
-                    )),
-                  ],
-                ),
-              );
-            } else {
-              widgets.add(
-                pw.TableHelper.fromTextArray(
-                  context: context,
-                  headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8),
-                  headerDecoration: pw.BoxDecoration(color: primaryColor),
-                  cellStyle: pw.TextStyle(fontSize: 8),
-                  cellAlignment: pw.Alignment.center,
-                  data: [
-                    kpiEntries.map((e) => _formatLabel(e.key)).toList(),
-                    kpiEntries.map((e) => _formatValue(e.value)).toList(),
-                  ],
-                ),
-              );
-            }
-            widgets.add(pw.SizedBox(height: 10));
+            widgets.add(_buildMetricGrid(scalarEntries));
+            widgets.add(pw.SizedBox(height: 6));
+          }
+
+          for (final entry in breakdownEntries) {
+            if (entry.value.isEmpty) continue;
+            widgets.add(_buildSectionHeader(_formatLabel(entry.key), color: const PdfColor.fromInt(0xff2c7fb8)));
+            widgets.add(_buildBreakdownTable(entry.value));
+            widgets.add(pw.SizedBox(height: 6));
           }
 
           for (final entry in arrayEntries) {
             if (entry.value.isEmpty) continue;
-            widgets.add(_buildSectionHeader(_formatLabel(entry.key)));
+            widgets.add(_buildSectionHeader(_formatLabel(entry.key), color: PdfColors.teal));
             final records = entry.value;
             final mappedColumns = (_reportArrayColumns[report.reportType] ?? const {})[entry.key];
             final List<String> keys;
@@ -1696,6 +1654,90 @@ class PDFReportService {
     return pdf.save();
   }
 
+  // Renders scalar KPIs as a clean grid: each cell shows its label above its value.
+  static pw.Widget _buildMetricGrid(List<MapEntry<String, dynamic>> entries) {
+    final cells = entries.map((e) => pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.grey100,
+        border: pw.Border.all(color: borderColor, width: 0.5),
+        borderRadius: pw.BorderRadius.circular(4),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        mainAxisSize: pw.MainAxisSize.min,
+        children: [
+          pw.Text(_formatLabel(e.key), style: pw.TextStyle(fontSize: 7, color: PdfColors.grey600, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 3),
+          pw.Text(_formatValue(e.value), style: pw.TextStyle(fontSize: 10, color: primaryColor, fontWeight: pw.FontWeight.bold)),
+        ],
+      ),
+    )).toList();
+
+    final rows = <pw.Widget>[];
+    for (var i = 0; i < cells.length; i += 2) {
+      rows.add(pw.Row(
+        children: [
+          pw.Expanded(child: cells[i]),
+          pw.SizedBox(width: 6),
+          pw.Expanded(child: i + 1 < cells.length ? cells[i + 1] : pw.SizedBox()),
+        ],
+      ));
+      rows.add(pw.SizedBox(height: 6));
+    }
+    return pw.Column(children: rows);
+  }
+
+  // Renders map breakdowns (rating distribution, category breakdown, etc.) as a
+  // two-column Item | Count table with alternating row shading.
+  static pw.Widget _buildBreakdownTable(Map<String, dynamic> data) {
+    final entries = data.entries.toList();
+    final rows = <pw.TableRow>[];
+    for (var i = 0; i < entries.length; i++) {
+      final e = entries[i];
+      rows.add(pw.TableRow(
+        decoration: pw.BoxDecoration(color: i.isEven ? PdfColors.white : PdfColors.grey50),
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Text(_formatBreakdownKey(e.key), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Text(_formatValue(e.value), style: pw.TextStyle(fontSize: 8), textAlign: pw.TextAlign.center),
+          ),
+        ],
+      ));
+    }
+
+    return pw.Table(
+      border: pw.TableBorder.all(color: borderColor, width: 0.5),
+      columnWidths: const <int, pw.TableColumnWidth>{0: pw.FlexColumnWidth(3), 1: pw.FlexColumnWidth(1)},
+      children: [
+        pw.TableRow(
+          decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xff2c7fb8)),
+          children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Item', style: pw.TextStyle(color: PdfColors.white, fontSize: 8, fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Count', style: pw.TextStyle(color: PdfColors.white, fontSize: 8, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
+          ],
+        ),
+        ...rows,
+      ],
+    );
+  }
+
+  static String _formatBreakdownKey(String key) {
+    var cleaned = key.trim();
+    final numVal = num.tryParse(cleaned);
+    if (numVal != null) return numVal.toString();
+    return cleaned
+        .replaceAllMapped(RegExp(r'(?<=[a-z0-9])([A-Z])'), (m) => ' ${m.group(1)}')
+        .replaceAll('_', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .toUpperCase();
+  }
+
   static String _formatLabel(String key) {
     return key
         .replaceAllMapped(RegExp(r'[A-Z]'), (m) => ' ${m.group(0)}')
@@ -1706,14 +1748,16 @@ class PDFReportService {
 
   static String _formatValue(dynamic value) {
     if (value == null) return 'N/A';
-    if (value is double) return value.toStringAsFixed(1);
+    if (value is double) {
+      return value == value.roundToDouble() ? value.round().toString() : value.toStringAsFixed(1);
+    }
     if (value is int || value is num) return value.toString();
     if (value is bool) return value ? 'Yes' : 'No';
     if (value is List) {
       if (value.isEmpty) return '-';
       return value.every((e) => e is Map)
           ? '${value.length} item(s)'
-          : value.join(', ');
+          : value.map((e) => _formatValue(e)).join('; ');
     }
     if (value is Map) return _formatMap(value);
     return value.toString();
