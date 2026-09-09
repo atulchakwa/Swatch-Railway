@@ -73,6 +73,10 @@ class _TaskGenerationScreenState extends State<TaskGenerationScreen> {
   // Per-area "how many occurrences to schedule today" (1..area daily total)
   final Map<String, int> _areaTodayCount = {};
 
+  // Redesigned list UX: search filter + collapsible per-area detail.
+  final Set<String> _expandedAreaIds = {};
+  String _areaSearchQuery = '';
+
   // Per-area frequency progress (total/used/remaining occurrences for the date)
   final Map<String, Map<String, dynamic>> _areaFrequencyStatus = {};
   bool _frequencyStatusLoading = false;
@@ -345,141 +349,75 @@ int _defaultFrequencyForArea(StationArea area) {
     final total = (status?['totalTimes'] as int?) ?? 0;
     final effectiveTotal = total > 0 ? total : _defaultFrequencyForArea(area);
     final used = (status?['usedTimes'] as int?) ?? 0;
-    final remaining = status == null
-        ? effectiveTotal
-        : ((status['remainingTimes'] as int?) ?? (effectiveTotal - used));
-    final hasSupervisor = _selectedSupervisor != null;
     final todayCount = _todayCountForArea(area);
 
     if (_byFrequency) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: kRailwayBlue.withOpacity(0.04),
-          border: Border.all(color: kRailwayBlue.withOpacity(0.3)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.auto_awesome, size: 16, color: kRailwayBlue),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Auto \u00b7 ${_frequencyLabel(area.cleaningFrequency ?? 'daily')} \u00b7 $effectiveTotal time(s)/day',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    hasSupervisor ? 'Assigned to: ${_selectedSupervisor!.fullName}' : 'Select a supervisor',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: hasSupervisor ? FontWeight.w400 : FontWeight.w600,
-                      color: hasSupervisor ? Colors.black54 : kRailwayBlue,
-                    ),
-                  ),
-                ],
-              ),
+      return Row(
+        children: [
+          const Icon(Icons.auto_awesome, size: 18, color: kRailwayBlue),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Auto \u00b7 ${_frequencyLabel(area.cleaningFrequency ?? 'daily')} \u00b7 $effectiveTotal time(s)/day',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
             ),
-            if (_frequencyStatusLoading)
-              const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
-          ],
-        ),
+          ),
+          if (_frequencyStatusLoading)
+            const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+        ],
       );
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: kRailwayBlue.withOpacity(0.04),
-        border: Border.all(color: kRailwayBlue.withOpacity(0.3)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.repeat, size: 16, color: kRailwayBlue),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Total/day: $effectiveTotal · Used: $used · Remaining: $remaining',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
-                ),
-              ),
-              if (_frequencyStatusLoading)
-                const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          if (used > 0)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.check_circle, size: 14, color: Colors.green),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Used slots: ${_usedSlotsFor(areaId).join(' · ')}',
-                      style: const TextStyle(fontSize: 11, color: Colors.green),
-                    ),
-                  ),
-                ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.event, size: 16, color: kRailwayBlue),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text(
+                'Occurrences today',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
               ),
             ),
-          Row(
-            children: [
-              Icon(Icons.event, size: 16, color: kRailwayBlue),
-              const SizedBox(width: 6),
-              const Expanded(
-                child: Text(
-                  'Occurrences today',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+            IconButton(
+              icon: const Icon(Icons.remove_circle_outline),
+              visualDensity: VisualDensity.compact,
+              color: kRailwayBlue,
+              onPressed: todayCount > 1
+                  ? () => setState(() => _areaTodayCount[areaId] = todayCount - 1)
+                  : null,
+            ),
+            Text('$todayCount', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              visualDensity: VisualDensity.compact,
+              color: kRailwayBlue,
+              onPressed: todayCount < effectiveTotal
+                  ? () => setState(() => _areaTodayCount[areaId] = todayCount + 1)
+                  : null,
+            ),
+          ],
+        ),
+        if (used > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.check_circle, size: 14, color: Colors.green),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Used slots: ${_usedSlotsFor(areaId).join(' \u00b7 ')}',
+                    style: const TextStyle(fontSize: 11, color: Colors.green),
+                  ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.remove_circle_outline),
-                visualDensity: VisualDensity.compact,
-                color: kRailwayBlue,
-                onPressed: todayCount > 1
-                    ? () => setState(() => _areaTodayCount[areaId] = todayCount - 1)
-                    : null,
-              ),
-              Text('$todayCount', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline),
-                visualDensity: VisualDensity.compact,
-                color: kRailwayBlue,
-                onPressed: todayCount < effectiveTotal
-                    ? () => setState(() => _areaTodayCount[areaId] = todayCount + 1)
-                    : null,
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(Icons.supervisor_account, size: 16, color: hasSupervisor ? kRailwayBlue : Colors.grey[400]),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  hasSupervisor
-                      ? 'Generate will set $todayCount of $effectiveTotal for ${_selectedSupervisor!.fullName} today'
-                      : 'Select a supervisor',
-                  style: TextStyle(fontSize: 12, color: hasSupervisor ? Colors.grey[700] : Colors.grey[500]),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -506,14 +444,43 @@ int _defaultFrequencyForArea(StationArea area) {
         _selectedAreaIds.remove(areaId);
         _areaActivities.remove(areaId);
         _areaTodayCount.remove(areaId);
+        _expandedAreaIds.remove(areaId);
       });
       return;
     }
     setState(() {
       _selectedAreaIds.add(areaId);
       _areaActivities[areaId] = [];
+      _expandedAreaIds.add(areaId);
     });
     _loadFrequencyStatus();
+  }
+
+  void _toggleAreaExpanded(StationArea area) {
+    final areaId = area.uid ?? area.name;
+    if (!_selectedAreaIds.contains(areaId)) return;
+    setState(() {
+      if (!_expandedAreaIds.remove(areaId)) _expandedAreaIds.add(areaId);
+    });
+  }
+
+  void _selectAllAreas() {
+    setState(() {
+      for (final area in _allAreas) {
+        final id = area.uid ?? area.name;
+        _selectedAreaIds.add(id);
+        _areaActivities.putIfAbsent(id, () => []);
+      }
+    });
+  }
+
+  void _clearSelectedAreas() {
+    setState(() {
+      _selectedAreaIds.clear();
+      _areaActivities.clear();
+      _areaTodayCount.clear();
+      _expandedAreaIds.clear();
+    });
   }
 
   Future<void> _showActivitySelectionForArea(StationArea area) async {
@@ -644,21 +611,19 @@ int _defaultFrequencyForArea(StationArea area) {
     try {
       final todayStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      // Preserve the existing per-shift run-instance record for the
-      // occurrences flow (used by attendance); skipped in "By Frequency" mode.
-      if (!_byFrequency) {
-        final runInstanceId = '${_selectedStation!.uid}_${_selectedShift.toLowerCase()}_$todayStr';
-        final run = StationCleaningRunModel(
-          runInstanceId: runInstanceId,
-          stationId: _selectedStation!.uid ?? '',
-          stationName: _selectedStation!.stationName,
-          shift: _selectedShift,
-          date: todayStr,
-          status: 'Pending',
-          platforms: const [],
-        );
-        await StationRunRepository.createStationRun(run);
-      }
+      // Preserve the per-shift run-instance record used by the attendance flow
+      // (lateness / first-attendance time) for BOTH generation modes.
+      final runInstanceId = '${_selectedStation!.uid}_${_selectedShift.toLowerCase()}_$todayStr';
+      final run = StationCleaningRunModel(
+        runInstanceId: runInstanceId,
+        stationId: _selectedStation!.uid ?? '',
+        stationName: _selectedStation!.stationName,
+        shift: _selectedShift,
+        date: todayStr,
+        status: 'Pending',
+        platforms: const [],
+      );
+      await StationRunRepository.createStationRun(run);
 
       // Per-area activities: each selected area -> list of chosen activities.
       // Skipped in "By Frequency" mode — slots come from the area's frequency.
@@ -700,6 +665,7 @@ int _defaultFrequencyForArea(StationArea area) {
         areaIds: _selectedAreaIds.toList(),
         date: todayStr,
         supervisorId: _selectedSupervisor?.uid,
+        shift: _selectedShift.toLowerCase(),
         areaActivities: areaActivities.isNotEmpty ? areaActivities : null,
         areaTimes: areaTimes.isNotEmpty ? areaTimes : null,
         normalize: true,
@@ -730,9 +696,17 @@ int _defaultFrequencyForArea(StationArea area) {
     }
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
-    final areas = _allAreas;
+    final canGenerate = _selectedStation != null &&
+        _selectedSupervisor != null &&
+        _selectedAreaIds.isNotEmpty;
+    final estTasks = _selectedAreaIds.fold<int>(0, (sum, id) {
+      final area = _allAreas.where((a) => (a.uid ?? a.name) == id).firstOrNull;
+      if (area == null) return sum;
+      return sum + _defaultFrequencyForArea(area);
+    });
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -745,392 +719,493 @@ int _defaultFrequencyForArea(StationArea area) {
           : (_stations.isEmpty)
               ? _LoadFailureView(
                   message: _loadError ?? 'No stations available for your account.',
-                  onRetry: () {
-                    _loadInitialData();
-                  },
+                  onRetry: _loadInitialData,
                 )
               : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildScheduleCard(),
+                      const SizedBox(height: 14),
+                      _buildModeCard(),
+                      const SizedBox(height: 14),
+                      _buildAreasCard(),
+                      const SizedBox(height: 20),
+                      _buildSummaryBar(estTasks),
+                      const SizedBox(height: 12),
+                      if (!canGenerate)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            'Select a station, a supervisor and at least one area to generate tasks.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          ),
+                        ),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          onPressed: canGenerate && !_isSubmitting ? _generateTasks : null,
+                          icon: _isSubmitting
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.auto_awesome),
+                          label: Text(
+                            _isSubmitting
+                                ? 'Generating...'
+                                : '+ Generate Tasks (${_selectedAreaIds.length} areas)',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kRailwayBlue,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.grey.shade300,
+                            disabledForegroundColor: Colors.grey.shade600,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+    );
+  }
+
+  Widget _buildCardHeader(IconData icon, String title, {Widget? trailing}) {
+    return Row(
+      children: [
+        Icon(icon, color: kRailwayBlue, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ),
+        if (trailing != null) trailing,
+      ],
+    );
+  }
+
+  Widget _buildScheduleCard() {
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      elevation: 0,
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCardHeader(
+              Icons.cleaning_services,
+              'Schedule & Assign',
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: kRailwayBlue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Station Cleaning',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: kRailwayBlue),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<Station>(
+              value: _selectedStation,
+              decoration: InputDecoration(
+                labelText: 'Station',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.business),
+                hintText: _isStationLocked ? 'Assigned Station (locked)' : null,
+              ),
+              items: _stations.map((s) => DropdownMenuItem(value: s, child: Text(s.stationName))).toList(),
+              onChanged: _isStationLocked ? null : (v) async {
+                if (v == null) return;
+                setState(() {
+                  _selectedStation = v;
+                  _selectedAreaIds.clear();
+                  _areaActivities.clear();
+                  _areaTodayCount.clear();
+                  _expandedAreaIds.clear();
+                });
+                await _loadAreas(v.uid!);
+              },
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: _pickDate,
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Date',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.calendar_today),
+                      ),
+                      child: Text(DateFormat('yyyy-MM-dd').format(_selectedDate)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedShift,
+                    decoration: const InputDecoration(
+                      labelText: 'Shift',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.schedule),
+                    ),
+                    items: ['Morning', 'Evening', 'Night']
+                        .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selectedShift = v);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<RailwayWorkerModel>(
+              value: _selectedSupervisor,
+              decoration: const InputDecoration(
+                labelText: 'Assign to Supervisor',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.supervisor_account),
+              ),
+              items: [
+                const DropdownMenuItem<RailwayWorkerModel>(
+                  value: null,
+                  child: Text('None'),
+                ),
+                ..._supervisors.map((s) => DropdownMenuItem(value: s, child: Text(s.fullName))),
+              ],
+              onChanged: (v) => setState(() => _selectedSupervisor = v),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeCard() {
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      elevation: 0,
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCardHeader(Icons.tune, 'Generation Mode'),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    label: Text('Occurrences'),
+                    icon: Icon(Icons.repeat, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text('By Frequency'),
+                    icon: Icon(Icons.auto_awesome, size: 18),
+                  ),
+                ],
+                selected: {_byFrequency},
+                onSelectionChanged: (v) => setState(() => _byFrequency = v.first),
+                style: SegmentedButton.styleFrom(
+                  selectedBackgroundColor: kRailwayBlue,
+                  selectedForegroundColor: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _byFrequency
+                  ? 'Tasks follow each area\u2019s configured cleaning frequency and times automatically.'
+                  : 'Set how many occurrences to schedule today per area and the activities to perform.',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAreasCard() {
+    final query = _areaSearchQuery.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? _allAreas
+        : _allAreas.where((a) {
+            final name = (a.name ?? '').toLowerCase();
+            final main = (a.mainArea ?? '').toLowerCase();
+            final freq = _frequencyLabel(a.cleaningFrequency ?? 'daily').toLowerCase();
+            return name.contains(query) || main.contains(query) || freq.contains(query);
+          }).toList();
+
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      elevation: 0,
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCardHeader(
+              Icons.dashboard_outlined,
+              'Select Areas',
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: kRailwayBlue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${_selectedAreaIds.length} selected',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: kRailwayBlue),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: InputDecoration(
+                hintText: 'Search areas',
+                prefixIcon: const Icon(Icons.search),
+                isDense: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onChanged: (v) => setState(() => _areaSearchQuery = v),
+            ),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: _allAreas.isEmpty ? null : _selectAllAreas,
+                  icon: const Icon(Icons.select_all, size: 18),
+                  label: const Text('Select All'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _selectedAreaIds.isEmpty ? null : _clearSelectedAreas,
+                  icon: const Icon(Icons.clear_all, size: 18),
+                  label: const Text('Clear'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            if (_allAreas.isEmpty)
+              _areaLoadFailed
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: Column(
+                          children: [
+                            const Text('Failed to load areas. Please retry.', style: TextStyle(color: Colors.red)),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () => _loadAreas(_selectedStation?.uid ?? ''),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Text('No station cleaning areas configured for this station.', style: TextStyle(color: Colors.grey)),
+                      ),
+                    )
+            else if (filtered.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Text('No areas match "$_areaSearchQuery"', style: const TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                ),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: filtered.length,
+                itemBuilder: (context, index) => _buildAreaTile(filtered[index]),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAreaTile(StationArea area) {
+    final areaId = area.uid ?? area.name;
+    final isSelected = _selectedAreaIds.contains(areaId);
+    final isExpanded = _expandedAreaIds.contains(areaId);
+    final areaActivities = _areaActivities[areaId] ?? <TaskType>[];
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      color: isSelected ? kRailwayBlue.withOpacity(0.03) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: isSelected ? kRailwayBlue : Colors.grey.shade300, width: isSelected ? 1.4 : 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => _toggleAreaSelection(area),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+              child: Row(
                 children: [
-                  // 1. Location & Schedule Card
-                  Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    elevation: 1,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.map, color: kRailwayBlue, size: 20),
-                              const SizedBox(width: 8),
-                              const Text('Location & Schedule', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Station Dropdown
-                          DropdownButtonFormField<Station>(
-                            value: _selectedStation,
-                            decoration: InputDecoration(
-                              labelText: 'Station',
-                              border: const OutlineInputBorder(),
-                              prefixIcon: const Icon(Icons.business),
-                              hintText: _isStationLocked ? 'Assigned Station (locked)' : null,
-                            ),
-                            items: _stations.map((s) => DropdownMenuItem(value: s, child: Text(s.stationName))).toList(),
-                            onChanged: _isStationLocked ? null : (v) async {
-                              if (v != null) {
-                                setState(() {
-                                  _selectedStation = v;
-                                  _selectedAreaIds.clear();
-                                  _areaActivities.clear();
-          _areaTodayCount.clear();
-                                });
-                                await _loadAreas(v.uid!);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Date & Shift side by side
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: InkWell(
-                                  onTap: _pickDate,
-                                  child: InputDecorator(
-                                    decoration: const InputDecoration(labelText: 'Date', border: OutlineInputBorder(), prefixIcon: Icon(Icons.calendar_today)),
-                                    child: Text(DateFormat('yyyy-MM-dd').format(_selectedDate)),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: _selectedShift,
-                                  decoration: const InputDecoration(labelText: 'Shift', border: OutlineInputBorder(), prefixIcon: Icon(Icons.schedule)),
-                                  items: ['Morning', 'Evening', 'Night'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                                  onChanged: (v) {
-                                    if (v != null) setState(() => _selectedShift = v);
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
+                  Icon(
+                    isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                    color: isSelected ? kRailwayBlue : Colors.grey.shade400,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          area.name ?? '',
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.black87),
+                        ),
+                        if (area.mainArea != null && area.mainArea!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(area.mainArea!, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                         ],
-                      ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.schedule, size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 4),
+                            Text(
+                              _frequencyLabel(area.cleaningFrequency ?? 'daily'),
+                              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-
-                  // 2. Cleaning Setup Card
-                  Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    elevation: 1,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.cleaning_services, color: kRailwayBlue, size: 20),
-                              const SizedBox(width: 8),
-                              const Text('Cleaning Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Supervisor Assignment
-                          DropdownButtonFormField<RailwayWorkerModel>(
-                            value: _selectedSupervisor,
-                            decoration: const InputDecoration(
-                              labelText: 'Assign to Supervisor',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.supervisor_account),
-                            ),
-                            items: [
-                              const DropdownMenuItem<RailwayWorkerModel>(
-                                value: null,
-                                child: Text('None'),
-                              ),
-                              ..._supervisors.map((s) => DropdownMenuItem(
-                                value: s,
-                                child: Text(s.fullName),
-                              )),
-                            ],
-                            onChanged: (v) {
-                              setState(() => _selectedSupervisor = v);
-                            },
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Generation Mode
-                          Row(
-                            children: [
-                              const Icon(Icons.tune, color: kRailwayBlue, size: 20),
-                              const SizedBox(width: 8),
-                              const Expanded(
-                                child: Text(
-                                  'Generation Mode',
-                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          SegmentedButton<bool>(
-                            segments: const [
-                              ButtonSegment(
-                                value: false,
-                                label: Text('Occurrences'),
-                                icon: Icon(Icons.repeat, size: 18),
-                              ),
-                              ButtonSegment(
-                                value: true,
-                                label: Text('By Frequency'),
-                                icon: Icon(Icons.auto_awesome, size: 18),
-                              ),
-                            ],
-                            selected: {_byFrequency},
-                            onSelectionChanged: (v) => setState(() => _byFrequency = v.first),
-                            style: SegmentedButton.styleFrom(
-                              selectedBackgroundColor: kRailwayBlue,
-                              selectedForegroundColor: Colors.white,
-                            ),
-                          ),
-                          if (_byFrequency)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                'Tasks will use each area\u2019s configured cleaning frequency and times automatically.',
-                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                              ),
-                            ),
-                        ],
+                  if (isSelected)
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(
+                        isExpanded ? Icons.expand_less : Icons.expand_more,
+                        color: Colors.grey[600],
                       ),
+                      onPressed: () => _toggleAreaExpanded(area),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    elevation: 1,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.dashboard_outlined, color: kRailwayBlue, size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Select Areas (${_selectedAreaIds.length} selected)',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Tap an area to select it, then tick the activities for that area.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                          const SizedBox(height: 16),
-                          if (areas.isEmpty)
-                            _areaLoadFailed
-                                ? Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 24),
-                                      child: Column(
-                                        children: [
-                                          const Text(
-                                            'Failed to load areas. Please retry.',
-                                            style: TextStyle(color: Colors.red),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          TextButton.icon(
-                                            onPressed: () => _loadAreas(_selectedStation?.uid ?? ''),
-                                            icon: const Icon(Icons.refresh),
-                                            label: const Text('Retry'),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                : const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.symmetric(vertical: 24),
-                                      child: Text('No areas configured for this selection', style: TextStyle(color: Colors.grey)),
-                                    ),
-                                  )
-                          else
-                            ListView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: areas.length,
-                              itemBuilder: (context, index) {
-                                final area = areas[index];
-                                final areaId = area.uid ?? area.name;
-                                final isSelected = _selectedAreaIds.contains(areaId);
-                                final List<TaskType> areaActivities = _areaActivities[areaId] ?? [];
-
-                                return Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    border: Border.all(color: isSelected ? kRailwayBlue : Colors.grey.shade300, width: isSelected ? 1.5 : 1),
-                                    borderRadius: BorderRadius.circular(10),
-                                    color: isSelected ? kRailwayBlue.withOpacity(0.04) : Colors.white,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      InkWell(
-                                        onTap: () => _toggleAreaSelection(area),
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                          child: Row(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Padding(
-                                                padding: const EdgeInsets.only(top: 2),
-                                                child: Icon(
-                                                  isSelected ? Icons.check_box : Icons.check_box_outline_blank,
-                                                  color: isSelected ? kRailwayBlue : Colors.grey.shade400,
-                                                  size: 22,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    if (area.mainArea != null && area.mainArea!.isNotEmpty)
-                                                      Text(
-                                                        area.mainArea!,
-                                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
-                                                      ),
-                                                    if (area.mainArea != null && area.mainArea!.isNotEmpty)
-                                                      const SizedBox(height: 2),
-                                                    Text(
-                                                      area.name,
-                                                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87),
-                                                    ),
-                                                    const SizedBox(height: 4),
-                                                    Row(
-                                                      children: [
-                                                        Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
-                                                        const SizedBox(width: 4),
-                                                        Text(
-                                                          _frequencyLabel(area.cleaningFrequency ?? 'daily'),
-                                                          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      if (isSelected) ...[
-                                        const Divider(height: 1),
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              const SizedBox(height: 4),
-                                              _buildFrequencyAssignRow(area),
-                                              if (!_byFrequency) ...[
-                                                const SizedBox(height: 12),
-                                                InkWell(
-                                                  onTap: () => _showActivitySelectionForArea(area),
-                                                  borderRadius: BorderRadius.circular(8),
-                                                  child: Container(
-                                                    width: double.infinity,
-                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                                                    decoration: BoxDecoration(
-                                                      border: Border.all(color: kRailwayBlue.withOpacity(0.4)),
-                                                      borderRadius: BorderRadius.circular(8),
-                                                      color: kRailwayBlue.withOpacity(0.05),
-                                                    ),
-                                                    child: Column(
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      children: [
-                                                        Row(
-                                                          children: [
-                                                            const Icon(Icons.cleaning_services, size: 16, color: kRailwayBlue),
-                                                            const SizedBox(width: 6),
-                                                            Expanded(
-                                                              child: Text(
-                                                                'Select Activities',
-                                                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
-                                                              ),
-                                                            ),
-                                                            Icon(Icons.chevron_right, size: 18, color: Colors.grey[600]),
-                                                          ],
-                                                        ),
-                                                        const SizedBox(height: 4),
-                                                        Text(
-                                                          areaActivities.isEmpty
-                                                              ? 'Tap to choose the activities for this area'
-                                                              : areaActivities.map((t) => t.label).join(' · '),
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow.ellipsis,
-                                                          style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: areaActivities.isEmpty ? Colors.grey[600] : Colors.black87,
-                                                            fontStyle: areaActivities.isEmpty ? FontStyle.italic : FontStyle.normal,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Generate Tasks Button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      onPressed: _isSubmitting ? null : _generateTasks,
-                      icon: _isSubmitting
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.auto_awesome),
-                      label: Text(_isSubmitting ? 'Generating...' : '+ Generate Tasks (${_selectedAreaIds.length} areas)'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kRailwayBlue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
+          ),
+          if (isSelected && isExpanded) ...[
+            Divider(height: 1, color: Colors.grey.shade200),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildFrequencyAssignRow(area),
+                  if (!_byFrequency) ...[
+                    const SizedBox(height: 12),
+                    InkWell(
+                      onTap: () => _showActivitySelectionForArea(area),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: kRailwayBlue.withOpacity(0.4)),
+                          borderRadius: BorderRadius.circular(8),
+                          color: kRailwayBlue.withOpacity(0.05),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.cleaning_services, size: 16, color: kRailwayBlue),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Select Activities',
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                                  ),
+                                ),
+                                Icon(Icons.chevron_right, size: 18, color: Colors.grey[600]),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              areaActivities.isEmpty
+                                  ? 'Tap to choose the activities for this area'
+                                  : areaActivities.map((t) => t.label).join(' \u00b7 '),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: areaActivities.isEmpty ? Colors.grey[600] : Colors.black87,
+                                fontStyle: areaActivities.isEmpty ? FontStyle.italic : FontStyle.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryBar(int estTasks) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: kRailwayBlue.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kRailwayBlue.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Summary', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+          const SizedBox(height: 6),
+          Text(
+            '${DateFormat('EEE, MMM d').format(_selectedDate)} \u00b7 $_selectedShift shift \u00b7 '
+            '${_selectedSupervisor?.fullName ?? 'No supervisor'} \u00b7 '
+            '${_selectedAreaIds.length} area(s) \u00b7 ~$estTasks tasks',
+            style: const TextStyle(fontSize: 13, color: Colors.black87),
+          ),
+        ],
+      ),
     );
   }
 }

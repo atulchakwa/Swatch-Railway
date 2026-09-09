@@ -52,7 +52,7 @@ class TaskManagementService {
       const areaCode = area.areaCode || '';
       const mainArea = area.mainArea || '';
       const platformId = assignment.platformId || area.platformId || null;
-      const shift = assignment.shift || area.defaultShift || 'morning';
+      const shift = String(assignment.shift || area.defaultShift || 'morning').trim().toLowerCase();
 
       // Existing active tasks for this area on the target date (regardless of
       // worker) so we can reconcile to the configured slot set.
@@ -673,6 +673,9 @@ class TaskManagementService {
     const areaTimes = data.areaTimes || null;
     const timesCount = data.timesCount ? parseInt(data.timesCount, 10) || null : null;
     const normalize = data.normalize === true;
+    // Canonical (lowercase) shift so attendance / shift-summary comparisons
+    // stay consistent regardless of how the caller spell-cases it.
+    const genShift = data.shift ? String(data.shift).trim().toLowerCase() : null;
     if (!areaIds || !Array.isArray(areaIds) || areaIds.length === 0) {
       throw new ValidationError('areaIds array is required');
     }
@@ -936,7 +939,7 @@ class TaskManagementService {
                 platformId: areaData.platformId || null,
                 supervisorId: assignedSupervisorId || areaData.supervisorId || null,
                 supervisorName: assignedSupervisorName || areaData.supervisorName || '',
-                shift: data.shift || areaData.defaultShift || 'morning',
+                shift: genShift || areaData.defaultShift || 'morning',
               }, zoneInfo, scheduledTime, activity);
               batch.set(taskRef, task);
               allTaskIds.push(taskRef.id);
@@ -952,7 +955,7 @@ class TaskManagementService {
           platformId: areaData.platformId || null,
           supervisorId: assignedSupervisorId || areaData.supervisorId || null,
           supervisorName: assignedSupervisorName || areaData.supervisorName || '',
-          shift: data.shift || areaData.defaultShift || 'morning',
+          shift: genShift || areaData.defaultShift || 'morning',
         });
       } else if (data.supervisorId) {
         // When a (contract) supervisor is explicitly assigned and no specific
@@ -968,7 +971,7 @@ class TaskManagementService {
           platformId: areaData.platformId || null,
           supervisorId: supervisorWorkerId,
           supervisorName: supervisorWorkerName,
-          shift: data.shift || areaData.defaultShift || 'morning',
+          shift: genShift || areaData.defaultShift || 'morning',
         });
       } else if (workersSnap && workersSnap.size > 0) {
         workersSnap.forEach(workerDoc => {
@@ -992,7 +995,7 @@ class TaskManagementService {
           platformId: areaData.platformId || null,
           supervisorId: assignedSupervisorId,
           supervisorName: assignedSupervisorName || '',
-          shift: data.shift || areaData.defaultShift || 'morning',
+          shift: genShift || areaData.defaultShift || 'morning',
         });
       }
 
