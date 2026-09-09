@@ -360,7 +360,7 @@ class TaskManagementService {
       }
     }
     const snapshot = await q.limit(300).get();
-    const tasks = [];
+    let tasks = [];
     const now = new Date();
     snapshot.forEach(doc => {
       const t = { id: doc.id, ...doc.data() };
