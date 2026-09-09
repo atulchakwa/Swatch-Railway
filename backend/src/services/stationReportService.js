@@ -369,6 +369,13 @@ class StationReportService {
         ratingDistribution: dayRecords.reduce((acc, r) => { const v = r.rating || 0; acc[v] = (acc[v] || 0) + 1; return acc; }, {}),
         negativeCount: negativeFeedback.length, negativeRate: dayRecords.length > 0 ? Math.round(negativeFeedback.length / dayRecords.length * 100) : 0,
         negativeTrends: Object.entries(negativeTrends).map(([cat, data]) => ({ category: cat, count: data.count, sampleComments: data.comments.slice(0, 5) })),
+        feedbackComments: dayRecords.map(r => ({
+          category: r.category || r.feedbackCategory || 'General',
+          rating: r.rating != null ? r.rating : 0,
+          comment: r.comment || r.remarks || '',
+          status: r.status || 'approved',
+          date: (r.createdAt || r.date || date).slice(0, 10),
+        })),
       },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
@@ -612,7 +619,7 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const catBreakdown = inMonth.reduce((acc, r) => { const c = r.category || 'General'; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_feedback', month, year, date: startDate,
-      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown },
+      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.category || 'General', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;

@@ -1534,6 +1534,7 @@ class PDFReportService {
     },
     'daily_feedback': {
       'negativeTrends': ['category', 'count', 'sampleComments'],
+      'feedbackComments': ['category', 'rating', 'comment', 'status', 'date'],
     },
     'daily_inspection': {
       'inspections': ['inspectionType', 'status', 'inspectorName', 'overallScore', 'remarks'],
@@ -1555,6 +1556,9 @@ class PDFReportService {
     },
     'monthly_scorecard': {
       'scores': ['date', 'score', 'grade'],
+    },
+    'monthly_feedback': {
+      'feedbackComments': ['category', 'rating', 'comment', 'status', 'date'],
     },
   };
 
@@ -1620,6 +1624,7 @@ class PDFReportService {
 
           for (final entry in arrayEntries) {
             if (entry.value.isEmpty) continue;
+            if (entry.key == 'feedbackComments') continue;
             widgets.add(_buildSectionHeader(_formatLabel(entry.key), color: PdfColors.teal));
             final records = entry.value;
             final mappedColumns = (_reportArrayColumns[report.reportType] ?? const {})[entry.key];
@@ -1635,6 +1640,24 @@ class PDFReportService {
             }
             if (keys.isEmpty) continue;
             widgets.add(_buildDataTable(keys, records));
+            widgets.add(pw.SizedBox(height: 8));
+          }
+
+          // Passenger feedback comments always render at the end with their ratings.
+          MapEntry<String, List<dynamic>>? feedbackEntry;
+          for (final e in arrayEntries) {
+            if (e.key == 'feedbackComments') {
+              feedbackEntry = e;
+              break;
+            }
+          }
+          if (feedbackEntry != null && feedbackEntry.value.isNotEmpty) {
+            final mappedColumns = (_reportArrayColumns[report.reportType] ?? const {})['feedbackComments'];
+            final records = feedbackEntry.value;
+            final keys = mappedColumns ?? ['category', 'rating', 'comment', 'status', 'date'];
+            widgets.add(pw.SizedBox(height: 6));
+            widgets.add(_buildSectionHeader('Passenger Comments & Ratings', color: primaryColor));
+            widgets.add(_buildDataTable(keys, records, isFeedback: true));
             widgets.add(pw.SizedBox(height: 8));
           }
 
@@ -1833,9 +1856,10 @@ class PDFReportService {
 
   // Renders map breakdowns (rating distribution, category breakdown, etc.) as a
   // two-column Item | Count table with alternating row shading.
+
   // Professional data table for list-of-map sections (records, issues, etc.) with
-  // teal header and alternating row shading.
-  static pw.Widget _buildDataTable(List<String> keys, List<dynamic> records) {
+  // teal header and alternating row shading. isFeedback shows ratings as 'x / 5'.
+  static pw.Widget _buildDataTable(List<String> keys, List<dynamic> records, {bool isFeedback = false}) {
     final rows = <pw.TableRow>[];
     for (var i = 0; i < records.length; i++) {
       final record = records[i];
@@ -1846,9 +1870,12 @@ class PDFReportService {
         } else {
           value = k == keys.first ? record : null;
         }
+        final display = isFeedback && k == 'rating'
+            ? '${_formatValue(value)} / 5'
+            : _formatValue(value);
         return pw.Padding(
           padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-          child: pw.Text(_formatValue(value),
+          child: pw.Text(display,
               style: pw.TextStyle(fontSize: 7, color: PdfColors.grey900),
               textAlign: pw.TextAlign.center),
         );
