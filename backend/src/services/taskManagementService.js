@@ -606,6 +606,12 @@ class TaskManagementService {
     if (date) {
       tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
     }
+    // Shift-window enforcement: a contractor worker/supervisor only sees tasks
+    // belonging to their recorded shift (worker id == supervisor id here).
+    const ownShift = await this._getSupervisorShift(workerId);
+    if (ownShift) {
+      tasks = tasks.filter(t => !t.shift || String(t.shift).trim().toLowerCase() === ownShift);
+    }
     tasks.sort((a, b) => ((a.scheduledTime || '00:00').localeCompare(b.scheduledTime || '00:00')));
     return { count: tasks.length, tasks };
   }
