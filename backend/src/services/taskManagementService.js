@@ -3,14 +3,18 @@ import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.
 
 // Roles that may only ever see their OWN tasks (their own shift), never every
 // task across a station/date. Contractor supervisors/workers, cleaners etc.
+// Stored in normalized form (spaces/underscores stripped, upper-cased) so
+// 'Contractor Supervisor', 'contractor_supervisor', ... all match.
 const _OWN_TASK_ROLES = new Set([
-  'CONTRACTOR_SUPERVISOR',
-  'CONTRACTOR_WORKER',
-  'CONTRACTOR_CLEANER',
+  'CONTRACTORSUPERVISOR',
+  'CONTRACTORWORKER',
+  'CONTRACTORCLEANER',
   'SUPERVISOR',
   'WORKER',
   'CLEANER',
 ]);
+
+const _normalizeRole = (role) => String(role || '').toUpperCase().replace(/[\s_-]/g, '');
 
 class TaskManagementService {
   async generateFrequencyBasedTasks(targetDate) {
@@ -372,7 +376,7 @@ class TaskManagementService {
     // Contractor supervisors/workers must only receive their own tasks, even
     // when no workerId/supervisorId filter is supplied (prevents them from
     // seeing other shifts/supervisors at the station).
-    if (user && workerId === undefined && supervisorId === undefined && _OWN_TASK_ROLES.has((user.role || '').toUpperCase())) {
+    if (user && workerId === undefined && supervisorId === undefined && _OWN_TASK_ROLES.has(_normalizeRole(user.role))) {
       tasks = tasks.filter(t => t.workerId === user.uid || t.supervisorId === user.uid);
     }
 
@@ -527,7 +531,7 @@ class TaskManagementService {
 
   async getDailyTasks(date, user) {
     if (!date) date = new Date().toISOString().split('T')[0];
-    const role = (user?.role || '').toUpperCase();
+    const role = _normalizeRole(user?.role);
     const isOwnTaskRole = _OWN_TASK_ROLES.has(role);
     let q = db.collection('cleaningTasks').limit(500);
     if (!['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes(role)) {
