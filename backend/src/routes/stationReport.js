@@ -21,6 +21,7 @@ router.post('/api/station-reports/daily/inspection', verifyToken, ctrl.generateD
 router.post('/api/station-reports/daily/petty-issue', verifyToken, ctrl.generateDailyPettyIssueReport);
 router.post('/api/station-reports/daily/missed-activity', verifyToken, ctrl.generateMissedActivityReport);
 router.post('/api/station-reports/archive-retrieval', verifyToken, ctrl.generateArchiveRetrievalReport);
+router.post('/api/station-reports/range', verifyToken, ctrl.generateRangeReport);
 
 // 10.2 Monthly Reports
 router.post('/api/station-reports/monthly/attendance', verifyToken, ctrl.generateMonthlyAttendanceSummary);

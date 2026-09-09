@@ -1772,9 +1772,10 @@ class PDFReportService {
   }
 
   static pw.Widget _buildMetaBlock(StationReport report, String title, String timestamp) {
-    final period = report.reportType.startsWith('monthly')
-        ? '${report.month}/${report.year}'
-        : report.date;
+    final hasRange = report.endDate != null && report.endDate!.isNotEmpty && report.endDate != report.date;
+    final period = hasRange
+        ? '${report.date} to ${report.endDate}'
+        : (report.reportType.startsWith('monthly') ? '${report.month}/${report.year}' : report.date);
     return pw.Table(
       border: pw.TableBorder.all(color: borderColor, width: 0.5),
       columnWidths: const <int, pw.TableColumnWidth>{

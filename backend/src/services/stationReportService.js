@@ -222,8 +222,9 @@ class StationReportService {
      3. DAILY REPORTS (Section 10.1)
      ================================================================== */
 
-  async generateDailyAttendanceReport(stationId, date, user) {
+  async generateDailyAttendanceReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
+    const rangeEnd = endDate || date;
     // Station-cleaning contracts write worker attendance (start/mid/end + face
     // verification) into station_cleaning_attendance. The generic attendance
     // service writes to station_attendance. Read both so the report is never empty.
@@ -231,17 +232,18 @@ class StationReportService {
       db.collection('station_attendance').where('stationId', '==', stationId).get(),
       db.collection('station_cleaning_attendance').where('stationId', '==', stationId).get(),
     ]);
-    const records = []; attSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
-    scAttSnap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
+    const records = []; attSnap.forEach(d => { const r = d.data(); if (r.date >= date && r.date <= rangeEnd) records.push(r); });
+    scAttSnap.forEach(d => { const r = d.data(); if (r.date >= date && r.date <= rangeEnd) records.push(r); });
 
     // In station-cleaning contracts work is performed by contract supervisors,
     // so we enrich each supervisor's attendance with the activities they did.
     const tasksBySupervisor = {};
     try {
-      const taskSnap = await db.collection('cleaningTasks')
-        .where('stationId', '==', stationId)
-        .where('scheduledDate', '==', date)
-        .get();
+      const taskQ = endDate
+        ? db.collection('cleaningTasks').where('stationId', '==', stationId)
+            .where('scheduledDate', '>=', date).where('scheduledDate', '<=', rangeEnd)
+        : db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date);
+      const taskSnap = await taskQ.get();
       taskSnap.forEach(d => {
         const t = d.data();
         const supId = t.supervisorId || '';
@@ -280,16 +282,21 @@ class StationReportService {
       };
     });
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_attendance', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_attendance', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: { totalExpected: records.length, present, late, absent, onLeave, attendancePct: records.length > 0 ? Math.round(present / records.length * 100) : 0, records: reportRecords },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
   }
 
-  async generateDailyActivityReport(stationId, date, user) {
+  async generateDailyActivityReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
-    const snap = await db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date).get();
+    const rangeEnd = endDate || date;
+    const base = db.collection('cleaningTasks').where('stationId', '==', stationId);
+    const q = endDate
+      ? base.where('scheduledDate', '>=', date).where('scheduledDate', '<=', rangeEnd)
+      : base.where('scheduledDate', '==', date);
+    const snap = await q.get();
     const records = snap.docs.map(d => d.data());
     const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
     const completed = records.filter(r => r.status === 'completed' || r.status === 'approved').length;
@@ -306,30 +313,32 @@ class StationReportService {
       status: r.status || '', supervisor: r.supervisorName || r.workerName || 'Supervisor', score: r.score != null ? r.score : '',
     }));
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_activity', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_activity', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: { total: records.length, completed, pending, inProgress, overdue, rejected, resubmitted, cancelled, completionRate: records.length > 0 ? Math.round(completed / records.length * 100) : 0, records: reportRecords },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
   }
 
-  async generateDailyScorecardReport(stationId, date, user) {
+  async generateDailyScorecardReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
+    const rangeEnd = endDate || date;
     const snap = await db.collection('daily_scorecards').where('stationId', '==', stationId).get();
-    const records = []; snap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
+    const records = []; snap.forEach(d => { const r = d.data(); if (r.date >= date && r.date <= rangeEnd) records.push(r); });
     const avg = records.length > 0 ? Math.round(records.reduce((s, r) => s + (r.overallStationScore || 0), 0) / records.length) : 0;
     const grades = records.reduce((acc, r) => { const g = r.grade || 'N/A'; acc[g] = (acc[g] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_scorecard', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_scorecard', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: { totalScorecards: records.length, averageScore: avg, gradeDistribution: grades },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
   }
 
-  async generateDailyComplaintReport(stationId, date, user) {
+  async generateDailyComplaintReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
-    const start = `${date}T00:00:00`; const end = `${date}T23:59:59`;
+    const rangeEnd = endDate || date;
+    const start = `${date}T00:00:00`; const end = `${rangeEnd}T23:59:59`;
     const snap = await db.collection('complaints').where('stationId', '==', stationId).get();
     const records = []; snap.forEach(d => records.push(d.data()));
     const dayRecords = records.filter(r => { const c = r.createdAt || ''; return c >= start && c <= end; });
@@ -338,17 +347,21 @@ class StationReportService {
     const escalated = dayRecords.filter(r => r.status === 'ESCALATED').length;
     const categories = dayRecords.reduce((acc, r) => { const c = r.category || 'other'; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_complaint', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_complaint', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: { total: dayRecords.length, open, resolved, escalated, categories },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
   }
 
-  async generateDailyFeedbackReport(stationId, date, user) {
+  async generateDailyFeedbackReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
+    const rangeEnd = endDate || date;
     const records = await this._getFeedbackRecords(stationId);
-    const dayRecords = records.filter(r => { const c = r.createdAt || ''; return c.startsWith(date); });
+    const dayRecords = records.filter(r => {
+      const c = r.createdAt || '';
+      return endDate ? (c >= `${date}T00:00:00` && c <= `${endDate}T23:59:59`) : c.startsWith(date);
+    });
     const approved = dayRecords.filter(r => r.status === 'approved').length;
     const pendingMod = dayRecords.filter(r => r.status === 'pending').length;
     const ratings = dayRecords.filter(r => r.rating).map(r => r.rating);
@@ -362,7 +375,7 @@ class StationReportService {
       return acc;
     }, {});
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_feedback', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_feedback', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: {
         total: dayRecords.length, approved, pendingModeration: pendingMod,
         averageRating: avgRating,
@@ -382,10 +395,11 @@ class StationReportService {
     return report;
   }
 
-  async generateDailyInspectionReport(stationId, date, user) {
+  async generateDailyInspectionReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
+    const rangeEnd = endDate || date;
     const start = `${date}T00:00:00`;
-    const end = `${date}T23:59:59`;
+    const end = `${rangeEnd}T23:59:59`;
     const snap = await db.collection('inspections').where('stationId', '==', stationId).get();
     const records = []; snap.forEach(d => records.push({ id: d.id, ...d.data() }));
     const dayRecords = records.filter(r => {
@@ -414,7 +428,7 @@ class StationReportService {
       deficiencies: (r.deficiencies || []).map(d => ({ area: d.area, status: d.status, remark: d.remark })),
     }));
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_inspection', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_inspection', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: {
         totalInspections: dayRecords.length, typeBreakdown: byType, statusBreakdown: byStatus,
         totalDeficiencies, closedDeficiencies, openDeficiencies: totalDeficiencies - closedDeficiencies,
@@ -425,32 +439,38 @@ class StationReportService {
     return report;
   }
 
-  async generateDailySupervisorLog(stationId, date, user) {
+  async generateDailySupervisorLog(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
+    const rangeEnd = endDate || date;
     const snap = await db.collection('supervisor_daily_logs').where('stationId', '==', stationId).get();
-    const logs = []; snap.forEach(d => { const r = d.data(); if (r.date === date) logs.push(r); });
+    const logs = []; snap.forEach(d => { const r = d.data(); if (r.date >= date && r.date <= rangeEnd) logs.push(r); });
     const submitted = logs.filter(l => l.status === 'SUBMITTED' || l.status === 'ACCEPTED').length;
     const draft = logs.filter(l => l.status === 'DRAFT').length;
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_supervisor_log', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_supervisor_log', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: { totalLogs: logs.length, submitted, draft, issuesReported: logs.reduce((s, l) => s + ((l.issues || []).length), 0), materialUsed: logs.reduce((s, l) => s + (l.materialUsed || []).length, 0) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
   }
 
-  async generateMissedActivityReport(stationId, date, user) {
+  async generateMissedActivityReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
+    const rangeEnd = endDate || date;
     const snap = await db.collection('station_daily_activities').where('stationId', '==', stationId).get();
-    const records = []; snap.forEach(d => { const r = d.data(); if (r.date === date) records.push(r); });
+    const records = []; snap.forEach(d => { const r = d.data(); if (r.date >= date && r.date <= rangeEnd) records.push(r); });
     const now = new Date().toISOString();
     const overdue = records.filter(r => r.status === 'PENDING' && r.scheduledEnd && r.scheduledEnd < now);
     const delayed = records.filter(r => r.status === 'IN_PROGRESS' && r.scheduledEnd && r.scheduledEnd < now);
     const missed = records.filter(r => r.status === 'MISSED');
-    // Overdue cleaning tasks: pending/assigned tasks whose scheduled time has passed.
+    // Overdue clearing tasks: pending/assigned tasks whose scheduled time has passed.
     let overdueTasks = [];
     try {
-      const taskSnap = await db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date).get();
+      const taskQ = endDate
+        ? db.collection('cleaningTasks').where('stationId', '==', stationId)
+            .where('scheduledDate', '>=', date).where('scheduledDate', '<=', rangeEnd)
+        : db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date);
+      const taskSnap = await taskQ.get();
       const nowHm = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
       taskSnap.forEach(d => {
         const t = d.data();
@@ -466,7 +486,7 @@ class StationReportService {
     } catch (_) { /* optional */ }
     const totalIssues = overdue.length + delayed.length + missed.length + overdueTasks.length;
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'missed_activity', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'missed_activity', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: {
         totalScheduled: records.length, totalIssues, missedCount: missed.length,
         overdueCount: overdue.length + overdueTasks.length, delayedCount: delayed.length,
@@ -482,9 +502,10 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     return report;
   }
 
-  async generateDailyPettyIssueReport(stationId, date, user) {
+  async generateDailyPettyIssueReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
-    const start = `${date}T00:00:00`; const end = `${date}T23:59:59`;
+    const rangeEnd = endDate || date;
+    const start = `${date}T00:00:00`; const end = `${rangeEnd}T23:59:59`;
     const snap = await db.collection('petty_issues').where('stationId', '==', stationId).get();
     const dayRecords = []; snap.forEach(d => { const r = d.data(); const ts = r.reportedAt || r.createdAt || ''; if (ts >= start && ts <= end) dayRecords.push(r); });
     const open = dayRecords.filter(r => ['REPORTED', 'ASSIGNED', 'IN_PROGRESS'].includes(r.status));
@@ -494,7 +515,7 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const severityBreakdown = dayRecords.reduce((acc, r) => { acc[r.severity || 'medium'] = (acc[r.severity || 'medium'] || 0) + 1; return acc; }, {});
     const categoryBreakdown = dayRecords.reduce((acc, r) => { acc[r.category || 'other'] = (acc[r.category || 'other'] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
-      stationId, stationName, reportType: 'daily_petty_issue', date, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
+      stationId, stationName, reportType: 'daily_petty_issue', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: {
         total: dayRecords.length, open: open.length, resolved: resolved.length, rejected: rejected.length,
         resolutionRate: dayRecords.length > 0 ? Math.round(resolved.length / dayRecords.length * 100) : 0,
@@ -504,6 +525,25 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
+  }
+
+  async generateRangeReport(stationId, reportType, startDate, endDate, user) {
+    if (!stationId || !reportType || !startDate || !endDate) throw new ValidationError('stationId, reportType, startDate, and endDate are required');
+    if (startDate > endDate) throw new ValidationError('startDate must not be after endDate');
+    const dispatch = {
+      daily_attendance: this.generateDailyAttendanceReport,
+      daily_activity: this.generateDailyActivityReport,
+      daily_scorecard: this.generateDailyScorecardReport,
+      daily_complaint: this.generateDailyComplaintReport,
+      daily_feedback: this.generateDailyFeedbackReport,
+      daily_inspection: this.generateDailyInspectionReport,
+      daily_supervisor_log: this.generateDailySupervisorLog,
+      daily_petty_issue: this.generateDailyPettyIssueReport,
+      missed_activity: this.generateMissedActivityReport,
+    };
+    const fn = dispatch[reportType];
+    if (!fn) throw new ValidationError(`Report type '${reportType}' does not support custom date ranges`);
+    return fn.call(this, stationId, startDate, user, endDate);
   }
 
   /* ==================================================================
