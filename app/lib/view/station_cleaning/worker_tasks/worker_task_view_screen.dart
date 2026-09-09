@@ -159,7 +159,15 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task started')));
+        final body = response.body.isEmpty ? <String, dynamic>{} : (jsonDecode(response.body) as Map<String, dynamic>);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(body['shiftWarning'] == true
+                ? 'Task started. You are doing a task outside your ${body['assignedShift']} shift.'
+                : 'Task started'),
+            backgroundColor: body['shiftWarning'] == true ? kWarningOrange : null,
+          ),
+        );
         _loadTasks();
       } else {
         throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
@@ -335,7 +343,27 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
                                     leading: Icon(_statusIcon(status), color: _statusColor(status), size: 28),
                                     title: Text('$time - $activityName',
                                         style: const TextStyle(fontWeight: FontWeight.w500)),
-                                    subtitle: Text('${areaName.isNotEmpty ? areaName : 'Area'} | Status: ${status.replaceAll('_', ' ')}'),
+                                    subtitle: Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text('${areaName.isNotEmpty ? areaName : 'Area'} | Status: ${status.replaceAll('_', ' ')}'),
+                                        ),
+                                        if (t['shift'] != null) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: kRailwayBlue.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              '${t['shift']} shift',
+                                              style: const TextStyle(color: kRailwayBlue, fontSize: 10, fontWeight: FontWeight.w600),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
                                     children: [
                                       if (rejectionReason != null)
                                         Padding(
@@ -765,10 +793,14 @@ class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
 
       if (response.statusCode == 200) {
         if (!mounted) return;
+        final body = response.body.isEmpty ? <String, dynamic>{} : (jsonDecode(response.body) as Map<String, dynamic>);
+        final warning = body['shiftWarning'] == true;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.mode == 'complete' ? 'Task submitted successfully!' : 'Task resubmitted for review'),
-            backgroundColor: kSuccessGreen,
+            content: Text(widget.mode == 'complete'
+                ? (warning ? 'Submitted. You completed a task outside your ${body['assignedShift']} shift.' : 'Task submitted successfully!')
+                : (warning ? 'Resubmitted outside your ${body['assignedShift']} shift.' : 'Task resubmitted for review')),
+            backgroundColor: warning ? kWarningOrange : kSuccessGreen,
           ),
         );
         widget.onDone();

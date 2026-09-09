@@ -1,5 +1,5 @@
 import { db } from '../database/index.js';
-import { NotFoundError, ValidationError } from '../errors/index.js';
+import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
 
 class AreaAssignmentService {
   async createAssignment(data, user) {
@@ -73,13 +73,50 @@ class AreaAssignmentService {
     const ref = db.collection('areaWorkerAssignments').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Assignment not found');
+    const assignment = doc.data();
     const allowed = ['shift', 'startDate', 'endDate', 'isActive', 'isPrimary', 'platformId', 'status'];
     const updates = { updatedAt: new Date().toISOString(), updatedBy: user.uid };
     for (const key of allowed) {
       if (data[key] !== undefined) updates[key] = data[key];
     }
+
+    // Shift changes are scoped: contract supervisors may only change the shift
+    // of workers on their own roster; admins/masters may change any.
+    if (data.shift !== undefined && data.shift !== assignment.shift) {
+      await this._assertShiftScope(assignment.workerId, assignment.workerName, user, doc.id);
+    }
+
     await ref.update(updates);
     return { message: 'Assignment updated', uid };
+  }
+
+  async _assertShiftScope(workerId, workerName, user, assignmentId) {
+    const role = (user?.role || '').toUpperCase().replace(/\s+/g, '_');
+    if (['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN', 'CONTRACTOR_ADMIN', 'CONTRACTOR_MASTER'].includes(role)) {
+      return;
+    }
+    if (role !== 'CONTRACTOR_SUPERVISOR') {
+      throw new ForbiddenError('You are not allowed to change worker shifts');
+    }
+    const workerDoc = await db.collection('users').doc(workerId).get();
+    const worker = workerDoc.exists ? workerDoc.data() : { fullName: workerName || '' };
+    if (worker.contractId && user.contractId && worker.contractId !== user.contractId) {
+      throw new ForbiddenError('You can only change shifts for workers in your contract');
+    }
+    const rosterQuery = await db.collection('supervisorWorkers')
+      .where('isActive', '==', true)
+      .where('supervisorId', '==', user.uid)
+      .limit(300)
+      .get();
+    const rosterHas = rosterQuery.docs.some(aDoc => {
+      const d = aDoc.data();
+      return (d.uid && d.uid === workerId)
+        || (d.fullName && d.fullName === worker.fullName)
+        || (d.phone && (d.phone === worker.mobile || d.phone === worker.phone || d.phone === worker.email));
+    });
+    if (!rosterHas) {
+      throw new ForbiddenError('This worker is not on your roster');
+    }
   }
 
   async deleteAssignment(uid) {

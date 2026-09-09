@@ -105,8 +105,10 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen> {
                             onSelected: (v) {
                               if (v == 'edit') _openWorkerForm(context, worker: w);
                               if (v == 'delete') _confirmDelete(w);
+                              if (v == 'shift') _reassignShift(w);
                             },
                             itemBuilder: (_) => [
+                              const PopupMenuItem(value: 'shift', child: ListTile(leading: Icon(Icons.published_with_changes), title: Text('Reassign Shift'))),
                               const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit), title: Text('Edit'))),
                               const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: kErrorRed), title: Text('Delete'))),
                             ],
@@ -153,6 +155,50 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen> {
         onSaved: _loadWorkers,
       ),
     );
+  }
+
+  Future<void> _reassignShift(SupervisorWorker w) async {
+    String? selected = 'morning';
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocalState) => AlertDialog(
+          title: const Text('Reassign Shift'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Select a new shift for ${w.fullName}'),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: selected,
+                decoration: const InputDecoration(labelText: 'Shift', border: OutlineInputBorder()),
+                items: ['morning', 'afternoon', 'night']
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s[0].toUpperCase() + s.substring(1))))
+                    .toList(),
+                onChanged: (v) { if (v != null) selected = v; },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, selected), child: const Text('Save', style: TextStyle(color: kRailwayBlue))),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    try {
+      await StationCleaningRepository.reassignWorkerShift(workerId: w.uid, shiftType: chosen);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Shift reassigned to ${chosen[0].toUpperCase()}${chosen.substring(1)} for ${w.fullName}'), backgroundColor: kSuccessGreen),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: kErrorRed));
+      }
+    }
   }
 }
 

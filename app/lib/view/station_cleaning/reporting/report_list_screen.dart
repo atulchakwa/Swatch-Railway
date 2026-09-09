@@ -329,12 +329,13 @@ class _ReportListScreenState extends State<ReportListScreen>
     bool isGenerating = false;
 
     Future<DateTime?> pickDate(
+      BuildContext sheetCtx,
       DateTime initial, {
       DateTime? firstDate,
       DateTime? lastDate,
     }) async {
       return showDatePicker(
-        context: ctx,
+        context: sheetCtx,
         initialDate: initial,
         firstDate:
             firstDate ?? DateTime.now().subtract(const Duration(days: 90)),
@@ -427,15 +428,15 @@ class _ReportListScreenState extends State<ReportListScreen>
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       useRange ? 'Select Start Date' : 'Select Date',
-                      style: TextStyle(fontWeight: FontWeight.w600),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
                     InkWell(
                       onTap: () async {
                         final date = useRange ? startDate : selectedDate;
-                        final picked = await pickDate(date);
+                        final picked = await pickDate(ctx, date);
                         if (picked != null)
                           setSheetState(
                             () => useRange
@@ -465,9 +466,10 @@ class _ReportListScreenState extends State<ReportListScreen>
                       InkWell(
                         onTap: () async {
                           final picked = await pickDate(
-                            endDate,
-                            firstDate: startDate,
-                          );
+                              ctx,
+                              endDate,
+                              firstDate: startDate,
+                            );
                           if (picked != null)
                             setSheetState(() => endDate = picked);
                         },

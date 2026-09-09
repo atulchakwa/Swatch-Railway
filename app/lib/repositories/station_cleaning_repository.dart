@@ -787,6 +787,18 @@ class StationCleaningRepository {
     );
   }
 
+  static Future<Map<String, dynamic>> reassignWorkerShift({
+    required String workerId,
+    required String shiftType,
+  }) async {
+    return await _apiCall(
+      method: 'POST',
+      path: '/api/shifts/roster/update',
+      body: {'workerId': workerId, 'shiftType': shiftType},
+      parser: (d) => d,
+    );
+  }
+
   static Future<Map<String, dynamic>> deleteWorker(String uid) async {
     return await _apiCall(
       method: 'DELETE',

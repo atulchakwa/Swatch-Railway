@@ -40,3 +40,8 @@ export const removeAssignment = asyncHandler(async (req, res) => {
   const result = await shiftService.removeAssignment(req.params.uid, req.params.userId);
   res.status(200).json(result);
 });
+
+export const reassignWorkerShift = asyncHandler(async (req, res) => {
+  const result = await shiftService.reassignWorkerShift(req.body, req.user);
+  res.status(200).json(result);
+});

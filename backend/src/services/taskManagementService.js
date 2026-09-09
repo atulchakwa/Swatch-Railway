@@ -13,7 +13,13 @@ class TaskManagementService {
 
     const allTaskIds = [];
     let totalCount = 0;
+    let cancelledTotal = 0;
 
+    // Idempotent auto-generation: reconcile against tasks already present for
+    // the target date so repeated runs (midnight cron + 6/18 refresh + manual
+    // "By Frequency") never duplicate or overshoot. One generic task per
+    // frequency slot, per assigned worker. Activities are intentionally NOT
+    // expanded here — the responsible person/override is handled elsewhere.
     for (const doc of assignmentsQuery.docs) {
       const assignment = doc.data();
       let areaDoc = await db.collection('areas').doc(assignment.areaId).get();
@@ -24,17 +30,48 @@ class TaskManagementService {
       const area = areaDoc.data();
 
       const cleaningFrequency = area.cleaningFrequency || area.frequency || 'daily';
-      const frequencyTimes = area.frequencyTimes || this._getDefaultFrequencyTimes(cleaningFrequency);
+      let frequencyTimes = area.frequencyTimes || this._getDefaultFrequencyTimes(cleaningFrequency);
       const areaName = area.areaName || area.name || assignment.areaName || '';
       const areaCode = area.areaCode || '';
       const mainArea = area.mainArea || '';
       const platformId = assignment.platformId || area.platformId || null;
       const supervisorId = area.supervisorId || assignment.supervisorId || null;
+      const shift = assignment.shift || area.defaultShift || 'morning';
+
+      // Existing active tasks for this area on the target date (regardless of
+      // worker) so we can reconcile to the configured slot set.
+      const existingSnap = await db.collection('cleaningTasks')
+        .where('date', '==', targetDate)
+        .where('areaId', '==', assignment.areaId)
+        .select('workerId', 'scheduledTime', 'status')
+        .get();
+      const existingByTime = new Map(); // scheduledTime -> {id, workerId, status}
+      existingSnap.forEach(tDoc => {
+        const d = tDoc.data();
+        if (d.status === 'cancelled') return;
+        if (!d.scheduledTime) return;
+        existingByTime.set(d.scheduledTime, { id: tDoc.id, workerId: d.workerId, status: d.status });
+      });
 
       const batch = db.batch();
       let batchCount = 0;
 
+      // Cancel active tasks whose slot is no longer in the configured set
+      // (frequency reduced), then create the missing slots.
+      const slotSet = new Set(frequencyTimes);
+      for (const [scheduledTime, existing] of existingByTime.entries()) {
+        if (!slotSet.has(scheduledTime)) {
+          batch.update(db.collection('cleaningTasks').doc(existing.id), {
+            status: 'cancelled',
+            updatedAt: new Date().toISOString(),
+          });
+          batchCount++;
+          cancelledTotal++;
+        }
+      }
+
       for (const scheduledTime of frequencyTimes) {
+        if (existingByTime.has(scheduledTime)) continue;
         const taskRef = db.collection('cleaningTasks').doc();
         const displayName = [mainArea, areaName].filter(Boolean).join(' - ');
         const task = {
@@ -55,8 +92,10 @@ class TaskManagementService {
           scheduledDate: targetDate,
           scheduledTime,
           priority: area.priority || 3,
-          shift: assignment.shift || area.defaultShift || 'morning',
+          shift,
           status: 'pending',
+          source: 'auto',
+          generationKey: `${area.stationId || assignment.stationId}|${assignment.areaId}|${targetDate}|${shift}`,
           startedAt: null, completedAt: null,
           approvedAt: null, rejectedAt: null,
           beforePhoto: null, afterPhoto: null,
@@ -77,7 +116,13 @@ class TaskManagementService {
       }
     }
 
-    return { message: `Generated ${totalCount} tasks for ${targetDate}`, count: totalCount, taskIds: allTaskIds };
+    const normMsg = cancelledTotal > 0 ? `, cancelled ${cancelledTotal} extra` : '';
+    return {
+      message: `Generated ${totalCount} tasks for ${targetDate}${normMsg}`,
+      count: totalCount,
+      cancelled: cancelledTotal,
+      taskIds: allTaskIds,
+    };
   }
 
   _getDefaultFrequencyTimes(frequency) {
@@ -120,6 +165,34 @@ class TaskManagementService {
     return this.generateFrequencyBasedTasks(targetDate);
   }
 
+  // Resolve a worker's currently-assigned shift from their active area-worker
+  // assignments. Returns null when the worker has no assignment on record.
+  async _resolveAssignedShift(workerId) {
+    if (!workerId) return null;
+    const snap = await db.collection('areaWorkerAssignments')
+      .where('workerId', '==', workerId)
+      .where('isActive', '==', true)
+      .limit(1)
+      .get();
+    if (snap.empty || !snap.docs[0].data().shift) return null;
+    return snap.docs[0].data().shift;
+  }
+
+  // Build an optional shift-warning payload when a worker acts on a task that
+  // belongs to a different shift than the one they are currently assigned to.
+  // Warning-only per requirement: the action proceeds, but the caller is told.
+  async _shiftWarning(task, workerId) {
+    if (!task || !task.shift || !workerId) return null;
+    try {
+      const assigned = await this._resolveAssignedShift(workerId);
+      const attempt = String(task.shift || '').toLowerCase();
+      if (assigned && attempt && String(assigned).toLowerCase() !== attempt) {
+        return { shiftWarning: true, assignedShift: assigned, taskShift: attempt };
+      }
+    } catch (_) { /* never block an action due to a lookup failure */ }
+    return null;
+  }
+
   async startTask(taskId, data, user) {
     const ref = db.collection('cleaningTasks').doc(taskId);
     const doc = await ref.get();
@@ -139,7 +212,8 @@ class TaskManagementService {
       startedBy: user.uid
     };
     await ref.update(updates);
-    return { message: 'Task started', taskId };
+    const warning = await this._shiftWarning(task, user.uid);
+    return warning ? { message: 'Task started', taskId, ...warning } : { message: 'Task started', taskId };
   }
 
   async completeTask(taskId, data, user) {
@@ -161,7 +235,10 @@ class TaskManagementService {
       updatedAt: new Date().toISOString()
     };
     await ref.update(updates);
-    return { message: 'Task completed and submitted for review', taskId };
+    const warning = await this._shiftWarning(task, user.uid);
+    return warning
+      ? { message: 'Task completed and submitted for review', taskId, ...warning }
+      : { message: 'Task completed and submitted for review', taskId };
   }
 
   async resubmitTask(taskId, data, user) {
@@ -753,6 +830,8 @@ class TaskManagementService {
           beforePhoto: null, afterPhoto: null,
           gpsLat: null, gpsLng: null,
           supervisorNotes: null, rejectionReason: null,
+          source: 'manual',
+          generationKey: `${areaData.stationId || workerInfo.stationId || ''}|${areaId}|${targetDate}|${workerInfo.shift || 'morning'}`,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: new Date().toISOString()
         };

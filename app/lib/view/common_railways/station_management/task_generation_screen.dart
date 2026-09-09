@@ -63,6 +63,10 @@ class _TaskGenerationScreenState extends State<TaskGenerationScreen> {
 
   bool _isStationLocked = false;
 
+  // Generation mode: occurrences (per-area count control) vs "By Frequency"
+  // (derive slots directly from each area's configured frequency/times).
+  bool _byFrequency = false;
+
   // Selected areas and per-area activities
   final Set<String> _selectedAreaIds = {};
   final Map<String, List<TaskType>> _areaActivities = {};
@@ -347,6 +351,32 @@ int _defaultFrequencyForArea(StationArea area) {
     final hasSupervisor = _selectedSupervisor != null;
     final todayCount = _todayCountForArea(area);
 
+    if (_byFrequency) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: kRailwayBlue.withOpacity(0.04),
+          border: Border.all(color: kRailwayBlue.withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.auto_awesome, size: 16, color: kRailwayBlue),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Auto \u00b7 ${_frequencyLabel(area.cleaningFrequency ?? 'daily')} \u00b7 $effectiveTotal time(s)/day',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+              ),
+            ),
+            if (_frequencyStatusLoading)
+              const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+          ],
+        ),
+      );
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -573,7 +603,7 @@ int _defaultFrequencyForArea(StationArea area) {
       final area = _allAreas.where((x) => (x.uid ?? x.name) == a).firstOrNull;
       return area?.name ?? a;
     }).toList();
-    if (missingActivities.isNotEmpty) {
+    if (!_byFrequency && missingActivities.isNotEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -588,41 +618,46 @@ int _defaultFrequencyForArea(StationArea area) {
     setState(() => _isSubmitting = true);
     try {
       final todayStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      final runInstanceId = '${_selectedStation!.uid}_${_selectedShift.toLowerCase()}_$todayStr';
 
-      final run = StationCleaningRunModel(
-        runInstanceId: runInstanceId,
-        stationId: _selectedStation!.uid ?? '',
-        stationName: _selectedStation!.stationName,
-        shift: _selectedShift,
-        date: todayStr,
-        status: 'Pending',
-        platforms: const [],
-      );
+      // Preserve the existing per-shift run-instance record for the
+      // occurrences flow (used by attendance); skipped in "By Frequency" mode.
+      if (!_byFrequency) {
+        final runInstanceId = '${_selectedStation!.uid}_${_selectedShift.toLowerCase()}_$todayStr';
+        final run = StationCleaningRunModel(
+          runInstanceId: runInstanceId,
+          stationId: _selectedStation!.uid ?? '',
+          stationName: _selectedStation!.stationName,
+          shift: _selectedShift,
+          date: todayStr,
+          status: 'Pending',
+          platforms: const [],
+        );
+        await StationRunRepository.createStationRun(run);
+      }
 
-      // Save run instance
-      await StationRunRepository.createStationRun(run);
-
-      // Per-area activities: each selected area -> list of chosen activities
+      // Per-area activities: each selected area -> list of chosen activities.
+      // Skipped in "By Frequency" mode — slots come from the area's frequency.
       final areaActivities = <String, List<Map<String, dynamic>>>{};
-      for (final entry in _areaActivities.entries) {
-        if (entry.value.isEmpty) continue;
-        areaActivities[entry.key] = entry.value
-            .map((t) => {'uid': t.uid, 'name': t.name, 'label': t.label})
-            .toList();
+      if (!_byFrequency) {
+        for (final entry in _areaActivities.entries) {
+          if (entry.value.isEmpty) continue;
+          areaActivities[entry.key] = entry.value
+              .map((t) => {'uid': t.uid, 'name': t.name, 'label': t.label})
+              .toList();
+        }
       }
 
       // Per-area "Occurrences today" count is authoritative: the backend
       // normalizes today's tasks to exactly this many occurrences.
       final areaTimes = <String, int>{};
-      if (_selectedSupervisor != null) {
+      if (!_byFrequency && _selectedSupervisor != null) {
         for (final areaId in _selectedAreaIds) {
           final area = _allAreas.where((a) => (a.uid ?? a.name) == areaId).firstOrNull;
           if (area == null) continue;
           final desired = _todayCountForArea(area);
           if (desired > 0) areaTimes[areaId] = desired;
         }
-        if (areaTimes.isEmpty) {
+        if (!_byFrequency && areaTimes.isEmpty) {
           if (mounted) {
             setState(() => _isSubmitting = false);
             ScaffoldMessenger.of(context).showSnackBar(
@@ -639,7 +674,7 @@ int _defaultFrequencyForArea(StationArea area) {
       final result = await AreaCleaningRepository.generateTasks(
         areaIds: _selectedAreaIds.toList(),
         date: todayStr,
-        supervisorId: _selectedSupervisor?.uid,
+        supervisorId: _byFrequency ? null : _selectedSupervisor?.uid,
         areaActivities: areaActivities.isNotEmpty ? areaActivities : null,
         areaTimes: areaTimes.isNotEmpty ? areaTimes : null,
         normalize: true,
@@ -808,13 +843,55 @@ int _defaultFrequencyForArea(StationArea area) {
                               setState(() => _selectedSupervisor = v);
                             },
                           ),
+                          const SizedBox(height: 12),
+
+                          // Generation Mode
+                          Row(
+                            children: [
+                              const Icon(Icons.tune, color: kRailwayBlue, size: 20),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Generation Mode',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SegmentedButton<bool>(
+                            segments: const [
+                              ButtonSegment(
+                                value: false,
+                                label: Text('Occurrences'),
+                                icon: Icon(Icons.repeat, size: 18),
+                              ),
+                              ButtonSegment(
+                                value: true,
+                                label: Text('By Frequency'),
+                                icon: Icon(Icons.auto_awesome, size: 18),
+                              ),
+                            ],
+                            selected: {_byFrequency},
+                            onSelectionChanged: (v) => setState(() => _byFrequency = v.first),
+                            style: SegmentedButton.styleFrom(
+                              selectedBackgroundColor: kRailwayBlue,
+                              selectedForegroundColor: Colors.white,
+                            ),
+                          ),
+                          if (_byFrequency)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Tasks will use each area\u2019s configured cleaning frequency and times automatically.',
+                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                              ),
+                            ),
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
-
-                  // Select Areas Card
                   Card(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     elevation: 1,
@@ -947,51 +1024,53 @@ int _defaultFrequencyForArea(StationArea area) {
                                             children: [
                                               const SizedBox(height: 4),
                                               _buildFrequencyAssignRow(area),
-                                              const SizedBox(height: 12),
-                                              InkWell(
-                                                onTap: () => _showActivitySelectionForArea(area),
-                                                borderRadius: BorderRadius.circular(8),
-                                                child: Container(
-                                                  width: double.infinity,
-                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                                                  decoration: BoxDecoration(
-                                                    border: Border.all(color: kRailwayBlue.withOpacity(0.4)),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    color: kRailwayBlue.withOpacity(0.05),
-                                                  ),
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Row(
-                                                        children: [
-                                                          const Icon(Icons.cleaning_services, size: 16, color: kRailwayBlue),
-                                                          const SizedBox(width: 6),
-                                                          Expanded(
-                                                            child: Text(
-                                                              'Select Activities',
-                                                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                                              if (!_byFrequency) ...[
+                                                const SizedBox(height: 12),
+                                                InkWell(
+                                                  onTap: () => _showActivitySelectionForArea(area),
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  child: Container(
+                                                    width: double.infinity,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                                    decoration: BoxDecoration(
+                                                      border: Border.all(color: kRailwayBlue.withOpacity(0.4)),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      color: kRailwayBlue.withOpacity(0.05),
+                                                    ),
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Row(
+                                                          children: [
+                                                            const Icon(Icons.cleaning_services, size: 16, color: kRailwayBlue),
+                                                            const SizedBox(width: 6),
+                                                            Expanded(
+                                                              child: Text(
+                                                                'Select Activities',
+                                                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                                                              ),
                                                             ),
-                                                          ),
-                                                          Icon(Icons.chevron_right, size: 18, color: Colors.grey[600]),
-                                                        ],
-                                                      ),
-                                                      const SizedBox(height: 4),
-                                                      Text(
-                                                        areaActivities.isEmpty
-                                                            ? 'Tap to choose the activities for this area'
-                                                            : areaActivities.map((t) => t.label).join(' · '),
-                                                        maxLines: 2,
-                                                        overflow: TextOverflow.ellipsis,
-                                                        style: TextStyle(
-                                                          fontSize: 12,
-                                                          color: areaActivities.isEmpty ? Colors.grey[600] : Colors.black87,
-                                                          fontStyle: areaActivities.isEmpty ? FontStyle.italic : FontStyle.normal,
+                                                            Icon(Icons.chevron_right, size: 18, color: Colors.grey[600]),
+                                                          ],
                                                         ),
-                                                      ),
-                                                    ],
+                                                        const SizedBox(height: 4),
+                                                        Text(
+                                                          areaActivities.isEmpty
+                                                              ? 'Tap to choose the activities for this area'
+                                                              : areaActivities.map((t) => t.label).join(' · '),
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow.ellipsis,
+                                                          style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: areaActivities.isEmpty ? Colors.grey[600] : Colors.black87,
+                                                            fontStyle: areaActivities.isEmpty ? FontStyle.italic : FontStyle.normal,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
+                                              ],
                                             ],
                                           ),
                                         ),
