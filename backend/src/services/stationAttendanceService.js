@@ -49,26 +49,7 @@ class StationAttendanceService {
     };
     await db.collection('station_attendance').doc(attendanceId).set(record);
     logger.info('StationAttendance', `Attendance marked: ${workerId} @ ${stationId} on ${date} ${shift}`);
-
-    // Warning-only: if the marked shift differs from the worker's assigned
-    // shift, surface it to the caller without blocking the record.
-    const result = { message: 'Attendance marked successfully', attendanceId, record };
-    try {
-      const assignSnap = await db.collection('areaWorkerAssignments')
-        .where('workerId', '==', workerId)
-        .where('isActive', '==', true)
-        .limit(1)
-        .get();
-      if (!assignSnap.empty) {
-        const assigned = assignSnap.docs[0].data().shift;
-        if (assigned && String(assigned).toLowerCase() !== shift.toLowerCase()) {
-          result.shiftWarning = true;
-          result.assignedShift = assigned;
-          result.attemptedShift = shift.toLowerCase();
-        }
-      }
-    } catch (_) {}
-    return result;
+    return { message: 'Attendance marked successfully', attendanceId, record };
   }
 
   async markBulkAttendance(user, data) {

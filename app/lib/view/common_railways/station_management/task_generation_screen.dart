@@ -365,9 +365,23 @@ int _defaultFrequencyForArea(StationArea area) {
             const Icon(Icons.auto_awesome, size: 16, color: kRailwayBlue),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(
-                'Auto \u00b7 ${_frequencyLabel(area.cleaningFrequency ?? 'daily')} \u00b7 $effectiveTotal time(s)/day',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Auto \u00b7 ${_frequencyLabel(area.cleaningFrequency ?? 'daily')} \u00b7 $effectiveTotal time(s)/day',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    hasSupervisor ? 'Assigned to: ${_selectedSupervisor!.fullName}' : 'Select a supervisor',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: hasSupervisor ? FontWeight.w400 : FontWeight.w600,
+                      color: hasSupervisor ? Colors.black54 : kRailwayBlue,
+                    ),
+                  ),
+                ],
               ),
             ),
             if (_frequencyStatusLoading)
@@ -595,6 +609,17 @@ int _defaultFrequencyForArea(StationArea area) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select at least one area')));
       return;
     }
+    if (_selectedSupervisor == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Select a supervisor. Generated tasks are assigned to the contractor supervisor who completes them.'),
+            backgroundColor: kWarningOrange,
+          ),
+        );
+      }
+      return;
+    }
 
     final missingActivities = _selectedAreaIds.where((a) {
       final acts = _areaActivities[a] ?? const <TaskType>[];
@@ -674,7 +699,7 @@ int _defaultFrequencyForArea(StationArea area) {
       final result = await AreaCleaningRepository.generateTasks(
         areaIds: _selectedAreaIds.toList(),
         date: todayStr,
-        supervisorId: _byFrequency ? null : _selectedSupervisor?.uid,
+        supervisorId: _selectedSupervisor?.uid,
         areaActivities: areaActivities.isNotEmpty ? areaActivities : null,
         areaTimes: areaTimes.isNotEmpty ? areaTimes : null,
         normalize: true,

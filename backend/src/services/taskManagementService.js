@@ -29,13 +29,29 @@ class TaskManagementService {
       if (!areaDoc.exists) continue;
       const area = areaDoc.data();
 
+      // Station-cleaning contract scope: only generate tasks for areas that
+      // belong to an active station-cleaning contract. All other contract
+      // types (OBHS, catering, linen, ...) are left untouched by this job.
+      const stationId = area.stationId || assignment.stationId || '';
+      const contract = await this._getActiveStationCleaningContract(stationId);
+      if (!contract.uid) continue;
+
+      // In the station-cleaning flow the contractor supervisor performs the
+      // tasks (workers are manual roster records with no login). Assign the
+      // generated task to the station's approved contractor supervisor.
+      const preferredSupervisorId = area.supervisorId || assignment.supervisorId || null;
+      const supervisor = await this._getContractSupervisors(contract.uid, stationId, preferredSupervisorId);
+      const assignedSupervisorId = supervisor.uid || preferredSupervisorId;
+      const assignedSupervisorName = supervisor.fullName || (area.supervisorName || assignment.supervisorName || '');
+      const assignedWorkerId = supervisor.uid || assignment.workerId;
+      const assignedWorkerName = supervisor.fullName || assignment.workerName;
+
       const cleaningFrequency = area.cleaningFrequency || area.frequency || 'daily';
       let frequencyTimes = area.frequencyTimes || this._getDefaultFrequencyTimes(cleaningFrequency);
       const areaName = area.areaName || area.name || assignment.areaName || '';
       const areaCode = area.areaCode || '';
       const mainArea = area.mainArea || '';
       const platformId = assignment.platformId || area.platformId || null;
-      const supervisorId = area.supervisorId || assignment.supervisorId || null;
       const shift = assignment.shift || area.defaultShift || 'morning';
 
       // Existing active tasks for this area on the target date (regardless of
@@ -82,9 +98,10 @@ class TaskManagementService {
           areaName: displayName,
           areaCode,
           mainArea,
-          workerId: assignment.workerId,
-          workerName: assignment.workerName,
-          supervisorId,
+          workerId: assignedWorkerId,
+          workerName: assignedWorkerName,
+          supervisorId: assignedSupervisorId,
+          supervisorName: assignedSupervisorName,
           assignmentId: assignment.uid,
           activityType: area.areaType || 'Cleaning',
           frequency: cleaningFrequency,
@@ -123,6 +140,41 @@ class TaskManagementService {
       cancelled: cancelledTotal,
       taskIds: allTaskIds,
     };
+  }
+
+  async _getActiveStationCleaningContract(stationId) {
+    if (!stationId) return {};
+    const snap = await db.collection('contracts')
+      .where('contractType', '==', 'station_cleaning')
+      .where('stationIds', 'array-contains', stationId)
+      .limit(10)
+      .get();
+    if (snap.empty) return {};
+    const active = snap.docs.find(d => {
+      const s = String(d.data().status || '').toLowerCase();
+      return s === 'active' || s === 'approved' || s === 'running' || s === 'ongoing' || s === '';
+    });
+    if (!active) return {};
+    const d = active.data();
+    return { uid: active.id, entityId: d.entityId, contractType: d.contractType };
+  }
+
+  async _getContractSupervisors(contractId, stationId, preferredId) {
+    if (!contractId) return {};
+    const snap = await db.collection('users')
+      .where('contractId', '==', contractId)
+      .where('role', 'in', ['Contractor Supervisor', 'CONTRACTOR_SUPERVISOR'])
+      .where('status', 'in', ['APPROVED', 'Approved', 'approve'])
+      .limit(25)
+      .get();
+    const list = snap.docs
+      .map(d => ({ uid: d.id, fullName: d.data().fullName || d.data().name || '', stations: d.data().stations || [] }))
+      .filter(u => !stationId || u.stations.includes(stationId));
+    if (preferredId) {
+      const preferred = list.find(u => u.uid === preferredId);
+      if (preferred) return preferred;
+    }
+    return list[0] || {};
   }
 
   _getDefaultFrequencyTimes(frequency) {
@@ -716,6 +768,18 @@ class TaskManagementService {
       });
     }
 
+    // Station-cleaning scope: only generate tasks for areas belonging to an
+    // active station-cleaning contract. Other contract types are skipped so
+    // this generic generator never writes tasks for other domains.
+    const stationCleaningContractByStation = new Map();
+    for (const areaId of areaIds) {
+      const cachedArea = activitiesByArea.get(areaId) || { data: {} };
+      const stationId = cachedArea.data.stationId || '';
+      if (!stationId || stationCleaningContractByStation.has(stationId)) continue;
+      const contract = await this._getActiveStationCleaningContract(stationId);
+      stationCleaningContractByStation.set(stationId, contract.uid || '');
+    }
+
     for (const areaId of areaIds) {
       const workersSnap = assignedWorker || assignedWorkers.length > 0
         ? null
@@ -723,6 +787,9 @@ class TaskManagementService {
       const cachedArea = activitiesByArea.get(areaId) || { doc: null, data: {}, activities: [] };
       const areaData = cachedArea.data;
       const activities = cachedArea.activities;
+      if (!stationCleaningContractByStation.get(areaData.stationId || '')) {
+        continue;
+      }
       const taskActivities = activities.length > 0 ? activities : [null];
       const cleaningFrequency = frequency || areaData.cleaningFrequency || areaData.frequency || 'daily';
       // Per-area override: contractor admin assigns how many times per day.

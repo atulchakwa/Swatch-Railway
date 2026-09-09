@@ -131,6 +131,16 @@ class ShiftService {
     }
     const targetType = String(shiftType).toLowerCase();
 
+    // Station-cleaning scoped: this roster shift reassignment is part of the
+    // station-cleaning contract flow only. Reject callers whose contract is
+    // any other contract type so other contract domains are untouched.
+    if (user?.contractId) {
+      const contractDoc = await db.collection('contracts').doc(user.contractId).get();
+      if (contractDoc.exists && contractDoc.data().contractType !== 'station_cleaning') {
+        throw new ForbiddenError('Shift reassignment is only available for station cleaning contracts');
+      }
+    }
+
     // The supplied id may be a users uid OR a supervisorWorkers roster uid.
     // Resolve to the real user (who actually performs tasks) where possible.
     let workerDoc = await db.collection('users').doc(workerId).get();
@@ -194,6 +204,15 @@ class ShiftService {
     // Use the resolved user uid for assignment updates (they key assignments).
     const effectiveWorkerId = resolvedWorkerId || workerId;
     const workerName = worker.fullName || worker.name || 'Unknown';
+
+    // Station-cleaning scope for the worker too: if the worker belongs to a
+    // contract, it must be a station-cleaning one.
+    if (worker.contractId && user?.contractId && worker.contractId !== user.contractId) {
+      const wContractDoc = await db.collection('contracts').doc(worker.contractId).get();
+      if (wContractDoc.exists && wContractDoc.data().contractType !== 'station_cleaning') {
+        throw new ForbiddenError('Shift reassignment is only available for station cleaning contracts');
+      }
+    }
 
     // Resolve the target shift document for the worker's station + shift type.
     const stationId = worker.stationId || worker.stations?.[0] || '';
