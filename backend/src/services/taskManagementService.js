@@ -1,6 +1,17 @@
 import { db, admin } from '../database/index.js';
 import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
 
+// Roles that may only ever see their OWN tasks (their own shift), never every
+// task across a station/date. Contractor supervisors/workers, cleaners etc.
+const _OWN_TASK_ROLES = new Set([
+  'CONTRACTOR_SUPERVISOR',
+  'CONTRACTOR_WORKER',
+  'CONTRACTOR_CLEANER',
+  'SUPERVISOR',
+  'WORKER',
+  'CLEANER',
+]);
+
 class TaskManagementService {
   async generateFrequencyBasedTasks(targetDate) {
     if (!targetDate) targetDate = new Date().toISOString().split('T')[0];
@@ -358,6 +369,13 @@ class TaskManagementService {
       tasks.push(t);
     });
 
+    // Contractor supervisors/workers must only receive their own tasks, even
+    // when no workerId/supervisorId filter is supplied (prevents them from
+    // seeing other shifts/supervisors at the station).
+    if (user && workerId === undefined && supervisorId === undefined && _OWN_TASK_ROLES.has((user.role || '').toUpperCase())) {
+      tasks = tasks.filter(t => t.workerId === user.uid || t.supervisorId === user.uid);
+    }
+
     if (includeOverdue === 'true') {
       tasks = tasks.filter(t => t.isOverdue);
     }
@@ -510,6 +528,7 @@ class TaskManagementService {
   async getDailyTasks(date, user) {
     if (!date) date = new Date().toISOString().split('T')[0];
     const role = (user?.role || '').toUpperCase();
+    const isOwnTaskRole = _OWN_TASK_ROLES.has(role);
     let q = db.collection('cleaningTasks').limit(500);
     if (!['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes(role)) {
       const userStations = user?.stations || (user?.stationId ? [user.stationId] : []);
@@ -523,6 +542,11 @@ class TaskManagementService {
     let tasks = [];
     snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
     tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
+    // Contractor supervisors/workers must only ever see their own tasks
+    // (their shift), never other shifts/supervisors on the same station.
+    if (isOwnTaskRole) {
+      tasks = tasks.filter(t => t.workerId === user?.uid || t.supervisorId === user?.uid);
+    }
     return { count: tasks.length, date, tasks };
   }
 
