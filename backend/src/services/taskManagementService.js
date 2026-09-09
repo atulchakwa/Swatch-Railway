@@ -16,6 +16,13 @@ const _OWN_TASK_ROLES = new Set([
 
 const _normalizeRole = (role) => String(role || '').toUpperCase().replace(/[\s_-]/g, '');
 
+// Supervisors only ever see tasks for THEIR shift. Enforced at list time for
+// these roles (on top of the worker/supervisor-id scoping).
+const _SHIFT_SCOPED_ROLES = new Set([
+  'CONTRACTORSUPERVISOR',
+  'SUPERVISOR',
+]);
+
 class TaskManagementService {
   async generateFrequencyBasedTasks(targetDate) {
     if (!targetDate) targetDate = new Date().toISOString().split('T')[0];
@@ -52,14 +59,31 @@ class TaskManagementService {
       if (!contract.uid) continue;
 
       // In the station-cleaning flow the contractor supervisor performs the
-      // tasks (workers are manual roster records with no login). Assign the
-      // generated task to the station's approved contractor supervisor.
+      // tasks (workers are manual roster records with no login). Each frequency
+      // slot is TAG-GED to the shift window its time falls in (morning/evening/
+      // night) and assigned to the supervisor recorded for that shift, so a
+      // morning supervisor never receives 14:00/18:00/22:00 tasks. Slots whose
+      // shift has no recorded supervisor are skipped (task is not generated).
       const preferredSupervisorId = area.supervisorId || assignment.supervisorId || null;
       const supervisor = await this._getContractSupervisors(contract.uid, stationId, preferredSupervisorId);
       const assignedSupervisorId = supervisor.uid || preferredSupervisorId;
       const assignedSupervisorName = supervisor.fullName || (area.supervisorName || assignment.supervisorName || '');
-      const assignedWorkerId = supervisor.uid || assignment.workerId;
-      const assignedWorkerName = supervisor.fullName || assignment.workerName;
+      const supervisorShiftMap = await this._stationSupervisorShifts(contract.uid, stationId);
+      const supervisorByShift = new Map();
+      for (const sup of supervisorShiftMap.values()) {
+        if (!supervisorByShift.has(sup.shift)) supervisorByShift.set(sup.shift, sup);
+      }
+      const pickSupervisorForSlot = (slotShift) => {
+        const byShift = supervisorByShift.get(slotShift);
+        if (byShift) return byShift;
+        // Backwards-compatible default: the station's primary supervisor owns
+        // the morning window when nothing is recorded yet.
+        if (slotShift === 'morning') {
+          const primary = supervisorShiftMap.get(assignedSupervisorId) || supervisorShiftMap.values().next().value;
+          return primary || null;
+        }
+        return null;
+      };
 
       const cleaningFrequency = area.cleaningFrequency || area.frequency || 'daily';
       let frequencyTimes = area.frequencyTimes || this._getDefaultFrequencyTimes(cleaningFrequency);
@@ -67,7 +91,6 @@ class TaskManagementService {
       const areaCode = area.areaCode || '';
       const mainArea = area.mainArea || '';
       const platformId = assignment.platformId || area.platformId || null;
-      const shift = String(assignment.shift || area.defaultShift || 'morning').trim().toLowerCase();
 
       // Existing active tasks for this area on the target date (regardless of
       // worker) so we can reconcile to the configured slot set.
@@ -103,6 +126,9 @@ class TaskManagementService {
 
       for (const scheduledTime of frequencyTimes) {
         if (existingByTime.has(scheduledTime)) continue;
+        const slotShift = this._shiftForTime(scheduledTime) || 'morning';
+        const slotSupervisor = pickSupervisorForSlot(slotShift);
+        if (!slotSupervisor) continue;
         const taskRef = db.collection('cleaningTasks').doc();
         const displayName = [mainArea, areaName].filter(Boolean).join(' - ');
         const task = {
@@ -113,10 +139,10 @@ class TaskManagementService {
           areaName: displayName,
           areaCode,
           mainArea,
-          workerId: assignedWorkerId,
-          workerName: assignedWorkerName,
-          supervisorId: assignedSupervisorId,
-          supervisorName: assignedSupervisorName,
+          workerId: slotSupervisor.uid,
+          workerName: slotSupervisor.fullName,
+          supervisorId: slotSupervisor.uid,
+          supervisorName: slotSupervisor.fullName,
           assignmentId: assignment.uid,
           activityType: area.areaType || 'Cleaning',
           frequency: cleaningFrequency,
@@ -124,10 +150,10 @@ class TaskManagementService {
           scheduledDate: targetDate,
           scheduledTime,
           priority: area.priority || 3,
-          shift,
+          shift: slotShift,
           status: 'pending',
           source: 'auto',
-          generationKey: `${area.stationId || assignment.stationId}|${assignment.areaId}|${targetDate}|${shift}`,
+          generationKey: `${area.stationId || assignment.stationId}|${assignment.areaId}|${targetDate}|${slotShift}`,
           startedAt: null, completedAt: null,
           approvedAt: null, rejectedAt: null,
           beforePhoto: null, afterPhoto: null,
@@ -190,6 +216,69 @@ class TaskManagementService {
       if (preferred) return preferred;
     }
     return list[0] || {};
+  }
+
+  // Map a task slot time ("HH:MM") to the shift window it belongs to.
+  // morning: 04:00-11:59 · evening: 12:00-19:59 · night: 20:00-03:59.
+  _shiftForTime(timeStr) {
+    if (!timeStr) return null;
+    const m = /^(\d{1,2}):/.exec(String(timeStr));
+    if (!m) return null;
+    const h = parseInt(m[1], 10);
+    if (h >= 4 && h < 12) return 'morning';
+    if (h >= 12 && h < 20) return 'evening';
+    return 'night';
+  }
+
+  // The recorded shift of a contractor supervisor (null when never recorded).
+  // Recording happens whenever tasks are generated for that supervisor + shift.
+  async _getSupervisorShift(supervisorId) {
+    if (!supervisorId) return null;
+    try {
+      const doc = await db.collection('stationSupervisorShifts').doc(supervisorId).get();
+      if (doc.exists && doc.data().shift) return String(doc.data().shift).trim().toLowerCase();
+    } catch (_) {}
+    return null;
+  }
+
+  async _setSupervisorShift(supervisorId, shift, stationId, contractId, supervisorName) {
+    if (!supervisorId || !shift) return;
+    const s = String(shift).trim().toLowerCase();
+    if (!s) return;
+    await db.collection('stationSupervisorShifts').doc(supervisorId).set({
+      shift: s,
+      stationId: stationId || '',
+      contractId: contractId || '',
+      supervisorName: supervisorName || '',
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  }
+
+  // All approved contractor supervisors for a station-cleaning contract+station.
+  async _getStationSupervisors(contractId, stationId) {
+    if (!contractId) return [];
+    const snap = await db.collection('users')
+      .where('contractId', '==', contractId)
+      .where('role', 'in', ['Contractor Supervisor', 'CONTRACTOR_SUPERVISOR'])
+      .where('status', 'in', ['APPROVED', 'Approved', 'approve'])
+      .limit(25)
+      .get();
+    return snap.docs
+      .map(d => ({ uid: d.id, fullName: d.data().fullName || d.data().name || '', stations: d.data().stations || [] }))
+      .filter(u => !stationId || u.stations.includes(stationId));
+  }
+
+  // Map of every station supervisor -> their recorded shift (defaults 'morning'
+  // when never recorded, preserving the current auto-generation behaviour for
+  // the morning window).
+  async _stationSupervisorShifts(contractId, stationId) {
+    const supervisors = await this._getStationSupervisors(contractId, stationId);
+    const map = new Map();
+    for (const sup of supervisors) {
+      const recorded = await this._getSupervisorShift(sup.uid);
+      map.set(sup.uid, { ...sup, shift: recorded || 'morning', recorded: recorded != null });
+    }
+    return map;
   }
 
   _getDefaultFrequencyTimes(frequency) {
@@ -379,6 +468,14 @@ class TaskManagementService {
     if (user && workerId === undefined && supervisorId === undefined && _OWN_TASK_ROLES.has(_normalizeRole(user.role))) {
       tasks = tasks.filter(t => t.workerId === user.uid || t.supervisorId === user.uid);
     }
+    // Shift-window enforcement for supervisor roles: they only ever see tasks
+    // that belong to their recorded shift.
+    if (user && _SHIFT_SCOPED_ROLES.has(_normalizeRole(user.role))) {
+      const ownShift = await this._getSupervisorShift(user.uid);
+      if (ownShift) {
+        tasks = tasks.filter(t => !t.shift || String(t.shift).trim().toLowerCase() === ownShift);
+      }
+    }
 
     if (includeOverdue === 'true') {
       tasks = tasks.filter(t => t.isOverdue);
@@ -551,6 +648,13 @@ class TaskManagementService {
     if (isOwnTaskRole) {
       tasks = tasks.filter(t => t.workerId === user?.uid || t.supervisorId === user?.uid);
     }
+    // Shift-window enforcement for supervisor roles.
+    if (user && _SHIFT_SCOPED_ROLES.has(_normalizeRole(user.role))) {
+      const ownShift = await this._getSupervisorShift(user.uid);
+      if (ownShift) {
+        tasks = tasks.filter(t => !t.shift || String(t.shift).trim().toLowerCase() === ownShift);
+      }
+    }
     return { count: tasks.length, date, tasks };
   }
 
@@ -584,6 +688,12 @@ class TaskManagementService {
     });
     if (date) {
       tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
+    }
+    // Shift-window enforcement: a contractor supervisor's screen only ever
+    // shows tasks belonging to their recorded shift.
+    const ownShift = await this._getSupervisorShift(supervisorId);
+    if (ownShift) {
+      tasks = tasks.filter(t => !t.shift || String(t.shift).trim().toLowerCase() === ownShift);
     }
     if (statusFilter) {
       tasks = tasks.filter(t => t.status === statusFilter);
@@ -754,6 +864,17 @@ class TaskManagementService {
         assignedSupervisorName = supData.fullName || supData.name || '';
       }
     }
+    if (genShift && assignedSupervisorId) {
+      const firstArea = areaIds[0];
+      const firstAreaData = activitiesByArea.get(firstArea)?.data || {};
+      await this._setSupervisorShift(
+        assignedSupervisorId,
+        genShift,
+        firstAreaData.stationId || '',
+        data.contractId || '',
+        assignedSupervisorName
+      );
+    }
 
     let assignedWorker = null;
     let assignedWorkers = [];
@@ -837,6 +958,12 @@ class TaskManagementService {
       // wide enough to hold that many distinct occurrences. Expand it when needed.
       if (normalizeDesired != null && frequencyTimes.length < normalizeDesired) {
         frequencyTimes = this._buildTimeslots(normalizeDesired, cleaningFrequency);
+      }
+      // Shift-window enforcement: when a specific shift was chosen, only slots
+      // whose time falls inside that shift's window are generated. Choosing
+      // "morning" therefore never produces 14:00/18:00/22:00 tasks.
+      if (genShift) {
+        frequencyTimes = frequencyTimes.filter(t => this._shiftForTime(t) === genShift);
       }
       const batch = db.batch();
       // Partial/frequency-based assignment: only create tasks for occurrences that
