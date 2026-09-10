@@ -148,5 +148,6 @@ router.get('/api/station-cleaning/shift-summaries', verifyToken, requirePermissi
 router.get('/api/station-cleaning/shift-summaries/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_SHIFT_SUMMARIES), stationCleaning.getShiftSummary);
 router.post('/api/station-cleaning/shift-summaries/:uid/approve', verifyToken, requirePermission(PERMISSIONS.APPROVE_SHIFT_SUMMARY), stationCleaning.approveShiftSummary);
 router.post('/api/station-cleaning/shift-summaries/:uid/reject', verifyToken, requirePermission(PERMISSIONS.REJECT_SHIFT_SUMMARY), stationCleaning.rejectShiftSummary);
+router.post('/api/station-cleaning/shift-summaries/:uid/resubmit', verifyToken, requirePermission(PERMISSIONS.SUBMIT_TASKS), stationCleaning.resubmitShiftSummary);
 
 export default router;

@@ -1819,13 +1819,9 @@ class StationCleaningService {
     return { message: 'Execution plan created', uid: ref.id, data };
   }
 
-  async submitShiftSummary(data, user) {
-    const { supervisorId, supervisorName, stationId, stationName, date, shift, areas } = data;
-    if (!supervisorId || !stationId || !date || !areas || !Array.isArray(areas)) {
-      throw new ValidationError('supervisorId, stationId, date, and areas array are required');
-    }
-    if (areas.length < 5) {
-      throw new ValidationError(`At least 5 areas must be submitted for the shift summary. Received ${areas.length}.`);
+  _validateSummaryAreas(areas) {
+    if (!Array.isArray(areas) || areas.length < 5) {
+      throw new ValidationError(`At least 5 areas must be submitted for the shift summary. Received ${Array.isArray(areas) ? areas.length : 0}.`);
     }
     for (const a of areas) {
       const hasPhoto = !!(a.photoUrl && String(a.photoUrl).trim());
@@ -1836,13 +1832,9 @@ class StationCleaningService {
         throw new ValidationError(`Live location (latitude/longitude) is required for area ${a.areaName || a.areaId || ''}`);
       }
     }
+  }
 
-    const now = new Date().toISOString();
-    const ref = db.collection('stationShiftSummaries').doc();
-
-    // ─── Gate: all tasks for this supervisor/station/date/shift must be
-    // terminal (completed/approved/cancelled) before the summary can submit ───
-    const resolvedShift = String(shift || '').trim().toLowerCase();
+  async _assertAllTasksTerminal(supervisorId, stationId, date, resolvedShift) {
     const incompleteTasks = [];
     const taskSnap = await db.collection('cleaningTasks')
       .where('supervisorId', '==', supervisorId)
@@ -1866,7 +1858,10 @@ class StationCleaningService {
         `Complete all tasks before submitting the shift summary. ${incompleteTasks.length} task(s) still incomplete: ${uniqAreas.join(', ')}${extra}`
       );
     }
-    const enriched = await Promise.all(areas.map(async (a) => {
+  }
+
+  async _enrichSummaryAreas(areas) {
+    return Promise.all(areas.map(async (a) => {
       let areaBasicAreaSqFt = parseFloat(a.basicAreaSqFt) || 0;
       let areaTimesPerPeriod = parseInt(a.boqTimesPerPeriod, 10) || 1;
       let timesCleaned = parseInt(a.times, 10) || 0;
@@ -1908,6 +1903,73 @@ class StationCleaningService {
         remark: String(a.remark || '').trim(),
       };
     }));
+  }
+
+  _assertRailwayApprover(user) {
+    const role = (user?.role || '').toUpperCase();
+    const allowed = ['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN', 'RAILWAY_ADMIN', 'RAILWAY_SUPERVISOR'];
+    if (!allowed.includes(role)) {
+      throw new ForbiddenError('Only railway employees can approve or reject shift summaries');
+    }
+  }
+
+  async _notifyRailwaysForApproval({ summaryUid, supervisorName, stationName, stationId, shift, isResubmit = false }) {
+    try {
+      const notifyRoles = ['RAILWAY_SUPERVISOR', 'RAILWAY_ADMIN', 'RAILWAY_MASTER', 'SUPER_ADMIN'];
+      const usersSnap = await db.collection('users')
+        .where('role', 'in', notifyRoles)
+        .limit(50)
+        .get();
+      const title = isResubmit ? 'Shift Summary Resubmitted' : 'Shift Summary Submitted';
+      const body = `${supervisorName || 'Supervisor'} ${isResubmit ? 'resubmitted' : 'submitted'} shift summary for ${stationName || 'station'} — ${shift || ''} shift. Please review and approve.`;
+      const data = { type: 'shift_summary_approval', summaryUid, stationId: stationId || '' };
+      for (const userDoc of usersSnap.docs) {
+        const userData = userDoc.data();
+        if (userData.stationId === stationId || (userData.stations && Array.isArray(userData.stations) && userData.stations.includes(stationId))) {
+          fcmService.sendPush(userDoc.id, title, body, data).catch(() => {});
+        }
+      }
+    } catch (_) { /* notification failure should not block submission */ }
+  }
+
+  async submitShiftSummary(data, user) {
+    const { supervisorId, supervisorName, stationId, stationName, date, shift, areas } = data;
+    if (!supervisorId || !stationId || !date || !areas || !Array.isArray(areas)) {
+      throw new ValidationError('supervisorId, stationId, date, and areas array are required');
+    }
+    this._validateSummaryAreas(areas);
+
+    // ─── Duplicate guard: a submitted/approved summary already exists for this
+    // supervisor/date/shift → block (resubmission is done via resubmit) ───
+    const existingSnap = await db.collection('stationShiftSummaries')
+      .where('supervisorId', '==', supervisorId)
+      .get();
+    let existingStatus = null;
+    existingSnap.forEach(d => {
+      if (existingStatus) return;
+      const s = d.data();
+      if (String(s.date) !== String(date)) return;
+      const sShift = s.shift ? String(s.shift).trim().toLowerCase() : '';
+      const inShift = String(shift || '').trim().toLowerCase();
+      if (inShift) {
+        if (sShift !== inShift) return;
+      } else if (sShift && sShift !== 'morning') {
+        return;
+      }
+      if (['submitted', 'approved'].includes(s.status)) existingStatus = s.status;
+    });
+    if (existingStatus) {
+      throw new ValidationError(`A shift summary for this supervisor/date/shift is already ${existingStatus}. You cannot submit again while it is ${existingStatus}.`);
+    }
+
+    const now = new Date().toISOString();
+    const ref = db.collection('stationShiftSummaries').doc();
+
+    // ─── Gate: all tasks for this supervisor/station/date/shift must be
+    // terminal (completed/approved/cancelled) before the summary can submit ───
+    const resolvedShift = String(shift || '').trim().toLowerCase();
+    await this._assertAllTasksTerminal(supervisorId, stationId, date, resolvedShift);
+    const enriched = await this._enrichSummaryAreas(areas);
 
     const totalWorkDone = enriched.reduce((sum, a) => sum + (a.workDone || 0), 0);
     const totalTenderedArea = enriched.reduce((sum, a) => sum + (a.tenderedAreaPerDay || 0), 0);
@@ -1927,6 +1989,9 @@ class StationCleaningService {
       submittedBy: (user && user.uid) || supervisorId,
       approvedBy: null, approvedByName: null, approvedAt: null,
       rejectedBy: null, rejectionReason: null, rejectedAt: null,
+      autoApproved: false,
+      resubmitCount: 0,
+      lastResubmittedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -1943,22 +2008,9 @@ class StationCleaningService {
     }
 
     // Notify railway supervisors/admins for approval
-    try {
-      const notifyRoles = ['RAILWAY_SUPERVISOR', 'RAILWAY_ADMIN', 'RAILWAY_MASTER', 'SUPER_ADMIN'];
-      const usersSnap = await db.collection('users')
-        .where('role', 'in', notifyRoles)
-        .limit(50)
-        .get();
-      const title = 'Shift Summary Submitted';
-      const body = `${supervisorName || 'Supervisor'} submitted shift summary for ${stationName || 'station'} — ${shift || ''} shift. Please review and approve.`;
-      const data = { type: 'shift_summary_approval', summaryUid: ref.id, stationId: stationId || '' };
-      for (const userDoc of usersSnap.docs) {
-        const userData = userDoc.data();
-        if (userData.stationId === stationId || (userData.stations && Array.isArray(userData.stations) && userData.stations.includes(stationId))) {
-          fcmService.sendPush(userDoc.id, title, body, data).catch(() => {});
-        }
-      }
-    } catch (_) { /* notification failure should not block submission */ }
+    await this._notifyRailwaysForApproval({
+      summaryUid: ref.id, supervisorName, stationName, stationId, shift, isResubmit: false,
+    });
 
     return { message: 'Shift summary submitted for approval', uid: ref.id, count: enriched.length, totalWorkDone, status: 'submitted' };
   }
@@ -2105,7 +2157,10 @@ class StationCleaningService {
     return { id: doc.id, ...doc.data() };
   }
 
-  async approveShiftSummary(uid, user) {
+  async approveShiftSummary(uid, user, { auto = false } = {}) {
+    if (user && String(user.role || '').toUpperCase() !== 'SYSTEM') {
+      this._assertRailwayApprover(user);
+    }
     const ref = db.collection('stationShiftSummaries').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Shift summary not found');
@@ -2114,15 +2169,17 @@ class StationCleaningService {
     }
     await ref.update({
       status: 'approved',
-      approvedBy: user.uid,
-      approvedByName: user.fullName || user.name || 'Unknown',
+      approvedBy: auto ? 'system' : user.uid,
+      approvedByName: auto ? 'Auto-approved (1 hour)' : (user.fullName || user.name || 'Unknown'),
       approvedAt: new Date().toISOString(),
+      autoApproved: !!auto,
       updatedAt: new Date().toISOString(),
     });
-    return { message: 'Shift summary approved', uid };
+    return { message: auto ? 'Shift summary auto-approved' : 'Shift summary approved', uid };
   }
 
   async rejectShiftSummary(uid, reason, user) {
+    if (user) this._assertRailwayApprover(user);
     const ref = db.collection('stationShiftSummaries').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Shift summary not found');
@@ -2136,9 +2193,106 @@ class StationCleaningService {
       rejectedByName: user.fullName || user.name || 'Unknown',
       rejectionReason,
       rejectedAt: new Date().toISOString(),
+      autoApproved: false,
       updatedAt: new Date().toISOString(),
     });
+    try {
+      if (doc.data().supervisorId) {
+        fcmService.sendPush(
+          doc.data().supervisorId,
+          'Shift Summary Rejected',
+          `Your shift summary for ${doc.data().stationName || 'station'} (${doc.data().shift || ''} shift) was rejected. Reason: ${rejectionReason || 'No reason provided'}. Please resubmit.`,
+          { type: 'shift_summary_rejected', summaryUid: uid, stationId: doc.data().stationId || '' }
+        ).catch(() => {});
+      }
+    } catch (_) { /* notification failure should not block rejection */ }
     return { message: 'Shift summary rejected', uid };
+  }
+
+  async resubmitShiftSummary(uid, data, user) {
+    const ref = db.collection('stationShiftSummaries').doc(uid);
+    const doc = await ref.get();
+    if (!doc.exists) throw new NotFoundError('Shift summary not found');
+    const summary = doc.data();
+    if (summary.status !== 'rejected') {
+      throw new ValidationError(`Only rejected shift summaries can be resubmitted. Current: ${summary.status}`);
+    }
+    const userId = (user && user.uid) || '';
+    if (userId && summary.supervisorId && userId !== summary.supervisorId) {
+      throw new ForbiddenError('Only the submitting supervisor can resubmit this shift summary');
+    }
+
+    const { supervisorId, supervisorName, stationId, stationName, date, shift, areas } = data;
+    if (!supervisorId || !stationId || !date || !areas || !Array.isArray(areas)) {
+      throw new ValidationError('supervisorId, stationId, date, and areas array are required');
+    }
+    this._validateSummaryAreas(areas);
+
+    const resolvedShift = String(summary.shift || shift || '').trim().toLowerCase();
+    await this._assertAllTasksTerminal(supervisorId, stationId, date, resolvedShift);
+    const enriched = await this._enrichSummaryAreas(areas);
+    const totalWorkDone = enriched.reduce((sum, a) => sum + (a.workDone || 0), 0);
+    const totalTenderedArea = enriched.reduce((sum, a) => sum + (a.tenderedAreaPerDay || 0), 0);
+
+    const now = new Date().toISOString();
+    const resubmitCount = (parseInt(summary.resubmitCount, 10) || 0) + 1;
+    const shiftValue = shift || summary.shift || '';
+    await ref.update({
+      supervisorName: supervisorName || summary.supervisorName || '',
+      stationName: stationName || summary.stationName || '',
+      shift: shiftValue,
+      areas: enriched,
+      totalWorkDone,
+      totalTenderedArea,
+      status: 'submitted',
+      submittedAt: now,
+      submittedBy: userId || supervisorId || summary.supervisorId || '',
+      approvedBy: null, approvedByName: null, approvedAt: null,
+      rejectedBy: null, rejectedByName: null, rejectionReason: null, rejectedAt: null,
+      autoApproved: false,
+      resubmitCount,
+      lastResubmittedAt: now,
+      updatedAt: now,
+    });
+
+    await this._notifyRailwaysForApproval({
+      summaryUid: uid,
+      supervisorName: supervisorName || summary.supervisorName,
+      stationName: stationName || summary.stationName,
+      stationId: stationId || summary.stationId,
+      shift: shiftValue,
+      isResubmit: true,
+    });
+
+    return { message: 'Shift summary resubmitted for approval', uid, count: enriched.length, totalWorkDone, status: 'submitted', resubmitCount };
+  }
+
+  async autoApproveExpiredShiftSummaries({ maxAgeMs = 3600000 } = {}) {
+    const systemUser = { uid: 'system', fullName: 'Auto-approved (1 hour)', name: 'Auto-approved (1 hour)', role: 'SYSTEM' };
+    const snap = await db.collection('stationShiftSummaries').where('status', '==', 'submitted').get();
+    const cutoff = Date.now() - maxAgeMs;
+    let approved = 0;
+    for (const d of snap.docs) {
+      const s = d.data();
+      const submittedAt = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;
+      if (!submittedAt || submittedAt > cutoff) continue;
+      await this.approveShiftSummary(d.id, systemUser, { auto: true });
+      try {
+        if (s.supervisorId) {
+          fcmService.sendPush(
+            s.supervisorId,
+            'Shift Summary Auto-Approved',
+            `Your shift summary for ${s.stationName || 'station'} (${s.shift || ''} shift) was auto-approved as no action was taken within 1 hour.`,
+            { type: 'shift_summary_auto_approved', summaryUid: d.id, stationId: s.stationId || '' }
+          ).catch(() => {});
+        }
+      } catch (_) { /* notification failure should not block auto-approval */ }
+      approved++;
+    }
+    if (approved > 0) {
+      logger.info('StationCleaning', `[ShiftSummary] Auto-approved ${approved} expired shift summar${approved === 1 ? 'y' : 'ies'}`);
+    }
+    return { autoApprovedCount: approved };
   }
 }
 

@@ -49,9 +49,16 @@ class _ShiftSummaryApprovalScreenState extends State<ShiftSummaryApprovalScreen>
 
   bool _canApprove(BuildContext context) {
     final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
-    if (user == null) return true;
+    if (user == null) return false;
     final r = user.role.toUpperCase().replaceAll(' ', '_');
-    return !r.startsWith('CONTRACTOR_');
+    return const {
+      'SUPER_ADMIN',
+      'COMPANY_MASTER',
+      'RAILWAY_MASTER',
+      'ADMIN',
+      'RAILWAY_ADMIN',
+      'RAILWAY_SUPERVISOR',
+    }.contains(r);
   }
 
   @override

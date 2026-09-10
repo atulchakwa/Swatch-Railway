@@ -18,6 +18,8 @@ class ShiftSummaryScreen extends StatefulWidget {
   final String shift;
   final String date;
   final List<Map<String, dynamic>> areas;
+  final String? existingSummaryUid;
+  final String? rejectionReason;
 
   const ShiftSummaryScreen({
     super.key,
@@ -28,6 +30,8 @@ class ShiftSummaryScreen extends StatefulWidget {
     required this.shift,
     required this.date,
     required this.areas,
+    this.existingSummaryUid,
+    this.rejectionReason,
   });
 
   @override
@@ -60,6 +64,9 @@ class _AreaEntry {
   double get workDone => basicAreaSqFt * times;
   bool get hasReferencePhoto => afterPhotoUrl != null && afterPhotoUrl!.isNotEmpty;
   bool get isVerified => photo != null && gpsCaptured;
+  bool get hasUsablePhoto =>
+      (photo != null && gpsCaptured) ||
+      (afterPhotoUrl != null && afterPhotoUrl!.isNotEmpty && latitude != null && longitude != null);
 
   _AreaEntry({
     required this.key,
@@ -78,8 +85,15 @@ class _AreaEntry {
     this.taskRemarks,
     this.taskGpsLat,
     this.taskGpsLng,
+    this.prefillLatitude,
+    this.prefillLongitude,
     required String remark,
-  }) : remarkCtrl = TextEditingController(text: remark);
+  })  : remarkCtrl = TextEditingController(text: remark),
+        latitude = prefillLatitude,
+        longitude = prefillLongitude;
+
+  final double? prefillLatitude;
+  final double? prefillLongitude;
 
   void dispose() => remarkCtrl.dispose();
 }
@@ -100,7 +114,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
       final key = (a['key'] ?? a['areaId'] ?? a['areaName'] ?? '').toString();
       final master = _findMaster(key, (a['areaName'] ?? '').toString());
       final taskRemarks = (a['taskRemarks'] ?? '').toString();
-      final afterPhotoUrl = (a['afterPhotoUrl'] ?? '').toString();
+      final afterPhotoUrl = (a['afterPhotoUrl'] ?? a['photoUrl'] ?? '').toString();
       return _AreaEntry(
         key: key.isEmpty ? 'area_${a['areaName']}' : key,
         areaId: (a['areaId'] ?? '').toString(),
@@ -116,8 +130,10 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
         taskId: a['taskId']?.toString(),
         afterPhotoUrl: afterPhotoUrl.isNotEmpty ? afterPhotoUrl : null,
         taskRemarks: taskRemarks.isNotEmpty ? taskRemarks : null,
-        taskGpsLat: (a['gpsLat'] as num?)?.toDouble(),
-        taskGpsLng: (a['gpsLng'] as num?)?.toDouble(),
+        taskGpsLat: ((a['gpsLat'] as num?)?.toDouble() ?? (a['latitude'] as num?)?.toDouble()),
+        taskGpsLng: ((a['gpsLng'] as num?)?.toDouble() ?? (a['longitude'] as num?)?.toDouble()),
+        prefillLatitude: (a['latitude'] as num?)?.toDouble(),
+        prefillLongitude: (a['longitude'] as num?)?.toDouble(),
         remark: taskRemarks,
       );
     }).toList();
@@ -172,7 +188,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
         final key = (a['key'] ?? a['areaId'] ?? a['areaName'] ?? '').toString();
         final master = _findMaster(key, (a['areaName'] ?? '').toString());
         final taskRemarks = (a['taskRemarks'] ?? '').toString();
-        final afterPhotoUrl = (a['afterPhotoUrl'] ?? '').toString();
+        final afterPhotoUrl = (a['afterPhotoUrl'] ?? a['photoUrl'] ?? '').toString();
         return _AreaEntry(
           key: key.isEmpty ? 'area_${a['areaName']}' : key,
           areaId: (a['areaId'] ?? '').toString(),
@@ -243,10 +259,10 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
     }
   }
 
-  int get _freshPhotoCount => _entries.where((e) => e.photo != null && e.gpsCaptured).length;
+  int get _photoCount => _entries.where((e) => e.hasUsablePhoto).length;
   int get _remarkCount => _entries.where((e) => e.remarkCtrl.text.trim().isNotEmpty).length;
   double get _totalWorkDone => _entries.fold(0, (sum, e) => sum + e.workDone);
-  bool get _canSubmit => _entries.length >= _minAreas && _freshPhotoCount >= _minAreas && _remarkCount == _entries.length;
+  bool get _canSubmit => _entries.length >= _minAreas && _photoCount >= _minAreas && _remarkCount == _entries.length;
 
   Future<Position?> _captureGps() async {
     try {
@@ -310,11 +326,14 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
     if (!_canSubmit) return;
     setState(() => _isSubmitting = true);
     try {
+      final isResubmit = widget.existingSummaryUid != null && widget.existingSummaryUid!.isNotEmpty;
       final areasPayload = <Map<String, dynamic>>[];
       for (final e in _entries) {
         String photoUrl = '';
         if (e.photo != null) {
           photoUrl = await WorkerRepository.uploadMedia(e.photo!.path);
+        } else if (e.hasUsablePhoto && e.afterPhotoUrl != null && e.afterPhotoUrl!.isNotEmpty) {
+          photoUrl = e.afterPhotoUrl!;
         }
 
         areasPayload.add({
@@ -335,7 +354,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
         });
       }
 
-      await ApiService.submitShiftSummary({
+      final payload = {
         'supervisorId': widget.supervisorId,
         'supervisorName': widget.supervisorName,
         'stationId': widget.stationId,
@@ -343,11 +362,20 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
         'date': widget.date,
         'shift': widget.shift,
         'areas': areasPayload,
-      });
+      };
+
+      if (isResubmit) {
+        await ApiService.resubmitShiftSummary(widget.existingSummaryUid!, payload);
+      } else {
+        await ApiService.submitShiftSummary(payload);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Shift summary submitted for approval!'), backgroundColor: kSuccessGreen),
+          SnackBar(
+            content: Text(isResubmit ? 'Shift summary resubmitted for approval!' : 'Shift summary submitted for approval!'),
+            backgroundColor: kSuccessGreen,
+          ),
         );
         Navigator.pop(context, true);
       }
@@ -366,7 +394,9 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Shift Summary — ${widget.stationName}'),
+        title: Text(widget.existingSummaryUid != null
+            ? 'Shift Summary Resubmit — ${widget.stationName}'
+            : 'Shift Summary — ${widget.stationName}'),
         backgroundColor: kRailwayBlue,
         foregroundColor: Colors.white,
       ),
@@ -382,12 +412,38 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                 Text('${widget.shift} Shift — ${widget.date}',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text('${_entries.length} completed area(s) — End-of-shift photos: $_freshPhotoCount/$_minAreas',
+                Text('${_entries.length} completed area(s) — End-of-shift photos: $_photoCount/$_minAreas',
                     style: TextStyle(color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text('Total Work Done: ${_totalWorkDone.toStringAsFixed(0)} sqft',
                     style: TextStyle(color: const Color(0xFF1B5E20), fontWeight: FontWeight.w700)),
-                if (_freshPhotoCount < _minAreas) ...[
+                if (widget.existingSummaryUid != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: kErrorRed.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: kErrorRed),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: kErrorRed, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            widget.rejectionReason != null && widget.rejectionReason!.isNotEmpty
+                                ? 'Resubmitting after rejection. Reason: ${widget.rejectionReason}'
+                                : 'This summary was rejected. Please correct the issues and resubmit.',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kErrorRed),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (_photoCount < _minAreas) ...[
                   const SizedBox(height: 8),
                   Container(
                     width: double.infinity,
@@ -445,9 +501,11 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                           ? 'Submitting...'
                           : _entries.length < _minAreas
                               ? 'Select ${_minAreas - _entries.length} more area(s)'
-                              : (_freshPhotoCount < _minAreas || _remarkCount < _entries.length)
-                                  ? 'End-of-shift photos: $_freshPhotoCount/$_minAreas'
-                                  : 'Submit Summary ($_freshPhotoCount areas)'),
+                              : (_photoCount < _minAreas || _remarkCount < _entries.length)
+                                  ? 'End-of-shift photos: $_photoCount/$_minAreas'
+                                  : (widget.existingSummaryUid != null
+                                      ? 'Resubmit Summary ($_photoCount areas)'
+                                      : 'Submit Summary ($_photoCount areas)')),
                       onPressed: (_canSubmit && !_isSubmitting) ? _submit : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: kSuccessGreen,
@@ -634,8 +692,12 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                         color: Colors.blueGrey[600],
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Text('Reference photo (from task)',
-                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                      child: Text(
+                        widget.existingSummaryUid != null && entry.hasUsablePhoto
+                            ? 'Existing photo (resubmit)'
+                            : 'Reference photo (from task)',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
                 ],
@@ -664,12 +726,16 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                icon: Icon(entry.isVerified ? Icons.fact_check : Icons.camera_alt, size: 16),
-                label: Text(entry.isVerified ? 'Retake End-of-Shift Photo' : 'Take End-of-Shift Photo'),
+                icon: Icon((entry.isVerified || entry.hasUsablePhoto) ? Icons.fact_check : Icons.camera_alt, size: 16),
+                label: Text(
+                  (entry.isVerified || (widget.existingSummaryUid != null && entry.hasUsablePhoto))
+                      ? 'Retake End-of-Shift Photo'
+                      : 'Take End-of-Shift Photo',
+                ),
                 onPressed: () => _takePhoto(entry),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: entry.isVerified ? Colors.green[800] : kRailwayBlue,
-                  backgroundColor: entry.isVerified ? Colors.green[50] : null,
+                  foregroundColor: (entry.isVerified || entry.hasUsablePhoto) ? Colors.green[800] : kRailwayBlue,
+                  backgroundColor: (entry.isVerified || entry.hasUsablePhoto) ? Colors.green[50] : null,
                 ),
               ),
             ),

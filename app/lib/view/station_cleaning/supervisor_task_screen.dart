@@ -75,6 +75,10 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
   // Workers
   List<Map<String, dynamic>> _workers = [];
 
+  // Shift summary status (for the supervisor's own submissions)
+  Map<String, dynamic>? _summary;
+  bool _summaryLoading = false;
+
   // Photos
   static const _statusChips = ['all', 'overdue', 'pending', 'assigned', 'in_progress', 'completed', 'approved', 'rejected'];
 
@@ -93,8 +97,28 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
-    await Future.wait([_loadAttendanceStatus(), _loadTasks(), _loadWorkers()]);
+    await Future.wait([_loadAttendanceStatus(), _loadTasks(), _loadWorkers(), _loadSummary()]);
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadSummary() async {
+    try {
+      final result = await ApiService.getShiftSummaries(
+        stationId: widget.stationId,
+        date: _selectedDate,
+        supervisorId: widget.supervisorId,
+      );
+      if (!mounted) return;
+      final list = result.toList()
+        ..sort((a, b) =>
+            ((b['submittedAt'] ?? '') as String).compareTo((a['submittedAt'] ?? '') as String));
+      setState(() {
+        _summary = list.isEmpty ? null : list.first;
+        _summaryLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _summaryLoading = false);
+    }
   }
 
   Future<void> _loadAttendanceStatus() async {
@@ -336,6 +360,20 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
   Future<void> _promptShiftSummary() async {
     await _loadTasks();
+    await _loadSummary();
+
+    final existingStatus = (_summary?['status'] ?? '').toString().toLowerCase();
+    if (existingStatus == 'submitted' || existingStatus == 'approved') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('A shift summary for this shift is already $existingStatus.'),
+            backgroundColor: kRailwayBlue,
+          ),
+        );
+      }
+      return;
+    }
 
     // Gate: all tasks for this shift must be completed before the summary can submit.
     final terminalStatuses = {'completed', 'approved', 'cancelled'};
@@ -478,6 +516,49 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _openResubmit() async {
+    final stored = _summary;
+    if (stored == null) return;
+    final rawAreas = (stored['areas'] as List?) ?? [];
+    final areas = rawAreas.cast<Map<String, dynamic>>();
+    final primaryShift = (stored['shift'] ?? 'Morning').toString();
+
+    if (areas.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No previous summary areas found to resubmit.'),
+            backgroundColor: kWarningOrange,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    final resubmitted = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ShiftSummaryScreen(
+          stationId: widget.stationId,
+          stationName: widget.stationName,
+          supervisorId: widget.supervisorId,
+          supervisorName: widget.supervisorName,
+          shift: primaryShift,
+          date: _selectedDate,
+          areas: areas,
+          existingSummaryUid: (stored['uid'] ?? stored['id'] ?? '').toString(),
+          rejectionReason: (stored['rejectionReason'] ?? '').toString(),
+        ),
+      ),
+    );
+    if (resubmitted == true && mounted) {
+      setState(() => _endMarked = true);
+      _loadAttendanceStatus();
+      _loadSummary();
+    }
   }
 
   // ─── Task Assignment ─────────────────────────────────────────────────────
@@ -779,12 +860,70 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildAttendanceTab(),
-          _buildTasksTab(),
-          _buildAssignTab(),
+          if (_summary != null) _summaryStatusBanner(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildAttendanceTab(),
+                _buildTasksTab(),
+                _buildAssignTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryStatusBanner() {
+    final status = (_summary?['status'] ?? '').toString().toLowerCase();
+    final Color bg;
+    final Color fg;
+    final IconData icon;
+    final String text;
+    switch (status) {
+      case 'approved':
+        bg = kSuccessGreen;
+        fg = Colors.white;
+        icon = Icons.verified_user;
+        text = 'Shift summary approved for ${widget.stationName}';
+        break;
+      case 'rejected':
+        bg = kErrorRed;
+        fg = Colors.white;
+        icon = Icons.error_outline;
+        text = 'Shift summary rejected — please resubmit';
+        break;
+      default:
+        bg = kRailwayBlue;
+        fg = Colors.white;
+        icon = Icons.schedule;
+        text = 'Shift summary submitted — awaiting railway approval';
+    }
+    return Container(
+      width: double.infinity,
+      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: fg, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(color: fg, fontWeight: FontWeight.w600, fontSize: 12)),
+          ),
+          if (status == 'rejected')
+            TextButton(
+              onPressed: _summaryLoading ? null : _openResubmit,
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: kErrorRed,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              ),
+              child: const Text('Resubmit', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
         ],
       ),
     );

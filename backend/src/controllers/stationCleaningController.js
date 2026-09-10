@@ -437,3 +437,8 @@ export const rejectShiftSummary = asyncHandler(async (req, res) => {
   const result = await stationCleaningService.rejectShiftSummary(req.params.uid, req.body, req.user);
   res.status(200).json({ success: true, ...result });
 });
+
+export const resubmitShiftSummary = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.resubmitShiftSummary(req.params.uid, req.body, req.user);
+  res.status(200).json({ success: true, ...result });
+});

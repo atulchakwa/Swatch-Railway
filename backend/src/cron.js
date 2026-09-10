@@ -409,4 +409,15 @@ cron.schedule('*/5 * * * *', async () => {
   } catch (error) { logger.error('Cron', '[Cron] Escalation error:', error); }
 });
 
+// ─── Every minute: Auto-approve station-cleaning shift summaries not acted on
+// (approved/rejected) by a railway approver within 1 hour of submission ───
+cron.schedule('*/1 * * * *', async () => {
+  try {
+    const result = await stationCleaningService.autoApproveExpiredShiftSummaries({ maxAgeMs: 3600000 });
+    if (result.autoApprovedCount > 0) {
+      logger.info('Cron', `[Cron] Auto-approved ${result.autoApprovedCount} shift summar${result.autoApprovedCount === 1 ? 'y' : 'ies'}`);
+    }
+  } catch (error) { logger.error('Cron', '[Cron] Shift summary auto-approve error:', error); }
+});
+
 logger.info('Cron', 'Cron jobs initialized');

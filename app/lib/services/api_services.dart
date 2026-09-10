@@ -3989,6 +3989,21 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> resubmitShiftSummary(String uid, Map<String, dynamic> data) async {
+    try {
+      final token = await getToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/station-cleaning/shift-summaries/$uid/resubmit'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(data),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) return jsonDecode(response.body);
+      throw Exception('Failed to resubmit shift summary');
+    } catch (e) {
+      throw Exception('Error resubmitting shift summary: $e');
+    }
+  }
+
   static Future<List<Map<String, dynamic>>> getShiftSummaries({
     String? stationId,
     String? date,
