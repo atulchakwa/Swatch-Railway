@@ -4,7 +4,7 @@
  */
 
 import { db, admin } from '../database/index.js';
-import { NotFoundError, ValidationError } from '../errors/index.js';
+import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
 import { notificationService } from './notificationService.js';
 import { autoEmailService } from './autoEmailService.js';
 import logger from '../logger/index.js';
@@ -156,10 +156,15 @@ class StationReportService {
     return { message: 'Station cleaning report generated', uid: report.uid, report };
   }
 
-  async getReportById(uid) {
+  async getReportById(uid, user = {}) {
     const doc = await db.collection('station_reports').doc(uid).get();
     if (!doc.exists) throw new NotFoundError('Report not found');
-    return { id: doc.id, ...doc.data() };
+    const userStations = [user.stationId, ...(user.stations || [])].filter(Boolean);
+    const data = doc.data();
+    if (userStations.length > 0 && data.stationId && !userStations.includes(data.stationId)) {
+      throw new ForbiddenError('You can only access reports for your assigned station');
+    }
+    return { id: doc.id, ...data };
   }
 
   async listReports(query = {}) {

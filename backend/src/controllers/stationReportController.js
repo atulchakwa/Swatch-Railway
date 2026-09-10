@@ -3,7 +3,7 @@ import { autoEmailService } from '../services/autoEmailService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const generateReport = asyncHandler(async (req, res) => { const { stationId, month, year } = req.body; res.status(201).json(await stationReportService.generateStationCleaningReport(stationId, month, year, req.user)); });
-export const getReportById = asyncHandler(async (req, res) => res.json(await stationReportService.getReportById(req.params.uid)));
+export const getReportById = asyncHandler(async (req, res) => res.json(await stationReportService.getReportById(req.params.uid, req.user)));
 export const listReports = asyncHandler(async (req, res) => res.json(await stationReportService.listReports(req.query)));
 export const getScoreTrend = asyncHandler(async (req, res) => res.json(await stationReportService.getStationScoreTrend(req.query.stationId, parseInt(req.query.months) || 6)));
 export const getStationComparison = asyncHandler(async (req, res) => res.json(await stationReportService.getStationComparison(req.query.division, req.query.month, req.query.year)));

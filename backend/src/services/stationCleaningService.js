@@ -450,6 +450,7 @@ class StationCleaningService {
 
     let totalCount = 0;
     const allTaskIds = [];
+    const supervisorsByShift = await this._supervisorsByShift(schedule);
 
     for (const dayStr of daysToGenerate) {
       const batch = db.batch();
@@ -459,6 +460,13 @@ class StationCleaningService {
         const key = `${dayStr}|${timeSlot}`;
         if (existingKeys.has(key)) continue;
 
+        const slotShift = this._shiftForTime(timeSlot) ||
+          (schedule.shift || 'morning').toString().toLowerCase();
+        const shiftSupervisor = supervisorsByShift.get(slotShift);
+        const supervisorId = shiftSupervisor?.uid || schedule.supervisorId || null;
+        const supervisorName = shiftSupervisor?.fullName || schedule.supervisorName || '';
+        if (!supervisorId) continue;
+
         const taskRef = db.collection('cleaningTasks').doc();
         const task = {
           uid: taskRef.id,
@@ -467,13 +475,13 @@ class StationCleaningService {
           areaId: schedule.areaId || '',
           areaName: schedule.areaName || '',
           zoneId: schedule.zoneId || '',
-          shift: schedule.shift || schedule.shiftType || 'morning',
+          shift: slotShift,
           frequency,
           date: dayStr,
           scheduledDate: dayStr,
           scheduledTime: timeSlot,
-          supervisorId: schedule.supervisorId || null,
-          supervisorName: schedule.supervisorName || '',
+          supervisorId,
+          supervisorName,
           scheduleId,
           entityId: schedule.entityId || '',
           entityName: schedule.entityName || '',
@@ -505,11 +513,57 @@ class StationCleaningService {
     return { message: `Generated ${totalCount} tasks for ${daysToGenerate.length} day(s)`, count: totalCount, taskIds: allTaskIds };
   }
 
+  _shiftForTime(timeStr) {
+    const m = /^(\d{1,2}):/.exec(String(timeStr || ''));
+    if (!m) return null;
+    const h = parseInt(m[1], 10);
+    if (h >= 4 && h < 12) return 'morning';
+    if (h >= 12 && h < 20) return 'evening';
+    return 'night';
+  }
+
+  // Formats a minute-of-day value onto a 24h clock, wrapping past midnight
+  // (e.g. 1440 -> 00:00) so night-shift windows produce valid slot times.
+  _wrapTime(minutes) {
+    const m = ((minutes % 1440) + 1440) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  }
+
+  // Supervisors recorded for each shift window at a station (from
+  // stationSupervisorShifts). Used so night-window tasks are given to the
+  // night supervisor even when the schedule itself specifies another one.
+  async _supervisorsByShift(schedule) {
+    const map = new Map();
+    try {
+      const snaps = await db.collection('stationSupervisorShifts')
+        .where('stationId', '==', schedule.stationId).get();
+      snaps.forEach(doc => {
+        const d = doc.data();
+        const shift = d.shift ? String(d.shift).trim().toLowerCase() : '';
+        if (!shift) return;
+        if (!map.has(shift)) {
+          map.set(shift, { uid: doc.id, fullName: d.supervisorName || '' });
+        }
+      });
+    } catch (_) {}
+    if (schedule.supervisorId) {
+      const scheduleShift = (schedule.shift || 'morning').toString().toLowerCase();
+      if (!map.has(scheduleShift)) {
+        map.set(scheduleShift, { uid: schedule.supervisorId, fullName: schedule.supervisorName || '' });
+      }
+    }
+    return map;
+  }
+
   _calculateTaskTimes(frequency, startTime, endTime) {
     const [startH, startM] = (startTime || '06:00').split(':').map(Number);
     const [endH, endM] = (endTime || '14:00').split(':').map(Number);
-    const startMinutes = startH * 60 + (startM || 0);
-    const endMinutes = endH * 60 + (endM || 0);
+    let startMinutes = startH * 60 + (startM || 0);
+    let endMinutes = endH * 60 + (endM || 0);
+    if (endMinutes <= startMinutes) {
+      // Night-shift window wrapping past midnight (e.g. 20:00 -> 04:00 next day).
+      endMinutes += 1440;
+    }
     const durationMinutes = endMinutes - startMinutes;
 
     if (durationMinutes <= 0) return [startTime || '08:00'];
@@ -517,7 +571,7 @@ class StationCleaningService {
     if (frequency === 'hourly_mopping') {
       const slots = [];
       for (let m = 300; m < 1380; m += 60) {
-        slots.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+        slots.push(this._wrapTime(m));
       }
       return slots;
     }
@@ -536,7 +590,7 @@ class StationCleaningService {
     if (interval) {
       const slots = [];
       for (let m = startMinutes; m < endMinutes; m += interval) {
-        slots.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+        slots.push(this._wrapTime(m));
       }
       return slots;
     }
@@ -547,33 +601,28 @@ class StationCleaningService {
       case 'two_times_daily': {
         const mid1 = startMinutes + Math.floor(durationMinutes * 0.33);
         const mid2 = startMinutes + Math.floor(durationMinutes * 0.66);
-        return [
-          `${String(Math.floor(mid1 / 60)).padStart(2, '0')}:${String(mid1 % 60).padStart(2, '0')}`,
-          `${String(Math.floor(mid2 / 60)).padStart(2, '0')}:${String(mid2 % 60).padStart(2, '0')}`
-        ];
+        return [this._wrapTime(mid1), this._wrapTime(mid2)];
       }
       case 'three_times_daily': {
         const slots = [];
         for (let i = 1; i <= 3; i++) {
-          const m = startMinutes + Math.floor(durationMinutes * i / 4);
-          slots.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+          slots.push(this._wrapTime(startMinutes + Math.floor(durationMinutes * i / 4)));
         }
         return slots;
       }
       case 'four_times_daily': {
         const slots = [];
         for (let i = 1; i <= 4; i++) {
-          const m = startMinutes + Math.floor(durationMinutes * i / 5);
-          slots.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+          slots.push(this._wrapTime(startMinutes + Math.floor(durationMinutes * i / 5)));
         }
         return slots;
       }
       case 'six_times_daily':
       case 'once_every_4h': {
         const allSlots = [];
-        for (let m = 0; m < 1440; m += 240) {
-          if (m >= startMinutes && m < endMinutes) {
-            allSlots.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+        for (let m = 0; m < endMinutes; m += 240) {
+          if (m >= startMinutes) {
+            allSlots.push(this._wrapTime(m));
           }
         }
         return allSlots.length > 0 ? allSlots : [startTime || '08:00'];

@@ -1,44 +1,52 @@
 import { Router } from 'express';
 import { verifyToken } from '../middleware/auth.js';
+import { requirePermission, requireStationAccess, requireContractType } from '../middleware/authorization.js';
+import { PERMISSIONS } from '../permissions/roles.js';
 import * as ctrl from '../controllers/stationReportController.js';
 
 const router = Router();
 
+// Station-cleaning scope only. Mirrors stationCleaningRoutes: any authenticated
+// user must belong to (or not conflict with) the station-cleaning contract and
+// must hold the view_reports permission. Station-bearing routes additionally
+// enforce station access below.
+router.all('*', verifyToken, requireContractType('station_cleaning'), requirePermission(PERMISSIONS.VIEW_REPORTS));
+
 // Existing
-router.post('/api/station-reports/generate', verifyToken, ctrl.generateReport);
-router.get('/api/station-reports', verifyToken, ctrl.listReports);
-router.get('/api/station-reports/score-trend', verifyToken, ctrl.getScoreTrend);
+router.post('/api/station-reports/generate', verifyToken, requireStationAccess, ctrl.generateReport);
+router.get('/api/station-reports', verifyToken, requireStationAccess, ctrl.listReports);
+router.get('/api/station-reports/score-trend', verifyToken, requireStationAccess, ctrl.getScoreTrend);
 router.get('/api/station-reports/comparison', verifyToken, ctrl.getStationComparison);
 
 // 10.1 Daily Reports
-router.post('/api/station-reports/daily/attendance', verifyToken, ctrl.generateDailyAttendanceReport);
-router.post('/api/station-reports/daily/activity', verifyToken, ctrl.generateDailyActivityReport);
-router.post('/api/station-reports/daily/scorecard', verifyToken, ctrl.generateDailyScorecardReport);
-router.post('/api/station-reports/daily/complaint', verifyToken, ctrl.generateDailyComplaintReport);
-router.post('/api/station-reports/daily/feedback', verifyToken, ctrl.generateDailyFeedbackReport);
-router.post('/api/station-reports/daily/supervisor-log', verifyToken, ctrl.generateDailySupervisorLogReport);
-router.post('/api/station-reports/daily/inspection', verifyToken, ctrl.generateDailyInspectionReport);
-router.post('/api/station-reports/daily/petty-issue', verifyToken, ctrl.generateDailyPettyIssueReport);
-router.post('/api/station-reports/daily/missed-activity', verifyToken, ctrl.generateMissedActivityReport);
-router.post('/api/station-reports/archive-retrieval', verifyToken, ctrl.generateArchiveRetrievalReport);
-router.post('/api/station-reports/range', verifyToken, ctrl.generateRangeReport);
+router.post('/api/station-reports/daily/attendance', verifyToken, requireStationAccess, ctrl.generateDailyAttendanceReport);
+router.post('/api/station-reports/daily/activity', verifyToken, requireStationAccess, ctrl.generateDailyActivityReport);
+router.post('/api/station-reports/daily/scorecard', verifyToken, requireStationAccess, ctrl.generateDailyScorecardReport);
+router.post('/api/station-reports/daily/complaint', verifyToken, requireStationAccess, ctrl.generateDailyComplaintReport);
+router.post('/api/station-reports/daily/feedback', verifyToken, requireStationAccess, ctrl.generateDailyFeedbackReport);
+router.post('/api/station-reports/daily/supervisor-log', verifyToken, requireStationAccess, ctrl.generateDailySupervisorLogReport);
+router.post('/api/station-reports/daily/inspection', verifyToken, requireStationAccess, ctrl.generateDailyInspectionReport);
+router.post('/api/station-reports/daily/petty-issue', verifyToken, requireStationAccess, ctrl.generateDailyPettyIssueReport);
+router.post('/api/station-reports/daily/missed-activity', verifyToken, requireStationAccess, ctrl.generateMissedActivityReport);
+router.post('/api/station-reports/archive-retrieval', verifyToken, requireStationAccess, ctrl.generateArchiveRetrievalReport);
+router.post('/api/station-reports/range', verifyToken, requireStationAccess, ctrl.generateRangeReport);
 
 // 10.2 Monthly Reports
-router.post('/api/station-reports/monthly/attendance', verifyToken, ctrl.generateMonthlyAttendanceSummary);
-router.post('/api/station-reports/monthly/cleaning', verifyToken, ctrl.generateMonthlyCleaningSummary);
-router.post('/api/station-reports/monthly/scorecard', verifyToken, ctrl.generateMonthlyScorecardSummary);
-router.post('/api/station-reports/monthly/complaint', verifyToken, ctrl.generateMonthlyComplaintSummary);
-router.post('/api/station-reports/monthly/feedback', verifyToken, ctrl.generateMonthlyFeedbackSummary);
-router.post('/api/station-reports/monthly/billing', verifyToken, ctrl.generateMonthlyBillingReport);
-router.post('/api/station-reports/monthly/penalty', verifyToken, ctrl.generateMonthlyPenaltyReport);
-router.post('/api/station-reports/monthly/performance', verifyToken, ctrl.generateMonthlyPerformanceReport);
-router.post('/api/station-reports/monthly/petty-issue', verifyToken, ctrl.generateMonthlyPettyIssueReport);
+router.post('/api/station-reports/monthly/attendance', verifyToken, requireStationAccess, ctrl.generateMonthlyAttendanceSummary);
+router.post('/api/station-reports/monthly/cleaning', verifyToken, requireStationAccess, ctrl.generateMonthlyCleaningSummary);
+router.post('/api/station-reports/monthly/scorecard', verifyToken, requireStationAccess, ctrl.generateMonthlyScorecardSummary);
+router.post('/api/station-reports/monthly/complaint', verifyToken, requireStationAccess, ctrl.generateMonthlyComplaintSummary);
+router.post('/api/station-reports/monthly/feedback', verifyToken, requireStationAccess, ctrl.generateMonthlyFeedbackSummary);
+router.post('/api/station-reports/monthly/billing', verifyToken, requireStationAccess, ctrl.generateMonthlyBillingReport);
+router.post('/api/station-reports/monthly/penalty', verifyToken, requireStationAccess, ctrl.generateMonthlyPenaltyReport);
+router.post('/api/station-reports/monthly/performance', verifyToken, requireStationAccess, ctrl.generateMonthlyPerformanceReport);
+router.post('/api/station-reports/monthly/petty-issue', verifyToken, requireStationAccess, ctrl.generateMonthlyPettyIssueReport);
 
 // 10.3 Audit Reports
 router.get('/api/station-reports/audit/user-activity', verifyToken, ctrl.generateUserActivityAudit);
-router.get('/api/station-reports/audit/image-archive', verifyToken, ctrl.generateImageArchiveReport);
-router.get('/api/station-reports/audit/rejected-forms', verifyToken, ctrl.generateRejectedFormsReport);
-router.get('/api/station-reports/audit/inspection-history', verifyToken, ctrl.generateInspectionHistoryReport);
+router.get('/api/station-reports/audit/image-archive', verifyToken, requireStationAccess, ctrl.generateImageArchiveReport);
+router.get('/api/station-reports/audit/rejected-forms', verifyToken, requireStationAccess, ctrl.generateRejectedFormsReport);
+router.get('/api/station-reports/audit/inspection-history', verifyToken, requireStationAccess, ctrl.generateInspectionHistoryReport);
 router.get('/api/station-reports/audit/data-modification', verifyToken, ctrl.generateDataModificationReport);
 
 // Schedule management
@@ -53,13 +61,13 @@ router.get('/api/station-reports/types/monthly', verifyToken, ctrl.getMonthlyRep
 router.get('/api/station-reports/types/audit', verifyToken, ctrl.getAuditReportTypes);
 
 // Auto-email dispatch triggers
-router.post('/api/station-reports/auto-email/end-of-day', verifyToken, ctrl.dispatchEndOfDayReports);
-router.post('/api/station-reports/auto-email/end-of-month', verifyToken, ctrl.dispatchEndOfMonthReports);
-router.post('/api/station-reports/auto-email/daily', verifyToken, ctrl.dispatchDailyReport);
-router.post('/api/station-reports/auto-email/monthly', verifyToken, ctrl.dispatchMonthlyReport);
-router.post('/api/station-reports/auto-email/missed-activity', verifyToken, ctrl.dispatchMissedActivityAlert);
-router.post('/api/station-reports/auto-email/rejected-form', verifyToken, ctrl.dispatchRejectedFormNotification);
-router.post('/api/station-reports/auto-email/complaint-escalation', verifyToken, ctrl.dispatchComplaintEscalation);
+router.post('/api/station-reports/auto-email/end-of-day', verifyToken, requireStationAccess, ctrl.dispatchEndOfDayReports);
+router.post('/api/station-reports/auto-email/end-of-month', verifyToken, requireStationAccess, ctrl.dispatchEndOfMonthReports);
+router.post('/api/station-reports/auto-email/daily', verifyToken, requireStationAccess, ctrl.dispatchDailyReport);
+router.post('/api/station-reports/auto-email/monthly', verifyToken, requireStationAccess, ctrl.dispatchMonthlyReport);
+router.post('/api/station-reports/auto-email/missed-activity', verifyToken, requireStationAccess, ctrl.dispatchMissedActivityAlert);
+router.post('/api/station-reports/auto-email/rejected-form', verifyToken, requireStationAccess, ctrl.dispatchRejectedFormNotification);
+router.post('/api/station-reports/auto-email/complaint-escalation', verifyToken, requireStationAccess, ctrl.dispatchComplaintEscalation);
 
 // Param route must be last
 router.get('/api/station-reports/:uid', verifyToken, ctrl.getReportById);

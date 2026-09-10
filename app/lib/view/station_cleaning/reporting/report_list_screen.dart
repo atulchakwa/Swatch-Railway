@@ -4,11 +4,14 @@ import 'package:crm_train/providers/station_cleaning_provider.dart';
 import 'package:crm_train/repositories/station_report_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/services/pdf_report_service.dart';
+import 'package:crm_train/services/station_report_excel_service.dart';
 import 'package:crm_train/utills/app_colors.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ReportListScreen extends StatefulWidget {
@@ -148,6 +151,22 @@ class _ReportListScreenState extends State<ReportListScreen>
           'Completed activities, garbage collection, waste breakdown, and area completion rates.',
       'color': Color(0xFF2E7D32),
     },
+    'monthly_scorecard': {
+      'icon': Icons.scoreboard,
+      'title': 'Monthly Scorecard Summary',
+      'frequency': 'Monthly',
+      'description':
+          'Day-wise cleanliness scores with grade distribution and score ranges.',
+      'color': Color(0xFF00838F),
+    },
+    'archive_retrieval': {
+      'icon': Icons.archive,
+      'title': 'Archive Retrieval Report',
+      'frequency': 'Date Range',
+      'description':
+          'Retrieve records across all station-cleaning modules for a date range.',
+      'color': Color(0xFF5D4037),
+    },
     'monthly_performance': {
       'icon': Icons.assessment,
       'title': 'Performance Score Report',
@@ -210,12 +229,14 @@ class _ReportListScreenState extends State<ReportListScreen>
     'daily_petty_issue',
     'monthly_attendance',
     'monthly_cleaning',
+    'monthly_scorecard',
     'monthly_performance',
     'monthly_billing',
     'monthly_feedback',
     'monthly_complaint',
     'monthly_penalty',
     'monthly_petty_issue',
+    'archive_retrieval',
   ];
 
   static const List<String> _contractorReportKeys = [
@@ -237,6 +258,9 @@ class _ReportListScreenState extends State<ReportListScreen>
       .toList();
   List<String> get _monthlyKeys =>
       _availableReportKeys.where((k) => k.startsWith('monthly_')).toList();
+  List<String> get _rangeKeys => _availableReportKeys
+      .where((k) => !k.startsWith('daily_') && !k.startsWith('monthly_'))
+      .toList();
 
   @override
   void initState() {
@@ -318,12 +342,15 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   void _showGenerateSheet(String reportKey) {
     final meta = _reportMeta[reportKey]!;
+    final bool isRangeOnly = reportKey == 'archive_retrieval';
     final isDaily =
-        reportKey.startsWith('daily_') || reportKey == 'missed_activity';
+        reportKey.startsWith('daily_') ||
+        reportKey == 'missed_activity' ||
+        isRangeOnly;
     DateTime selectedDate = DateTime.now();
     DateTime startDate = DateTime.now();
     DateTime endDate = DateTime.now();
-    bool useRange = false;
+    bool useRange = isRangeOnly;
     int selectedMonth = DateTime.now().month;
     int selectedYear = DateTime.now().year;
     bool isGenerating = false;
@@ -403,30 +430,60 @@ class _ReportListScreenState extends State<ReportListScreen>
                   ),
                   const SizedBox(height: 20),
                   if (isDaily) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: ChoiceChip(
-                              label: const Text('Single Day'),
-                              selected: !useRange,
-                              onSelected: (_) =>
-                                  setSheetState(() => useRange = false),
+                    if (!isRangeOnly)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: ChoiceChip(
+                                label: const Text('Single Day'),
+                                selected: !useRange,
+                                onSelected: (_) =>
+                                    setSheetState(() => useRange = false),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: ChoiceChip(
-                              label: const Text('Date Range'),
-                              selected: useRange,
-                              onSelected: (_) =>
-                                  setSheetState(() => useRange = true),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ChoiceChip(
+                                label: const Text('Date Range'),
+                                selected: useRange,
+                                onSelected: (_) =>
+                                    setSheetState(() => useRange = true),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                      )
+                    else ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.date_range,
+                              size: 16,
+                              color: meta['color'],
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Select Date Range',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Retrieves matching records across all station-cleaning modules. Start date is mandatory and useRange is forced on.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Text(
                       useRange ? 'Select Start Date' : 'Select Date',
@@ -466,10 +523,10 @@ class _ReportListScreenState extends State<ReportListScreen>
                       InkWell(
                         onTap: () async {
                           final picked = await pickDate(
-                              ctx,
-                              endDate,
-                              firstDate: startDate,
-                            );
+                            ctx,
+                            endDate,
+                            firstDate: startDate,
+                          );
                           if (picked != null)
                             setSheetState(() => endDate = picked);
                         },
@@ -555,7 +612,18 @@ class _ReportListScreenState extends State<ReportListScreen>
                               setSheetState(() => isGenerating = true);
                               try {
                                 late StationReport generated;
-                                if (isDaily && useRange) {
+                                if (isRangeOnly) {
+                                  generated =
+                                      await StationReportRepository.generateArchiveRetrieval(
+                                        widget.stationId,
+                                        DateFormat(
+                                          'yyyy-MM-dd',
+                                        ).format(startDate),
+                                        DateFormat(
+                                          'yyyy-MM-dd',
+                                        ).format(endDate),
+                                      );
+                                } else if (isDaily && useRange) {
                                   generated =
                                       await StationReportRepository.generateRange(
                                         reportKey,
@@ -646,7 +714,7 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
   }
 
-  void _sendEmail(StationReport report) {
+  Future<void> _sendEmail(StationReport report) async {
     try {
       if (report.reportType == 'archive_retrieval') {
         if (mounted) {
@@ -667,14 +735,14 @@ class _ReportListScreenState extends State<ReportListScreen>
         final y = parts.isNotEmpty
             ? int.tryParse(parts[0]) ?? DateTime.now().year
             : DateTime.now().year;
-        AutoEmailService.dispatchMonthlyReport(
+        await AutoEmailService.dispatchMonthlyReport(
           report.reportType,
           report.stationId,
           m,
           y,
         );
       } else {
-        AutoEmailService.dispatchDailyReport(
+        await AutoEmailService.dispatchDailyReport(
           report.reportType,
           report.stationId,
           report.date,
@@ -714,6 +782,33 @@ class _ReportListScreenState extends State<ReportListScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Download failed: $e'),
+            backgroundColor: kErrorRed,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _downloadExcel(StationReport report) async {
+    try {
+      final bytes = await StationReportExcelService.generateStationReportExcel(
+        report,
+      );
+      final slug = report.reportType.replaceAll('_', '-');
+      final dateStr = report.date.replaceAll('-', '');
+      await Share.shareXFiles([
+        XFile.fromData(
+          bytes,
+          mimeType:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          name: 'StationReport_${report.stationId}_${slug}_$dateStr.xlsx',
+        ),
+      ], subject: 'Station Cleaning Report - ${report.reportType}');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Excel export failed: $e'),
             backgroundColor: kErrorRed,
           ),
         );
@@ -990,6 +1085,12 @@ class _ReportListScreenState extends State<ReportListScreen>
           _buildSectionHeader('Monthly Reports', Icons.calendar_month),
           const SizedBox(height: 8),
           ..._monthlyKeys.map((k) => _buildReportCard(k)),
+          if (_rangeKeys.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _buildSectionHeader('On-Demand Reports', Icons.archive),
+            const SizedBox(height: 8),
+            ..._rangeKeys.map((k) => _buildReportCard(k)),
+          ],
           const SizedBox(height: 40),
         ],
       ),
@@ -1291,6 +1392,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                           trailing: PopupMenuButton<String>(
                             onSelected: (v) {
                               if (v == 'pdf') _downloadReport(report);
+                              if (v == 'excel') _downloadExcel(report);
                               if (v == 'email') _sendEmail(report);
                             },
                             itemBuilder: (_) => [
@@ -1301,6 +1403,16 @@ class _ReportListScreenState extends State<ReportListScreen>
                                     Icon(Icons.download, size: 18),
                                     SizedBox(width: 8),
                                     Text('Download PDF'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: 'excel',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.table_chart, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Download Excel'),
                                   ],
                                 ),
                               ),
@@ -1333,21 +1445,22 @@ class AutoEmailService {
     String stationId,
     String date,
   ) async {
-    try {
-      final token = await _getToken();
-      await http.post(
-        Uri.parse('${ApiService.baseUrl}/api/station-reports/auto-email/daily'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'reportType': reportType,
-          'stationId': stationId,
-          'date': date,
-        }),
-      );
-    } catch (_) {}
+    final token = await _getToken();
+    final res = await http.post(
+      Uri.parse('${ApiService.baseUrl}/api/station-reports/auto-email/daily'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'reportType': reportType,
+        'stationId': stationId,
+        'date': date,
+      }),
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Server responded ${res.statusCode}: ${res.body}');
+    }
   }
 
   static Future<void> dispatchMonthlyReport(
@@ -1356,24 +1469,23 @@ class AutoEmailService {
     int month,
     int year,
   ) async {
-    try {
-      final token = await _getToken();
-      await http.post(
-        Uri.parse(
-          '${ApiService.baseUrl}/api/station-reports/auto-email/monthly',
-        ),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'reportType': reportType,
-          'stationId': stationId,
-          'month': month,
-          'year': year,
-        }),
-      );
-    } catch (_) {}
+    final token = await _getToken();
+    final res = await http.post(
+      Uri.parse('${ApiService.baseUrl}/api/station-reports/auto-email/monthly'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'reportType': reportType,
+        'stationId': stationId,
+        'month': month,
+        'year': year,
+      }),
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Server responded ${res.statusCode}: ${res.body}');
+    }
   }
 
   static Future<String?> _getToken() async {

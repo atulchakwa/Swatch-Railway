@@ -12,6 +12,7 @@ const DAILY_RECIPIENT_MAP = {
   daily_feedback: ['RAILWAY_SUPERVISOR', 'DIVISION_ADMIN'],
   daily_inspection: ['RAILWAY_SUPERVISOR', 'DIVISION_ADMIN', 'SR_DCM'],
   daily_supervisor_log: ['RAILWAY_SUPERVISOR'],
+  daily_petty_issue: ['RAILWAY_SUPERVISOR', 'DIVISION_ADMIN'],
   missed_activity: ['CONTRACTOR_SUPERVISOR', 'RAILWAY_SUPERVISOR'],
 };
 
@@ -24,6 +25,7 @@ const MONTHLY_RECIPIENT_MAP = {
   monthly_billing: ['DIVISION_ADMIN', 'COMMERCIAL_USER', 'BILLING_USER'],
   monthly_penalty: ['DIVISION_ADMIN', 'COMMERCIAL_USER'],
   monthly_performance: ['DIVISION_ADMIN', 'SR_DCM'],
+  monthly_petty_issue: ['DIVISION_ADMIN'],
 };
 
 const REPORT_TYPE_TITLES = {
@@ -34,6 +36,7 @@ const REPORT_TYPE_TITLES = {
   daily_feedback: 'Daily Passenger Feedback Report',
   daily_inspection: 'Daily Inspection Report',
   daily_supervisor_log: 'Daily Supervisor Log',
+  daily_petty_issue: 'Daily Petty Issue Report',
   missed_activity: 'Missed Activity / Exception Report',
   monthly_attendance: 'Monthly Attendance Summary',
   monthly_cleaning: 'Monthly Cleaning Summary',
@@ -43,6 +46,7 @@ const REPORT_TYPE_TITLES = {
   monthly_billing: 'Monthly Billing Support Pack',
   monthly_penalty: 'Monthly Penalty / Deduction Report',
   monthly_performance: 'Monthly Performance Summary',
+  monthly_petty_issue: 'Monthly Petty Issue Summary',
 };
 
 class AutoEmailService {
@@ -151,6 +155,7 @@ class AutoEmailService {
       daily_scorecard: 'generateDailyScorecardReport', daily_complaint: 'generateDailyComplaintReport',
       daily_feedback: 'generateDailyFeedbackReport', daily_inspection: 'generateDailyInspectionReport',
       daily_supervisor_log: 'generateDailySupervisorLog',
+      daily_petty_issue: 'generateDailyPettyIssueReport',
       missed_activity: 'generateMissedActivityReport',
     };
     let reportData;
@@ -213,6 +218,7 @@ class AutoEmailService {
       monthly_feedback: 'generateMonthlyFeedbackSummary', monthly_billing: 'generateMonthlyBillingReport',
       monthly_penalty: 'generateMonthlyPenaltyReport',
       monthly_performance: 'generateMonthlyPerformanceReport',
+      monthly_petty_issue: 'generateMonthlyPettyIssueReport',
     };
     let reportData;
     try {
