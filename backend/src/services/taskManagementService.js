@@ -358,6 +358,61 @@ class TaskManagementService {
       throw new ValidationError(`Task cannot be started. Current status: ${task.status}`);
     }
 
+    // ─── Activities picked before start (station-cleaning only) ─────────────
+    // Auto-generated tasks carry no activities. The supervisor chooses one or
+    // more before starting; they are recorded on THIS single task document —
+    // never expanded into multiple task records. Scope: a task may only be
+    // started with activities when its station has an active station-cleaning
+    // contract, so this flow never touches any other contract type.
+    const rawActivities = data.activities || data.activityIds || [];
+    const hasExistingActivities = (
+      (Array.isArray(task.taskActivities) && task.taskActivities.length > 0) ||
+      Boolean(task.taskTypeId)
+    );
+    let taskActivities = null;
+    if (rawActivities.length > 0) {
+      const contract = await this._getActiveStationCleaningContract(task.stationId || '');
+      if (!contract.uid) {
+        throw new ForbiddenError('Activities can only be set for station-cleaning tasks');
+      }
+      const normalized = [];
+      for (const entry of rawActivities) {
+        if (!entry) continue;
+        if (typeof entry === 'string') {
+          normalized.push({ id: entry });
+        } else {
+          normalized.push({
+            id: entry.id || entry.uid || '',
+            name: entry.name || '',
+            label: entry.label || entry.name || entry.label || '',
+          });
+        }
+      }
+      const resolved = [];
+      for (const item of normalized) {
+        if (!item.id) continue;
+        const tid = String(item.id);
+        const typeDoc = await db.collection('taskTypes').doc(tid).get();
+        if (typeDoc.exists) {
+          const td = typeDoc.data();
+          resolved.push({
+            id: tid,
+            name: td.name || item.name || '',
+            label: td.label || td.name || item.label || item.name || '',
+          });
+        } else if (item.name || item.label) {
+          resolved.push({ id: tid, name: item.name || item.label || '', label: item.label || item.name || '' });
+        }
+      }
+      if (resolved.length === 0) {
+        throw new ValidationError('Provide at least one valid activity before starting the task');
+      }
+      taskActivities = resolved;
+    } else if (!hasExistingActivities) {
+      throw new ValidationError('Select at least one activity before starting the task');
+    }
+
+    const primary = taskActivities ? taskActivities[0] : null;
     const updates = {
       status: 'in_progress',
       startedAt: new Date().toISOString(),
@@ -367,6 +422,12 @@ class TaskManagementService {
       updatedAt: new Date().toISOString(),
       startedBy: user.uid
     };
+    if (taskActivities) {
+      updates.taskActivities = taskActivities;
+      updates.activityType = primary.label || updates.activityType || 'Cleaning';
+      updates.taskTypeId = primary.id || null;
+      updates.taskTypeName = primary.name || null;
+    }
     await ref.update(updates);
     const warning = await this._shiftWarning(task, user.uid);
     return warning ? { message: 'Task started', taskId, ...warning } : { message: 'Task started', taskId };

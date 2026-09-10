@@ -6,11 +6,36 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
+import 'package:crm_train/repositories/task_type_repository.dart';
+import 'package:crm_train/model/task_type_model.dart';
 import 'package:crm_train/repositories/worker_repo.dart';
 import 'package:crm_train/helper/api_error_handler.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'workers/worker_management_screen.dart';
 import 'shift_summary_screen.dart';
+
+const List<Map<String, String>> _defaultCleaningActivities = [
+  {'name': 'sweeping', 'label': 'Sweeping'},
+  {'name': 'mopping', 'label': 'Mopping'},
+  {'name': 'washing', 'label': 'Washing'},
+  {'name': 'rag_picking', 'label': 'Rag Picking'},
+  {'name': 'garbage_collection', 'label': 'Garbage Collection'},
+  {'name': 'garbage_disposal', 'label': 'Garbage Disposal'},
+  {'name': 'drain_cleaning', 'label': 'Drain Cleaning'},
+  {'name': 'consumable_refill', 'label': 'Consumable Refill'},
+  {'name': 'cobweb_removal', 'label': 'Cobweb Removal'},
+  {'name': 'deep_cleaning', 'label': 'Deep Cleaning'},
+];
+
+List<TaskType> get _defaultCleaningActivitiesFallback => _defaultCleaningActivities
+    .map((a) => TaskType(
+          uid: a['name']!,
+          name: a['name']!,
+          label: a['label']!,
+          createdAt: '',
+          updatedAt: '',
+        ))
+    .toList();
 
 class SupervisorTaskScreen extends StatefulWidget {
   final String stationId;
@@ -544,12 +569,21 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
   // ─── Task Execution ──────────────────────────────────────────────────────
 
-  Future<void> _startTask(String taskId) async {
+  Future<void> _startTask(String taskId, [Map<String, dynamic>? task]) async {
     if (!_startMarked) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Mark start attendance first'), backgroundColor: kWarningOrange),
       );
       return;
+    }
+
+    final hasActivities = (task?['taskActivities'] is List && (task!['taskActivities'] as List).isNotEmpty) ||
+        (task?['taskTypeId'] != null && (task!['taskTypeId'] as String).isNotEmpty);
+
+    List<Map<String, dynamic>>? picked;
+    if (!hasActivities) {
+      picked = await _showActivityPicker(context);
+      if (picked == null) return; // cancelled
     }
 
     try {
@@ -568,6 +602,13 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
       final body = <String, dynamic>{};
       if (lat != null) { body['gpsLat'] = lat; body['gpsLng'] = lng; }
+      if (picked != null && picked.isNotEmpty) {
+        body['activities'] = picked.map((a) => {
+          'uid': a['uid'],
+          'name': a['name'],
+          'label': a['label'],
+        }).toList();
+      }
 
       final response = await http.post(
         Uri.parse('${ApiService.baseUrl}/api/tasks-v2/$taskId/start'),
@@ -586,6 +627,103 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: kErrorRed));
       }
     }
+  }
+
+  Future<List<Map<String, dynamic>>?> _showActivityPicker(BuildContext context) async {
+    List<TaskType> taskTypes = [];
+    bool loading = true;
+    try {
+      final loaded = await TaskTypeRepository.list(category: 'cleaning', isActive: true);
+      taskTypes = loaded.isNotEmpty ? loaded : _defaultCleaningActivitiesFallback;
+    } catch (_) {
+      taskTypes = _defaultCleaningActivitiesFallback;
+    }
+    loading = false;
+
+    if (!mounted) return null;
+    final selected = <String>{};
+    final result = await showModalBottomSheet<Map<String, dynamic>?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setSheetState) {
+            return Container(
+              height: MediaQuery.of(sheetCtx).size.height * 0.72,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.cleaning_services, color: kRailwayBlue),
+                      const SizedBox(width: 8),
+                      const Text('Select Activities', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(sheetCtx, null),
+                      ),
+                    ],
+                  ),
+                  const Text('Choose the activities performed for this task. You can pick more than one.',
+                      style: TextStyle(fontSize: 12, color: Colors.black54)),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView(
+                            children: taskTypes.map((tt) {
+                              return CheckboxListTile(
+                                dense: true,
+                                controlAffinity: ListTileControlAffinity.leading,
+                                title: Text(tt.label.isNotEmpty ? tt.label : tt.name, style: const TextStyle(fontSize: 14)),
+                                value: selected.contains(tt.uid),
+                                onChanged: (v) => setSheetState(() {
+                                  if (v == true) {
+                                    selected.add(tt.uid);
+                                  } else {
+                                    selected.remove(tt.uid);
+                                  }
+                                }),
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.play_arrow),
+                      label: Text('Start Task${selected.isEmpty ? '' : ' (${selected.length})'}'),
+                      onPressed: selected.isEmpty
+                          ? null
+                          : () {
+                              final pickedList = taskTypes
+                                  .where((tt) => selected.contains(tt.uid))
+                                  .map((tt) => {'uid': tt.uid, 'name': tt.name, 'label': tt.label})
+                                  .toList();
+                              Navigator.pop(sheetCtx, {'activities': pickedList});
+                            },
+                      style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null || result['activities'] == null) return null;
+    return (result['activities'] as List).cast<Map<String, dynamic>>();
   }
 
   void _showCompleteSheet(String taskId) {
@@ -837,7 +975,10 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
     final status = t['status'] ?? 'pending';
     final isOverdue = t['isOverdue'] == true;
     final areaName = t['areaName'] ?? '';
-    final activityName = t['activityType'] ?? t['taskTypeName'] ?? 'Cleaning';
+    final rawActivities = t['taskActivities'];
+    final activityName = (rawActivities is List && rawActivities.isNotEmpty)
+        ? (rawActivities.map((a) => (a is Map && a['label'] != null && a['label'].toString().isNotEmpty) ? a['label'] : (a is Map ? a['name'] ?? a['label'] ?? '' : a.toString())).toList().join(', '))
+        : t['activityType'] ?? t['taskTypeName'] ?? 'Cleaning';
     final time = t['scheduledTime'] ?? '--:--';
     final workerName = t['workerName'] ?? '';
     final taskId = t['uid'] ?? t['id'];
@@ -904,7 +1045,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
                   ElevatedButton.icon(
                     icon: const Icon(Icons.play_arrow, size: 16),
                     label: const Text('Start'),
-                    onPressed: () => _startTask(taskId),
+                    onPressed: () => _startTask(taskId, t),
                   ),
                 if (status == 'in_progress')
                   ElevatedButton.icon(
