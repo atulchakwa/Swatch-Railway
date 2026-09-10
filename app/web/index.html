@@ -34,18 +34,10 @@
 </head>
 <body>
   <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
+    Custom bootstrapping is configured in "web/flutter_bootstrap.js" (serves a
+    local CanvasKit from /canvaskit/ so no CDN is contacted).
+    See: https://docs.flutter.dev/development/platform-integration/web/initialization
   -->
-  <script>
-    window.flutterConfiguration = {
-      canvasKitBaseUrl: "/canvaskit/",
-    };
-  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
