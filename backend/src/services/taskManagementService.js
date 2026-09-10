@@ -1070,13 +1070,50 @@ class TaskManagementService {
         return { taskRef, task };
       };
 
-      const processWorker = (workerInfo) => {
+      // For station-cleaning contracts, resolve each slot's supervisor from
+      // stationSupervisorShifts so night/evening tasks go to the correct
+      // shift supervisor rather than all going to the same one. Mirrors the
+      // auto-generator's pickSupervisorForSlot: only RECORDED shifts claim a
+      // supervisor (supervisors who never recorded a shift must not hijack
+      // another supervisor's window), and the primary/morning supervisor is
+      // the fallback for unrecorded morning slots.
+      let slotSupervisorResolver = null;
+      const isStationCleaning = stationCleaningContractByStation.has(areaData.stationId || '');
+      if (isStationCleaning) {
+        const contractId = stationCleaningContractByStation.get(areaData.stationId || '');
+        const supMap = await this._stationSupervisorShifts(contractId, areaData.stationId || '');
+        const byRecordedShift = new Map();
+        for (const sup of supMap.values()) {
+          if (!sup.recorded) continue;
+          if (!byRecordedShift.has(sup.shift)) byRecordedShift.set(sup.shift, sup);
+        }
+        const primaryKey = assignedSupervisorId || data.supervisorId || '';
+        const primarySupervisor = supMap.get(primaryKey) || supMap.values().next().value || null;
+        slotSupervisorResolver = (scheduledTime) => {
+          if (supMap.size === 0) return null;
+          const slotShift = this._shiftForTime(scheduledTime) || 'morning';
+          return byRecordedShift.get(slotShift)
+            || (slotShift === 'morning' ? (supMap.get(primaryKey) || supMap.values().next().value) : null)
+            || null;
+        };
+      }
+
+      const processWorker = (workerInfo, resolver) => {
         for (const scheduledTime of timesToUse) {
+          const slotSup = resolver ? resolver(scheduledTime) : null;
+          const effectiveWorker = slotSup ? {
+            ...workerInfo,
+            workerId: slotSup.uid,
+            workerName: slotSup.fullName || workerInfo.workerName,
+            supervisorId: slotSup.uid,
+            supervisorName: slotSup.fullName || workerInfo.supervisorName,
+            shift: this._shiftForTime(scheduledTime) || workerInfo.shift || 'morning',
+          } : workerInfo;
           for (const zoneInfo of targetZones) {
             for (const activity of taskActivities) {
-              const dupKey = `${areaId}|${workerInfo.workerId}|${scheduledTime}|${activity ? (activity.id || 'default') : 'default'}`;
+              const dupKey = `${areaId}|${effectiveWorker.workerId}|${scheduledTime}|${activity ? (activity.id || 'default') : 'default'}`;
               if (existingTaskKeys.has(dupKey)) continue;
-              const { taskRef, task } = buildTask(workerInfo, zoneInfo, scheduledTime, activity);
+              const { taskRef, task } = buildTask(effectiveWorker, zoneInfo, scheduledTime, activity);
               batch.set(taskRef, task);
               allTaskIds.push(taskRef.id);
               batchCount++;
@@ -1134,7 +1171,7 @@ class TaskManagementService {
           supervisorId: supervisorWorkerId,
           supervisorName: supervisorWorkerName,
           shift: genShift || areaData.defaultShift || 'morning',
-        });
+        }, slotSupervisorResolver);
       } else if (workersSnap && workersSnap.size > 0) {
         workersSnap.forEach(workerDoc => {
           const assignment = workerDoc.data();
@@ -1158,7 +1195,7 @@ class TaskManagementService {
           supervisorId: assignedSupervisorId,
           supervisorName: assignedSupervisorName || '',
           shift: genShift || areaData.defaultShift || 'morning',
-        });
+        }, slotSupervisorResolver);
       }
 
       if (batchCount > 0) {
