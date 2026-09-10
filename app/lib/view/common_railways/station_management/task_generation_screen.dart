@@ -916,11 +916,6 @@ int _defaultFrequencyForArea(StationArea area) {
                     label: Text('Occurrences'),
                     icon: Icon(Icons.repeat, size: 18),
                   ),
-                  ButtonSegment(
-                    value: true,
-                    label: Text('By Frequency'),
-                    icon: Icon(Icons.auto_awesome, size: 18),
-                  ),
                 ],
                 selected: {_byFrequency},
                 onSelectionChanged: (v) => setState(() => _byFrequency = v.first),
@@ -932,9 +927,7 @@ int _defaultFrequencyForArea(StationArea area) {
             ),
             const SizedBox(height: 8),
             Text(
-              _byFrequency
-                  ? 'Tasks follow each area\u2019s configured cleaning frequency and times automatically.'
-                  : 'Set how many occurrences to schedule today per area and the activities to perform.',
+              'Set how many occurrences to schedule today per area and the activities to perform.',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ],
