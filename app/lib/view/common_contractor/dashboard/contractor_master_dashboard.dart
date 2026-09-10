@@ -33,7 +33,6 @@ import '../../common_railways/attendance/attendance_exception_dashboard.dart';
 import '../../common_railways/ratings/admin_ratings_screen.dart';
 import '../../common_railways/station_management/area_list_screen.dart';
 import '../../common_railways/station_management/task_generation_screen.dart';
-import '../../common_railways/station_management/task_approval_screen.dart';
 import '../../common_railways/station_management/machine_master_list_screen.dart';
 import '../../common_railways/station_management/material_list_screen.dart';
 import '../../common_railways/station_management/area_performance_dashboard.dart';
@@ -361,7 +360,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Dashboard", "route": "sc_dashboard"},
           {"title": "Area Management", "route": "sc_areas"},
           {"title": "Generate Tasks", "route": "sc_generate_tasks"},
-          {"title": "Task Approval", "route": "sc_approval"},
           {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval"},
           {"title": "Machines", "route": "sc_machines"},
           {"title": "Materials", "route": "sc_materials"},
@@ -525,9 +523,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "sc_generate_tasks":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const TaskGenerationScreen()));
-        break;
-      case "sc_approval":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const TaskApprovalScreen()));
         break;
       case "sc_machines":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const MachineMasterListScreen()));

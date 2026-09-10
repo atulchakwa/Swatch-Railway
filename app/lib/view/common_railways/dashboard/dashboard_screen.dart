@@ -41,7 +41,6 @@ import '../widgets/status_tile.dart';
 import '../attendance/attendance_exception_dashboard.dart';
 import '../station_management/area_list_screen.dart';
 import '../station_management/task_generation_screen.dart';
-import '../station_management/task_approval_screen.dart';
 import '../../station_cleaning/shift_summary_approval_screen.dart';
 import '../../station_cleaning/reporting/report_list_screen.dart';
 import '../station_management/machine_master_list_screen.dart';
@@ -489,7 +488,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
           {"title": "Dashboard", "route": "sc_dashboard", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]},
           {"title": "Area Management", "route": "sc_areas", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
           {"title": "Generate Tasks", "route": "sc_generate_tasks", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]},
-          {"title": "Task Approval", "route": "sc_approval", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector"]},
           {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval", "roles": ["Super Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector", "Contractor Admin"]},
           {"title": "Machines", "route": "sc_machines", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
           {"title": "Materials", "route": "sc_materials", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
@@ -692,9 +690,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
         break;
       case "sc_generate_tasks":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const TaskGenerationScreen()));
-        break;
-      case "sc_approval":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const TaskApprovalScreen()));
         break;
       case "sc_shift_summary_approval": {
         final authProvider = Provider.of<AuthProvider>(context, listen: false);

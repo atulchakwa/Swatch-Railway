@@ -228,24 +228,6 @@ class AreaCleaningRepository {
     );
   }
 
-  static Future<CleaningTask> approveTask(String taskId, {String? remarks}) async {
-    return await _apiCall(
-      method: 'POST',
-      path: '/api/tasks-v2/$taskId/approve',
-      body: {if (remarks != null) 'remarks': remarks},
-      parser: (data) => CleaningTask.fromJson(data),
-    );
-  }
-
-  static Future<CleaningTask> rejectTask(String taskId, {required String reason, String? remarks}) async {
-    return await _apiCall(
-      method: 'POST',
-      path: '/api/tasks-v2/$taskId/reject',
-      body: {'reason': reason, if (remarks != null) 'remarks': remarks},
-      parser: (data) => CleaningTask.fromJson(data),
-    );
-  }
-
   static Future<List<CleaningTask>> getWorkerTasks(String workerId, {String? date}) async {
     final queryParams = <String, String>{'workerId': workerId};
     if (date != null) queryParams['date'] = date;
@@ -253,22 +235,6 @@ class AreaCleaningRepository {
     final result = await _apiCall(
       method: 'GET',
       path: '/api/tasks-v2/worker',
-      queryParams: queryParams,
-      parser: (data) {
-        final list = data['tasks'] as List<dynamic>? ?? [];
-        return list.map<CleaningTask>((e) => CleaningTask.fromJson(e as Map<String, dynamic>)).toList();
-      },
-    );
-    return result;
-  }
-
-  static Future<List<CleaningTask>> getPendingReviewTasks(String? supervisorId) async {
-    final queryParams = <String, String>{'status': 'completed'};
-    if (supervisorId != null) queryParams['supervisorId'] = supervisorId;
-
-    final result = await _apiCall(
-      method: 'GET',
-      path: '/api/tasks-v2/pending-review',
       queryParams: queryParams,
       parser: (data) {
         final list = data['tasks'] as List<dynamic>? ?? [];

@@ -598,66 +598,6 @@ class TaskManagementService {
     return { message: 'Task assigned', taskId };
   }
 
-  async approveTask(taskId, data, user) {
-    const ref = db.collection('cleaningTasks').doc(taskId);
-    const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Task not found');
-    const task = doc.data();
-    if (task.status !== 'completed' && task.status !== 'resubmitted') {
-      throw new ValidationError('Only completed or resubmitted tasks can be approved');
-    }
-
-    await ref.update({
-      status: 'approved',
-      approvedAt: new Date().toISOString(),
-      approvedBy: user.uid,
-      approvedByName: user.fullName || user.name || 'Unknown',
-      supervisorNotes: data.remarks || '',
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task approved', taskId };
-  }
-
-  async rejectTask(taskId, data, user) {
-    const reason = data.reason || data;
-    if (!reason || (typeof reason === 'string' && reason.trim() === '')) {
-      throw new ValidationError('Rejection reason is required');
-    }
-    const ref = db.collection('cleaningTasks').doc(taskId);
-    const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Task not found');
-    const task = doc.data();
-    if (task.status !== 'completed' && task.status !== 'resubmitted') {
-      throw new ValidationError('Only completed or resubmitted tasks can be rejected');
-    }
-
-    await ref.update({
-      status: 'rejected',
-      rejectedAt: new Date().toISOString(),
-      rejectedBy: user.uid,
-      rejectedByName: user.fullName || user.name || 'Unknown',
-      rejectionReason: typeof reason === 'string' ? reason : reason.reason || '',
-      supervisorNotes: data.remarks || '',
-      updatedAt: new Date().toISOString()
-    });
-    return { message: 'Task rejected', taskId };
-  }
-
-  async getPendingReviewTasks(supervisorId, stationId) {
-    const snapshot = await db.collection('cleaningTasks')
-      .orderBy('updatedAt', 'desc').limit(300).get();
-    let tasks = [];
-    snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
-    tasks = tasks.filter(t => t.status === 'completed' || t.status === 'resubmitted');
-    if (supervisorId) {
-      tasks = tasks.filter(t => t.supervisorId === supervisorId);
-    }
-    if (stationId) {
-      tasks = tasks.filter(t => t.stationId === stationId);
-    }
-    return { count: tasks.length, tasks };
-  }
-
   async getWorkerTasks(workerId, date) {
     if (!workerId) throw new ValidationError('workerId is required');
     let q = db.collection('cleaningTasks').where('workerId', '==', workerId);

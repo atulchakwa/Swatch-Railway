@@ -26,7 +26,6 @@ import 'area_config/area_config_screen.dart';
 import 'zone/station_zones_screen.dart';
 import 'contractor/contractor_mapping_screen.dart';
 import 'worker_tasks/worker_task_view_screen.dart';
-import 'supervisor_review/supervisor_review_screen.dart';
 import 'execution/cs_field_execution_screen.dart';
 import 'supervisor_log/supervisor_daily_log_screen.dart';
 import 'hierarchical_dashboard/hierarchical_dashboard_screen.dart';
@@ -34,7 +33,6 @@ import 'workforce/workforce_deployment_screen.dart';
 import '../common_railways/station_management/qr_code_screen.dart';
 import '../common_railways/station_management/worker_checkin_screen.dart';
 import '../common_railways/station_management/task_generation_screen.dart';
-import '../common_railways/station_management/task_approval_screen.dart';
 import '../common_railways/station_management/area_performance_dashboard.dart';
 import '../common_railways/station_management/area_comparison_screen.dart';
 import '../common_railways/station_management/area_assignment_screen.dart';
@@ -118,17 +116,17 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       case 'RAILWAY_MASTER':
         return {0, 1, 8, 9, 15, 16, 23, 24, 29, 30, 31, 35, 36};
       case 'RAILWAY_ADMIN':
-        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37};
+        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37};
       case 'RAILWAY_INSPECTOR':
         return {15, 35};
       case 'RAILWAY_SUPERVISOR':
-        return {0, 1, 14, 15, 22, 28, 30, 31, 35, 36};
+        return {0, 1, 14, 15, 28, 30, 31, 35, 36};
       case 'COMPANY_MASTER':
         return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36, 37};
       case 'CONTRACTOR_MASTER':
         return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36};
       case 'CONTRACTOR_ADMIN':
-        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37};
+        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37};
       case 'CONTRACTOR_SUPERVISOR':
         return {0, 1, 9, 11, 30, 32, 33, 34};
       case 'WORKER':
@@ -137,7 +135,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       case 'ATTENDANT':
         return {0, 1, 14, 20, 30};
       default:
-        return {0, 1, 5, 8, 9, 15, 21, 22, 29, 30, 31, 36, 37};
+        return {0, 1, 5, 8, 9, 15, 21, 29, 30, 31, 36, 37};
     }
   }
 
@@ -169,7 +167,6 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.qr_code, 'QR\nGenerator', Colors.indigo, () => _openQRGenerator(context)),        // 19
       _moduleCard(context, Icons.login, 'Check-in', kSuccessGreen, () => _openCheckin(context)),                  // 20
       _moduleCard(context, Icons.auto_awesome, 'Task\nGen', Colors.deepPurple, () => _openTaskGen(context)),       // 21
-      _moduleCard(context, Icons.rate_review_outlined, 'Task\nApproval', kWarningOrange, () => _openTaskApproval(context)), // 22
       _moduleCard(context, Icons.speed, 'Area\nPerf.', kRailwayBlue, () => _openAreaPerformance(context)),         // 23
       _moduleCard(context, Icons.compare_arrows, 'Area\nCompare', Colors.teal, () => _openAreaComparison(context)),// 24
       _moduleCard(context, Icons.people, 'Area\nAssign', Colors.blueGrey, () => _openAreaAssignment(context)),     // 25
@@ -482,10 +479,6 @@ child: Column(
     Navigator.push(context, MaterialPageRoute(builder: (_) => const SupervisorDailyLogScreen()));
   }
 
-  void _openSupervisorReview(BuildContext context) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => SupervisorReviewScreen(stationId: _selectedStationId)));
-  }
-
   void _openInspection(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => InspectionListScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
   }
@@ -512,10 +505,6 @@ child: Column(
 
   void _openTaskGen(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => TaskGenerationScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
-  }
-
-  void _openTaskApproval(BuildContext context) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => TaskApprovalScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
   }
 
   void _openAreaPerformance(BuildContext context) {
