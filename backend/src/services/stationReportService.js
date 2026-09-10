@@ -244,13 +244,11 @@ class StationReportService {
     // so we enrich each supervisor's attendance with the activities they did.
     const tasksBySupervisor = {};
     try {
-      const taskQ = endDate
-        ? db.collection('cleaningTasks').where('stationId', '==', stationId)
-            .where('scheduledDate', '>=', date).where('scheduledDate', '<=', rangeEnd)
-        : db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date);
-      const taskSnap = await taskQ.get();
+      const taskSnap = await db.collection('cleaningTasks').where('stationId', '==', stationId).get();
       taskSnap.forEach(d => {
         const t = d.data();
+        const d2 = t.scheduledDate || t.date || '';
+        if (d2 < date || d2 > rangeEnd) return;
         const supId = t.supervisorId || '';
         if (!supId) return;
         if (!tasksBySupervisor[supId]) tasksBySupervisor[supId] = [];
@@ -297,12 +295,16 @@ class StationReportService {
   async generateDailyActivityReport(stationId, date, user, endDate = null) {
     const stationName = await this._getStationName(stationId);
     const rangeEnd = endDate || date;
-    const base = db.collection('cleaningTasks').where('stationId', '==', stationId);
-    const q = endDate
-      ? base.where('scheduledDate', '>=', date).where('scheduledDate', '<=', rangeEnd)
-      : base.where('scheduledDate', '==', date);
-    const snap = await q.get();
-    const records = snap.docs.map(d => d.data());
+    // Fetch by stationId and filter the date range in memory. Using chained
+    // where() clauses on scheduledDate would need a Firestore composite index
+    // (stationId, scheduledDate) for range queries, which isn't deployed.
+    const snap = await db.collection('cleaningTasks').where('stationId', '==', stationId).get();
+    const records = [];
+    snap.forEach(d => {
+      const r = d.data();
+      const d2 = r.scheduledDate || r.date || '';
+      if (d2 >= date && d2 <= rangeEnd) records.push(r);
+    });
     const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
     const completed = records.filter(r => r.status === 'completed' || r.status === 'approved').length;
     const pending = records.filter(r => r.status === 'pending' || r.status === 'assigned').length;
@@ -471,15 +473,14 @@ class StationReportService {
     // Overdue clearing tasks: pending/assigned tasks whose scheduled time has passed.
     let overdueTasks = [];
     try {
-      const taskQ = endDate
-        ? db.collection('cleaningTasks').where('stationId', '==', stationId)
-            .where('scheduledDate', '>=', date).where('scheduledDate', '<=', rangeEnd)
-        : db.collection('cleaningTasks').where('stationId', '==', stationId).where('scheduledDate', '==', date);
-      const taskSnap = await taskQ.get();
+      const taskSnap = await db.collection('cleaningTasks').where('stationId', '==', stationId).get();
       const nowHm = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
       taskSnap.forEach(d => {
         const t = d.data();
-        if ((t.status === 'pending' || t.status === 'assigned') && t.scheduledTime && t.scheduledTime <= nowHm) {
+        const d2 = t.scheduledDate || t.date || '';
+        if (d2 < date || d2 > rangeEnd) return;
+        if (!(t.status === 'pending' || t.status === 'assigned')) return;
+        if (t.scheduledTime && t.scheduledTime <= nowHm) {
           overdueTasks.push({
             taskId: t.uid, area: t.areaName || t.areaId || '',
             activity: t.taskTypeName || t.activityType || 'Cleaning',
