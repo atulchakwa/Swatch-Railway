@@ -40,6 +40,7 @@ import '../common_railways/station_management/area_comparison_screen.dart';
 import '../common_railways/station_management/area_assignment_screen.dart';
 import '../common_railways/station_management/platform_list_screen.dart';
 import '../common_railways/station_management/frequency_list_screen.dart';
+import '../common_railways/station_management/supervisor_shift_assignment_screen.dart';
 import '../../repositories/station_run_repository.dart';
 import '../../repositories/station_cleaning_repository.dart';
 import '../../model/station_run_model.dart';
@@ -117,17 +118,17 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       case 'RAILWAY_MASTER':
         return {0, 1, 8, 9, 15, 16, 23, 24, 29, 30, 31, 35, 36};
       case 'RAILWAY_ADMIN':
-        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36};
+        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37};
       case 'RAILWAY_INSPECTOR':
         return {15, 35};
       case 'RAILWAY_SUPERVISOR':
         return {0, 1, 14, 15, 22, 28, 30, 31, 35, 36};
       case 'COMPANY_MASTER':
-        return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36};
+        return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36, 37};
       case 'CONTRACTOR_MASTER':
         return {0, 1, 8, 9, 15, 18, 30, 31, 35, 36};
       case 'CONTRACTOR_ADMIN':
-        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36};
+        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37};
       case 'CONTRACTOR_SUPERVISOR':
         return {0, 1, 9, 11, 30, 32, 33, 34};
       case 'WORKER':
@@ -136,7 +137,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       case 'ATTENDANT':
         return {0, 1, 14, 20, 30};
       default:
-        return {0, 1, 5, 8, 9, 15, 21, 22, 29, 30, 31, 36};
+        return {0, 1, 5, 8, 9, 15, 21, 22, 29, 30, 31, 36, 37};
     }
   }
 
@@ -183,6 +184,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.camera_alt, 'Field\nWork', Colors.deepOrange, () => _openFieldWork(context)),     // 34
       _moduleCard(context, Icons.approval, 'Shift\nSummary', Colors.teal.shade700, () => _openShiftSummaryApproval(context)), // 35
       _moduleCard(context, Icons.badge, 'Supervisor\nAttendance', Colors.indigo.shade700, () => _openSupervisorAttendance(context)), // 36
+      _moduleCard(context, Icons.watch_later, 'Supervisor\nShifts', Colors.teal, () => _openSupervisorShifts(context)),          // 37
     ];
 
     final cards = <Widget>[];
@@ -562,5 +564,12 @@ child: Column(
 
   void _openShiftSummaryApproval(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => ShiftSummaryApprovalScreen(stationId: _selectedStationId)));
+  }
+
+  void _openSupervisorShifts(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => SupervisorShiftAssignmentScreen(
+      stationId: _selectedStationId,
+      stationName: _selectedStationName,
+    )));
   }
 }

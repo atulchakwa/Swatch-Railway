@@ -318,6 +318,33 @@ static Future<Map<String, dynamic>> getFrequencyStatus({required String date, re
     );
   }
 
+  // ─── Supervisor Shift Assignment (station-cleaning only) ───
+
+  static Future<List<SupervisorShift>> getSupervisorShifts({required String stationId}) async {
+    return await _apiCall(
+      method: 'GET',
+      path: '/api/station-cleaning/supervisor-shifts',
+      queryParams: {'stationId': stationId},
+      parser: (data) {
+        final list = data['supervisors'] as List<dynamic>? ?? [];
+        return list.map((e) => SupervisorShift.fromJson(e as Map<String, dynamic>)).toList();
+      },
+    );
+  }
+
+  static Future<Map<String, dynamic>> assignSupervisorShift({
+    required String supervisorId,
+    required String shift,
+    required String stationId,
+  }) async {
+    return await _apiCall(
+      method: 'PUT',
+      path: '/api/station-cleaning/supervisor-shifts/$supervisorId',
+      body: {'shift': shift, 'stationId': stationId},
+      parser: (data) => data,
+    );
+  }
+
   // ─── Dashboards (5-level) ───
 
   static Future<AdminDashboard> getAdminDashboard() async {

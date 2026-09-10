@@ -132,6 +132,10 @@ router.get('/api/station-cleaning/workers/:uid', verifyToken, requirePermission(
 router.put('/api/station-cleaning/workers/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_WORKFORCE), stationCleaning.updateWorker);
 router.delete('/api/station-cleaning/workers/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_WORKFORCE), stationCleaning.deleteWorker);
 
+// ─── Supervisor Shift Assignment (station-cleaning only) ─────────────────
+router.get('/api/station-cleaning/supervisor-shifts', verifyToken, requirePermission(PERMISSIONS.VIEW_SHIFTS), requireStationAccess, stationCleaning.getSupervisorShifts);
+router.put('/api/station-cleaning/supervisor-shifts/:supervisorId', verifyToken, requirePermission(PERMISSIONS.ASSIGN_SHIFT), requireStationAccess, stationCleaning.assignSupervisorShift);
+
 // ─── Cleaning Submissions (proof of work) ──────────────────────────────────
 router.post('/api/station-cleaning/submissions', verifyToken, requirePermission(PERMISSIONS.SUBMIT_TASKS), stationCleaning.createSubmission);
 router.get('/api/station-cleaning/submissions/my', verifyToken, requirePermission(PERMISSIONS.VIEW_SUBMISSIONS), stationCleaning.listMySubmissions);

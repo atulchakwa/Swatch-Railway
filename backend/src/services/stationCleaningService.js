@@ -1614,6 +1614,113 @@ class StationCleaningService {
     return { id: doc.id, ...doc.data() };
   }
 
+  // ─── Supervisor Shift Assignment (station-cleaning only) ──────────────────
+  // The active station-cleaning contract for a station, or null when there is
+  // none. This is what keeps the whole feature isolated: supervisors are only
+  // ever listed/assigned under this exact contract.
+  async _getActiveStationCleaningContract(stationId) {
+    if (!stationId) return null;
+    const snap = await db.collection('contracts')
+      .where('contractType', '==', 'station_cleaning')
+      .where('stationIds', 'array-contains', stationId)
+      .limit(10)
+      .get();
+    if (snap.empty) return null;
+    const active = snap.docs.find(d => {
+      const s = String(d.data().status || '').toLowerCase();
+      return s === 'active' || s === 'approved' || s === 'running' || s === 'ongoing' || s === '';
+    });
+    if (!active) return null;
+    const d = active.data();
+    return { uid: active.id, entityId: d.entityId || '', contractType: d.contractType };
+  }
+
+  // Contract-cleaning supervisors for a station belonging to the station-cleaning
+  // contract, each enriched with their assigned shift (defaults 'morning').
+  async getSupervisorShifts(stationIdParam, user) {
+    const stationId = this._resolveStationId(stationIdParam, user);
+    const contract = await this._getActiveStationCleaningContract(stationId);
+    if (!contract) return { count: 0, contractId: null, supervisors: [] };
+
+    let q = db.collection('users')
+      .where('contractId', '==', contract.uid)
+      .where('status', '==', 'APPROVED')
+      .limit(200);
+    const snapshot = await q.get();
+    const supervisors = [];
+    for (const doc of snapshot.docs) {
+      const d = doc.data();
+      const role = String(d.role || '').toUpperCase().replace(/\s+/g, '_');
+      if (role !== 'CONTRACTOR_SUPERVISOR') continue;
+      const userStations = d.stations || [];
+      if (!userStations.includes(stationId)) continue;
+      const uid = doc.id;
+      const shiftDoc = await db.collection('stationSupervisorShifts').doc(uid).get();
+      const shift = shiftDoc.exists && shiftDoc.data().shift
+        ? String(shiftDoc.data().shift).toLowerCase()
+        : null;
+      supervisors.push({
+        uid,
+        fullName: d.fullName || '',
+        email: d.email || '',
+        mobile: d.mobile || '',
+        stations: userStations,
+        contractId: contract.uid,
+        contractType: 'station_cleaning',
+        shift,
+      });
+    }
+    supervisors.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
+    return { count: supervisors.length, contractId: contract.uid, supervisors };
+  }
+
+  // Persist a supervisor's shift for the station-cleaning contract. Assigning
+  // 'none' clears the assignment. Validated against the live contract so other
+  // contracts can never be (mis)configured through this endpoint.
+  async assignSupervisorShift(supervisorId, body, user) {
+    const stationId = this._resolveStationId(body?.stationId, user);
+    if (!supervisorId) throw new ValidationError('supervisorId is required');
+    if (!stationId) throw new ValidationError('stationId is required');
+
+    const shift = body?.shift ? String(body.shift).trim().toLowerCase() : 'none';
+    if (!['morning', 'evening', 'night', 'none'].includes(shift)) {
+      throw new ValidationError('shift must be one of: morning, evening, night, none');
+    }
+
+    const contract = await this._getActiveStationCleaningContract(stationId);
+    if (!contract) throw new NotFoundError('No active station-cleaning contract for this station');
+
+    const supDoc = await db.collection('users').doc(supervisorId).get();
+    if (!supDoc.exists) throw new NotFoundError('Supervisor not found');
+    const supData = supDoc.data();
+    const role = String(supData.role || '').toUpperCase().replace(/\s+/g, '_');
+    if (role !== 'CONTRACTOR_SUPERVISOR') throw new ValidationError('User is not a contractor supervisor');
+    if (String(supData.status || '').toUpperCase() !== 'APPROVED') {
+      throw new ValidationError('Only approved supervisors can be assigned a shift');
+    }
+    if (supData.contractId !== contract.uid) {
+      throw new ValidationError('Supervisor does not belong to this station-cleaning contract');
+    }
+    const userStations = supData.stations || [];
+    if (!userStations.includes(stationId)) {
+      throw new ValidationError('Supervisor is not assigned to this station');
+    }
+
+    const ref = db.collection('stationSupervisorShifts').doc(supervisorId);
+    if (shift === 'none') {
+      await ref.delete();
+    } else {
+      await ref.set({
+        shift,
+        stationId,
+        contractId: contract.uid,
+        supervisorName: supData.fullName || '',
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }
+    return { uid: supervisorId, shift: shift === 'none' ? null : shift, stationId };
+  }
+
   // ─── Cleaning Submissions CRUD ─────────────────────────────────────────────
   async createSubmission(body, user) {
     const { stationId, stationName, areaId, areaName, taskTypeId, taskTypeName, beforePhotoUrl, afterPhotoUrl, notes } = body;

@@ -377,6 +377,21 @@ export const getWorker = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+// ─── Supervisor Shift Assignment ───────────────────────────────────────────
+export const getSupervisorShifts = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.getSupervisorShifts(
+    String(req.query.stationId || ''), req.user
+  );
+  res.status(200).json(result);
+});
+
+export const assignSupervisorShift = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.assignSupervisorShift(
+    req.params.supervisorId, req.body, req.user
+  );
+  res.status(200).json(result);
+});
+
 // ─── Cleaning Submissions ────────────────────────────────────────────────
 export const createSubmission = asyncHandler(async (req, res) => {
   const result = await stationCleaningService.createSubmission(req.body, req.user);

@@ -483,3 +483,27 @@ class ZoneSummary {
     stationCount: json['stationCount'] ?? 0,
   );
 }
+
+class SupervisorShift {
+  final String uid;
+  final String fullName;
+  final String email;
+  final String mobile;
+  final String? shift;
+
+  SupervisorShift({
+    required this.uid,
+    this.fullName = '',
+    this.email = '',
+    this.mobile = '',
+    this.shift,
+  });
+
+  factory SupervisorShift.fromJson(Map<String, dynamic> json) => SupervisorShift(
+    uid: json['uid'] ?? '',
+    fullName: json['fullName'] ?? '',
+    email: json['email'] ?? '',
+    mobile: json['mobile'] ?? '',
+    shift: json['shift']?.toString().toLowerCase(),
+  );
+}
