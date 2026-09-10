@@ -296,7 +296,9 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
                 Text('Completed: $_completedTaskCount/$_totalTaskCount',
                     style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                 const Spacer(),
-                if (_startAttendanceMarked && !_midAttendanceMarked && _completedTaskCount >= (_totalTaskCount > 0 ? (_totalTaskCount ~/ 3) : 1))
+                if (_startAttendanceMarked &&
+                    !_midAttendanceMarked &&
+                    _completedTaskCount >= (_totalTaskCount > 0 ? ((_totalTaskCount / 2).ceil()) : 1))
                   Text('Mid attendance available', style: TextStyle(color: Colors.orange[700], fontSize: 11)),
                 if (_midAttendanceMarked && !_endAttendanceMarked && _completedTaskCount >= _totalTaskCount && _totalTaskCount > 0)
                   Text('End attendance available', style: TextStyle(color: Colors.green[700], fontSize: 11)),

@@ -61,8 +61,22 @@ class StationCleaningAttendanceService {
     };
     const todayIST = getISTDateString(new Date());
 
+    // The recorded working shift of a supervisor/worker, mirroring the
+    // shift-scoped task lists the app shows (stationSupervisorShifts doc id ==
+    // user id, same lookup as taskManagementService._getSupervisorShift).
+    const getRecordedShift = async (uid) => {
+      try {
+        const shiftDoc = await db.collection('stationSupervisorShifts').doc(uid).get();
+        if (shiftDoc.exists && shiftDoc.data().shift) {
+          return String(shiftDoc.data().shift).trim().toLowerCase();
+        }
+      } catch (_) { /* keep null */ }
+      return null;
+    };
+
     const getTaskCompletion = async () => {
       try {
+        const ownShift = await getRecordedShift(workerId);
         let query = db.collection('cleaningTasks');
         if (isContractor) {
           query = query.where('supervisorId', '==', workerId);
@@ -72,7 +86,18 @@ class StationCleaningAttendanceService {
         const taskSnap = await query.limit(1000).get();
         const tasks = [];
         taskSnap.forEach(doc => {
-          if (doc.data().date === todayIST) tasks.push(doc.data());
+          const t = doc.data();
+          if (t.date !== todayIST) return;
+          // Cancelled tasks are terminal and never block shifts (the app's
+          // own "Complete All Tasks First" check treats them the same way),
+          // so they must not inflate the completion denominator either.
+          const status = String(t.status || '').toLowerCase();
+          if (status === 'cancelled') return;
+          // Only tasks belonging to the user's recorded shift count — the
+          // app only ever shows those, so the ratios stay aligned.
+          const shift = t.shift ? String(t.shift).trim().toLowerCase() : null;
+          if (ownShift && shift && shift !== ownShift) return;
+          tasks.push(t);
         });
         const doneStatuses = ['completed', 'approved'];
         const completedCount = tasks.filter(t => doneStatuses.includes(t.status)).length;

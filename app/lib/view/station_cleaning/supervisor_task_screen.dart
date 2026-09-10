@@ -563,7 +563,8 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
   // ─── Task Assignment ─────────────────────────────────────────────────────
 
-  bool get _hasCompletedHalf => _tasks.length > 0 && _completedCount >= (_tasks.length / 2).ceil();
+  int get _activeTaskCount => _tasks.where((t) => (t['status'] ?? '').toString().toLowerCase() != 'cancelled').length;
+  bool get _hasCompletedHalf => _activeTaskCount > 0 && _completedCount >= (_activeTaskCount / 2).ceil();
 
   void _handleComplete(Map<String, dynamic> t) {
     if (!_midMarked && _hasCompletedHalf) {
