@@ -45,6 +45,7 @@ class StationReportService {
       db.collection('passenger_feedback').where('stationId', '==', stationId).get(),
     ]);
     const gradeScores = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
+    const gradeLabels = { excellent: 'Excellent', very_good: 'V. Good', good: 'Good', average: 'Average', poor: 'Poor' };
     // Official Railway grading annexure area names (Annexure G, GeM C331/2).
     const sectionNames = {
       floor: 'A. Floor', stairs: 'B. Stairs', wallCladdings: 'C. Wall & Claddings',
@@ -94,6 +95,7 @@ class StationReportService {
             rating: score != null ? score / 2 : toReportScale(r.overallRating),
             category: pk,
             categoryLabel: paramLabels[pk] || pk,
+            gradeLabel: gradeLabels[pval.grade] || pval.grade || '',
             area: sectionNames[sk] || (sk || ''),
             sectionKey: sk,
             grade: pval.grade,
@@ -412,6 +414,7 @@ class StationReportService {
         feedbackComments: dayRecords.map(r => ({
           category: r.categoryLabel || r.category || r.feedbackCategory || 'General',
           area: r.area || '',
+          grade: r.gradeLabel || '',
           rating: r.rating != null ? r.rating : 0,
           comment: r.comment || r.remarks || '',
           status: r.status || 'approved',
@@ -686,7 +689,7 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const catBreakdown = inMonth.reduce((acc, r) => { const c = r.categoryLabel || r.category || 'General'; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_feedback', month, year, date: startDate,
-      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.categoryLabel || r.category || 'General', area: r.area || '', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
+      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.categoryLabel || r.category || 'General', area: r.area || '', grade: r.gradeLabel || '', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
