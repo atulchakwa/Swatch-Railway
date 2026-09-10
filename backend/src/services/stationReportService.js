@@ -45,12 +45,19 @@ class StationReportService {
       db.collection('passenger_feedback').where('stationId', '==', stationId).get(),
     ]);
     const gradeScores = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
-    // Maps the app's section keys (passenger_feedback.sections) to the human
-    // readable area names shown in the report's Passenger Comments & Ratings table.
+    // Official Railway grading annexure area names (Annexure G, GeM C331/2).
     const sectionNames = {
-      floor: 'Floor', stairs: 'Stairs', wallCladdings: 'Wall & Claddings',
-      steelWorks: 'Steel Works', glassWorks: 'Glass Works', escalators: 'Escalators',
-      toilets: 'Toilets',
+      floor: 'A. Floor', stairs: 'B. Stairs', wallCladdings: 'C. Wall & Claddings',
+      steelWorks: 'D. Steel Works', glassWorks: 'E. Glass Works/Finishes',
+      escalators: 'F. Escalators', toilets: 'G. Toilets',
+    };
+    // Official parameter display names.
+    const paramLabels = {
+      shineLevel: 'Shine Level', dustLevel: 'Dust Level', footMarks: 'Foot Marks',
+      panGhutkaStains: 'Pan & Ghutka Stains', birdDroppings: 'Bird Droppings',
+      fingerPalmMarks: 'Finger/Palm Marks', waterHardnessMarks: 'Water Hardness Marks',
+      mirrors: 'Mirrors', washBasins: 'Wash Basins', wcSeats: 'WC Seats',
+      odour: 'Odour',
     };
     // Normalize a stored rating onto the shared 1-5 report scale. Values above 5
     // are treated as 0-10 scores (e.g. passenger scores) and rescaled so the
@@ -86,6 +93,7 @@ class StationReportService {
             ...r,
             rating: score != null ? score / 2 : toReportScale(r.overallRating),
             category: pk,
+            categoryLabel: paramLabels[pk] || pk,
             area: sectionNames[sk] || (sk || ''),
             sectionKey: sk,
             grade: pval.grade,
@@ -98,7 +106,7 @@ class StationReportService {
       }
       const sectionKeys = Object.keys(sections);
       if (!expanded) {
-        records.push({ ...r, rating: toReportScale(r.overallRating), category: 'overall', area: sectionNames[sectionKeys[0]] || (sectionKeys[0] || ''), sectionKey: sectionKeys[0] || '', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
+        records.push({ ...r, rating: toReportScale(r.overallRating), category: 'overall', categoryLabel: 'Overall', area: sectionNames[sectionKeys[0]] || (sectionKeys[0] || ''), sectionKey: sectionKeys[0] || '', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
       }
     });
     return records;
@@ -387,7 +395,7 @@ class StationReportService {
     const avgRating = ratings.length > 0 ? (ratings.reduce((s, v) => s + v, 0) / ratings.length).toFixed(1) : 'N/A';
     const negativeFeedback = dayRecords.filter(r => (r.rating || 0) <= 2);
     const negativeTrends = negativeFeedback.reduce((acc, r) => {
-      const cat = r.category || r.feedbackCategory || 'General';
+      const cat = r.categoryLabel || r.category || r.feedbackCategory || 'General';
       if (!acc[cat]) acc[cat] = { count: 0, comments: [] };
       acc[cat].count++;
       if (r.comment || r.remarks) acc[cat].comments.push(r.comment || r.remarks);
@@ -402,7 +410,7 @@ class StationReportService {
         negativeCount: negativeFeedback.length, negativeRate: dayRecords.length > 0 ? Math.round(negativeFeedback.length / dayRecords.length * 100) : 0,
         negativeTrends: Object.entries(negativeTrends).map(([cat, data]) => ({ category: cat, count: data.count, sampleComments: data.comments.slice(0, 5) })),
         feedbackComments: dayRecords.map(r => ({
-          category: r.category || r.feedbackCategory || 'General',
+          category: r.categoryLabel || r.category || r.feedbackCategory || 'General',
           area: r.area || '',
           rating: r.rating != null ? r.rating : 0,
           comment: r.comment || r.remarks || '',
@@ -675,10 +683,10 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const inMonth = records.filter(r => { const c = r.createdAt || ''; return c >= startDate && c <= endDate + 'T23:59:59'; });
     const ratings = inMonth.filter(r => r.rating).map(r => r.rating);
     const avgRating = ratings.length > 0 ? (ratings.reduce((s, v) => s + v, 0) / ratings.length).toFixed(1) : 'N/A';
-    const catBreakdown = inMonth.reduce((acc, r) => { const c = r.category || 'General'; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
+    const catBreakdown = inMonth.reduce((acc, r) => { const c = r.categoryLabel || r.category || 'General'; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_feedback', month, year, date: startDate,
-      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.category || 'General', area: r.area || '', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
+      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.categoryLabel || r.category || 'General', area: r.area || '', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
