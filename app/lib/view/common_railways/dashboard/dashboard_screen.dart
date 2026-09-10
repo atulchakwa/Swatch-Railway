@@ -47,6 +47,7 @@ import '../../station_cleaning/reporting/report_list_screen.dart';
 import '../station_management/machine_master_list_screen.dart';
 import '../station_management/material_list_screen.dart';
 import '../station_management/area_performance_dashboard.dart';
+import '../station_management/supervisor_shift_assignment_screen.dart';
 import 'package:crm_train/view/common_railways/forms/common_form_screen.dart';
 
 class CommonDashboard extends StatefulWidget {
@@ -492,6 +493,7 @@ class _CommonDashboardState extends State<CommonDashboard> {
           {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval", "roles": ["Super Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector", "Contractor Admin"]},
           {"title": "Machines", "route": "sc_machines", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
           {"title": "Materials", "route": "sc_materials", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
+          {"title": "Supervisor Shifts", "route": "sc_supervisor_shifts", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
         ]
       },
       {
@@ -709,6 +711,18 @@ class _CommonDashboardState extends State<CommonDashboard> {
       case "sc_materials":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const MaterialListScreen()));
         break;
+      case "sc_supervisor_shifts": {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final user = authProvider.currentUser;
+        final stationId = (user?.stationId != null && user!.stationId!.isNotEmpty)
+            ? user.stationId
+            : (user?.stations.isNotEmpty == true ? user!.stations.first : null);
+        Navigator.push(context, MaterialPageRoute(builder: (context) => SupervisorShiftAssignmentScreen(
+          stationId: stationId ?? '',
+          stationName: '',
+        )));
+        break;
+      }
       case "sc_performance":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AreaPerformanceDashboard()));
         break;

@@ -37,6 +37,7 @@ import '../../common_railways/station_management/task_approval_screen.dart';
 import '../../common_railways/station_management/machine_master_list_screen.dart';
 import '../../common_railways/station_management/material_list_screen.dart';
 import '../../common_railways/station_management/area_performance_dashboard.dart';
+import '../../common_railways/station_management/supervisor_shift_assignment_screen.dart';
 import '../../station_cleaning/supervisor_task_screen.dart';
 import '../../station_cleaning/workers/worker_management_screen.dart';
 import '../../station_cleaning/shift_summary_screen.dart';
@@ -366,6 +367,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Materials", "route": "sc_materials"},
           {"title": "Passenger Feedback", "route": "sc_passenger_feedback"},
           {"title": "Supervisor Attendance", "route": "sc_supervisor_attendance"},
+          {"title": "Supervisor Shifts", "route": "sc_supervisor_shifts"},
         ]
       },
       {
@@ -635,6 +637,12 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "sc_supervisor_attendance":
         _navigateWithStation(context, (stationId, stationName) => StationSupervisorAttendanceScreen(
+          stationId: stationId,
+          stationName: stationName,
+        ), user);
+        break;
+      case "sc_supervisor_shifts":
+        _navigateWithStation(context, (stationId, stationName) => SupervisorShiftAssignmentScreen(
           stationId: stationId,
           stationName: stationName,
         ), user);
