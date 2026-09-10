@@ -2921,6 +2921,7 @@ class PDFReportService {
   static const Map<String, Map<String, List<String>>> _reportArrayColumns = {
     'daily_attendance': {
       'records': [
+        'date',
         'supervisor',
         'status',
         'startMarked',
@@ -2931,6 +2932,7 @@ class PDFReportService {
     },
     'daily_activity': {
       'records': [
+        'date',
         'area',
         'activity',
         'shift',
@@ -2942,7 +2944,7 @@ class PDFReportService {
     },
     'daily_feedback': {
       'negativeTrends': ['category', 'count', 'sampleComments'],
-      'feedbackComments': ['category', 'rating', 'comment', 'status', 'date'],
+      'feedbackComments': ['area', 'category', 'rating', 'comment', 'status', 'date'],
     },
     'daily_inspection': {
       'inspections': [
@@ -2968,6 +2970,7 @@ class PDFReportService {
     },
     'missed_activity': {
       'overdueTasks': [
+        'date',
         'taskId',
         'area',
         'activity',
@@ -3014,7 +3017,7 @@ class PDFReportService {
       'scores': ['date', 'score', 'grade'],
     },
     'monthly_feedback': {
-      'feedbackComments': ['category', 'rating', 'comment', 'status', 'date'],
+      'feedbackComments': ['area', 'category', 'rating', 'comment', 'status', 'date'],
     },
     'archive_retrieval': {
       'records': ['collection', 'id', 'type', 'date', 'summary'],
@@ -3141,7 +3144,7 @@ class PDFReportService {
             final records = feedbackEntry.value;
             final keys =
                 mappedColumns ??
-                ['category', 'rating', 'comment', 'status', 'date'];
+                ['area', 'category', 'rating', 'comment', 'status', 'date'];
             widgets.add(pw.SizedBox(height: 6));
             widgets.add(
               _buildSectionHeader(
@@ -3645,7 +3648,28 @@ class PDFReportService {
           : value.map((e) => _formatValue(e)).join('; ');
     }
     if (value is Map) return _formatMap(value);
-    return value.toString();
+    return _formatIdentifier(value.toString());
+  }
+
+  // Renders identifier-like values (statuses, activity/parameter keys, shift
+  // names) as readable title case: pending -> Pending, in_progress -> In
+  // Progress, consumable_refill -> Consumable Refill, panGhutkaStains -> Pan
+  // Ghutka Stains. Free text, dates, times, IDs and mixed values are left as-is.
+  static String _formatIdentifier(String value) {
+    if (value.isEmpty ||
+        value.contains(RegExp(r'[\s\d\-:/\.&,]')) ||
+        RegExp(r'[A-Z][A-Z]').hasMatch(value)) {
+      return value;
+    }
+    final parts = value
+        .split('_')
+        .expand((w) => w
+            .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}')
+            .split(' '))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
+        .join(' ');
+    return parts;
   }
 
   static String _formatMap(Map value) {

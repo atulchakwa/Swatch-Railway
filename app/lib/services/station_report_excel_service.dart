@@ -198,7 +198,7 @@ class StationReportExcelService {
         for (var c = 0; c < keys.length; c++) {
           final cell = s.getRangeByIndex(r, c + 1);
           final v = rec[keys[c]];
-          cell.setText(v is List ? v.toString() : '${v ?? ''}');
+          cell.setText(v is List ? v.toString() : _formatValue(v));
           cell.cellStyle = dataStyle;
           if (r.isEven) cell.cellStyle = altStyle;
         }
@@ -210,7 +210,7 @@ class StationReportExcelService {
         for (final rec in entry.value) {
           if (rec is Map) {
             final v = rec[keys[c]];
-            final txt = v is List ? v.toString() : '${v ?? ''}';
+            final txt = v is List ? v.toString() : _formatValue(v);
             if (txt.length > maxLen) maxLen = txt.length;
           }
         }
@@ -232,5 +232,25 @@ class StationReportExcelService {
     final withSpaces = spaced.replaceAll('_', ' ');
     if (withSpaces.isEmpty) return key;
     return withSpaces[0].toUpperCase() + withSpaces.substring(1);
+  }
+
+  static String _formatValue(dynamic value) {
+    if (value == null) return '';
+    if (value is List) return value.toString();
+    final s = value.toString();
+    if (s.isEmpty ||
+        s.contains(RegExp(r'[\s\d\-:/\.&,]')) ||
+        RegExp(r'[A-Z][A-Z]').hasMatch(s)) {
+      return s;
+    }
+    final parts = s
+        .split('_')
+        .expand((w) => w
+            .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}')
+            .split(' '))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
+        .join(' ');
+    return parts;
   }
 }

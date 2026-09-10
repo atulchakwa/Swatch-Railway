@@ -45,6 +45,13 @@ class StationReportService {
       db.collection('passenger_feedback').where('stationId', '==', stationId).get(),
     ]);
     const gradeScores = { excellent: 10, very_good: 8, good: 6, average: 5, poor: 3 };
+    // Maps the app's section keys (passenger_feedback.sections) to the human
+    // readable area names shown in the report's Passenger Comments & Ratings table.
+    const sectionNames = {
+      floor: 'Floor', stairs: 'Stairs', wallCladdings: 'Wall & Claddings',
+      steelWorks: 'Steel Works', glassWorks: 'Glass Works', escalators: 'Escalators',
+      toilets: 'Toilets',
+    };
     // Normalize a stored rating onto the shared 1-5 report scale. Values above 5
     // are treated as 0-10 scores (e.g. passenger scores) and rescaled so the
     // reports can mix both sources consistently.
@@ -71,7 +78,7 @@ class StationReportService {
       const r = d.data();
       const sections = r.sections || {};
       let expanded = false;
-      for (const sec of Object.values(sections)) {
+      for (const [sk, sec] of Object.entries(sections)) {
         const params = (sec && sec.parameters) || {};
         for (const [pk, pval] of Object.entries(params)) {
           const score = gradeScores[pval.grade];
@@ -79,6 +86,8 @@ class StationReportService {
             ...r,
             rating: score != null ? score / 2 : toReportScale(r.overallRating),
             category: pk,
+            area: sectionNames[sk] || (sk || ''),
+            sectionKey: sk,
             grade: pval.grade,
             status: 'approved',
             comment: pval.remark || r.comments || '',
@@ -87,8 +96,9 @@ class StationReportService {
           expanded = true;
         }
       }
+      const sectionKeys = Object.keys(sections);
       if (!expanded) {
-        records.push({ ...r, rating: toReportScale(r.overallRating), category: 'overall', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
+        records.push({ ...r, rating: toReportScale(r.overallRating), category: 'overall', area: sectionNames[sectionKeys[0]] || (sectionKeys[0] || ''), sectionKey: sectionKeys[0] || '', status: 'approved', comment: r.comments || '', remarks: r.comments || '' });
       }
     });
     return records;
@@ -271,6 +281,7 @@ class StationReportService {
       const end = r.endAttendance || {};
       const st = r.status || r.attendanceStatus || '';
       return {
+        date: r.date || '',
         supervisor: r.workerName || r.workerId || '',
         status: st,
         startMarked: r.isStartMarked ? 'Yes' : 'No',
@@ -314,6 +325,7 @@ class StationReportService {
     const cancelled = records.filter(r => r.status === 'cancelled').length;
     const overdue = records.filter(r => (r.status === 'pending' || r.status === 'assigned') && r.scheduledTime && r.scheduledTime < nowTime).length;
     const reportRecords = records.map(r => ({
+      date: r.scheduledDate || r.date || '',
       area: r.areaName || r.areaId || '',
       activity: r.taskTypeName || r.activityType || 'Cleaning',
       shift: r.shift || '', time: r.scheduledTime || '',
@@ -391,6 +403,7 @@ class StationReportService {
         negativeTrends: Object.entries(negativeTrends).map(([cat, data]) => ({ category: cat, count: data.count, sampleComments: data.comments.slice(0, 5) })),
         feedbackComments: dayRecords.map(r => ({
           category: r.category || r.feedbackCategory || 'General',
+          area: r.area || '',
           rating: r.rating != null ? r.rating : 0,
           comment: r.comment || r.remarks || '',
           status: r.status || 'approved',
@@ -482,7 +495,7 @@ class StationReportService {
         if (!(t.status === 'pending' || t.status === 'assigned')) return;
         if (t.scheduledTime && t.scheduledTime <= nowHm) {
           overdueTasks.push({
-            taskId: t.uid, area: t.areaName || t.areaId || '',
+            taskId: t.uid, date: d2, area: t.areaName || t.areaId || '',
             activity: t.taskTypeName || t.activityType || 'Cleaning',
             shift: t.shift || '', scheduledTime: t.scheduledTime,
             supervisor: t.supervisorName || t.workerName || '',
@@ -665,7 +678,7 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const catBreakdown = inMonth.reduce((acc, r) => { const c = r.category || 'General'; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_feedback', month, year, date: startDate,
-      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.category || 'General', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
+      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.category || 'General', area: r.area || '', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
