@@ -58,6 +58,8 @@ class _ShiftSummaryApprovalScreenState extends State<ShiftSummaryApprovalScreen>
       'ADMIN',
       'RAILWAY_ADMIN',
       'RAILWAY_SUPERVISOR',
+      'CONTRACTOR_ADMIN',
+      'CONTRACTOR_MASTER',
     }.contains(r);
   }
 

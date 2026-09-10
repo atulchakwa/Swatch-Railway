@@ -1956,9 +1956,9 @@ class StationCleaningService {
 
   _assertRailwayApprover(user) {
     const role = (user?.role || '').toUpperCase();
-    const allowed = ['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN', 'RAILWAY_ADMIN', 'RAILWAY_SUPERVISOR'];
+    const allowed = ['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN', 'RAILWAY_ADMIN', 'RAILWAY_SUPERVISOR', 'CONTRACTOR_ADMIN', 'CONTRACTOR_MASTER'];
     if (!allowed.includes(role)) {
-      throw new ForbiddenError('Only railway employees can approve or reject shift summaries');
+      throw new ForbiddenError('Only railway employees or contractor admins can approve or reject shift summaries');
     }
   }
 
