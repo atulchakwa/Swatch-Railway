@@ -1643,7 +1643,7 @@ class StationCleaningService {
 
   async listWorkers(query, user) {
     let q = db.collection('supervisorWorkers').where('isActive', '==', true);
-    const role = (user?.role || '').toUpperCase();
+    const role = (user?.role || '').toUpperCase().replace(/\s+/g, '_');
     const isContractorSupervisor = role === 'CONTRACTOR_SUPERVISOR';
     if (isContractorSupervisor) {
       q = q.where('supervisorId', '==', user.uid);
@@ -2162,7 +2162,7 @@ class StationCleaningService {
     if (date) q = q.where('date', '==', date);
     if (shift) q = q.where('shift', '==', shift);
     if (status) q = q.where('status', '==', status);
-    const role = (user && user.role) ? String(user.role).toUpperCase() : '';
+    const role = (user && user.role) ? String(user.role).toUpperCase().replace(/\s+/g, '_') : '';
     const isRailwayOrMaster = ['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN', 'RAILWAY_ADMIN', 'RAILWAY_INSPECTOR', 'RAILWAY_SUPERVISOR'].includes(role);
     const canViewStationSummaries = isRailwayOrMaster || ['CONTRACTOR_ADMIN', 'CONTRACTOR_MASTER'].includes(role);
     const userStationIds = new Set();
