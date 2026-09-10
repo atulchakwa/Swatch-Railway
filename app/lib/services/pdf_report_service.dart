@@ -2944,7 +2944,7 @@ class PDFReportService {
     },
     'daily_feedback': {
       'negativeTrends': ['category', 'count', 'sampleComments'],
-      'feedbackComments': ['area', 'category', 'grade', 'rating', 'comment', 'status', 'date'],
+      'feedbackComments': ['area', 'category', 'grade', 'rating', 'status', 'date'],
     },
     'daily_inspection': {
       'inspections': [
@@ -3017,7 +3017,7 @@ class PDFReportService {
       'scores': ['date', 'score', 'grade'],
     },
     'monthly_feedback': {
-      'feedbackComments': ['area', 'category', 'grade', 'rating', 'comment', 'status', 'date'],
+      'feedbackComments': ['area', 'category', 'grade', 'rating', 'status', 'date'],
     },
     'archive_retrieval': {
       'records': ['collection', 'id', 'type', 'date', 'summary'],
@@ -3144,7 +3144,7 @@ class PDFReportService {
             final records = feedbackEntry.value;
             final keys =
                 mappedColumns ??
-                ['area', 'category', 'grade', 'rating', 'comment', 'status', 'date'];
+                ['area', 'category', 'grade', 'rating', 'status', 'date'];
             widgets.add(pw.SizedBox(height: 6));
             widgets.add(
               _buildSectionHeader(

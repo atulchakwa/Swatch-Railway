@@ -416,7 +416,6 @@ class StationReportService {
           area: r.area || '',
           grade: r.gradeLabel || '',
           rating: r.rating != null ? r.rating : 0,
-          comment: r.comment || r.remarks || '',
           status: r.status || 'approved',
           date: (r.createdAt || r.date || date).slice(0, 10),
         })),
@@ -689,7 +688,7 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const catBreakdown = inMonth.reduce((acc, r) => { const c = r.categoryLabel || r.category || 'General'; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_feedback', month, year, date: startDate,
-      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.categoryLabel || r.category || 'General', area: r.area || '', grade: r.gradeLabel || '', rating: r.rating != null ? r.rating : 0, comment: r.comment || r.remarks || '', status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
+      summary: { total: inMonth.length, approved: inMonth.filter(r => r.status === 'approved').length, pending: inMonth.filter(r => r.status === 'pending').length, averageRating: avgRating, ratingDistribution: inMonth.reduce((acc, r) => { const v = String(r.rating || 0); acc[v] = (acc[v] || 0) + 1; return acc; }, {}), categoryBreakdown: catBreakdown, feedbackComments: inMonth.map(r => ({ category: r.categoryLabel || r.category || 'General', area: r.area || '', grade: r.gradeLabel || '', rating: r.rating != null ? r.rating : 0, status: r.status || 'approved', date: (r.createdAt || r.date || startDate).slice(0, 10) })) },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
