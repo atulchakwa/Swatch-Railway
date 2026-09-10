@@ -289,7 +289,7 @@ class _ReportListScreenState extends State<ReportListScreen>
       };
       if (_filterReportType != null) query['reportType'] = _filterReportType!;
       final list = await StationReportRepository.list(query);
-      list.sort((a, b) => b.generatedAt.compareTo(a.generatedAt));
+      list.sort((a, b) => a.date.compareTo(b.date));
       final seen = <String>{};
       final deduped = <StationReport>[];
       for (final r in list) {
