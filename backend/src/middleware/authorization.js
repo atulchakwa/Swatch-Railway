@@ -52,27 +52,23 @@ export function requireEntityAccess(req, res, next) {
 }
 
 export function requireStationAccess(req, res, next) {
-  const role = (req.user?.role || '').toUpperCase();
-  if (role === 'STATION_MASTER' || role === 'AREA_MASTER' || role === 'PLATFORM_MASTER') {
-    const stationId = req.user.stationId;
-    if (!stationId) {
-      throw new ForbiddenError('No station assigned to your account');
-    }
+  const stationId = req.user?.stationId;
+  const userStations = req.user?.stations;
+  if (stationId || (userStations && userStations.length > 0)) {
     const targetStationId = req.params.stationId || req.body.stationId || req.query.stationId;
-    if (targetStationId && targetStationId !== stationId) {
-      throw new ForbiddenError('You can only access your assigned station');
+    if (targetStationId) {
+      const allowed = [stationId, ...(userStations || [])].filter(Boolean);
+      if (!allowed.includes(targetStationId)) {
+        throw new ForbiddenError('You can only access your assigned station');
+      }
     }
   }
   next();
 }
 
 export function requirePlatformAccess(req, res, next) {
-  const role = (req.user?.role || '').toUpperCase();
-  if (role === 'PLATFORM_MASTER') {
-    const platformId = req.user.platformId;
-    if (!platformId) {
-      throw new ForbiddenError('No platform assigned to your account');
-    }
+  const platformId = req.user?.platformId || req.user?.areaId;
+  if (platformId) {
     const targetPlatformId = req.params.platformId || req.body.platformId || req.query.platformId;
     if (targetPlatformId && targetPlatformId !== platformId) {
       throw new ForbiddenError('You can only access your assigned platform');
@@ -83,17 +79,27 @@ export function requirePlatformAccess(req, res, next) {
 
 export function requireAreaAccess(req, res, next) {
   const role = (req.user?.role || '').toUpperCase();
-  if (role === 'AREA_MASTER') {
-    const areaId = req.user.areaId;
-    if (!areaId) {
-      throw new ForbiddenError('No area assigned to your account');
-    }
-    const targetAreaId = req.params.areaId || req.body.areaId || req.query.areaId;
-    if (targetAreaId && targetAreaId !== areaId) {
-      throw new ForbiddenError('You can only access your assigned area');
-    }
-  }
   next();
+}
+
+export function requireContractType(...allowedTypes) {
+  return (req, res, next) => {
+    const userContractType = req.user?.contractType;
+    if (userContractType && !allowedTypes.includes(userContractType)) {
+      throw new ForbiddenError(`Access denied. Requires contract type: ${allowedTypes.join(' or ')}`);
+    }
+    next();
+  };
+}
+
+export function forbidContractType(...forbiddenTypes) {
+  return (req, res, next) => {
+    const userContractType = req.user?.contractType;
+    if (userContractType && forbiddenTypes.includes(userContractType)) {
+      throw new ForbiddenError(`Access denied. Users with contract type "${userContractType}" cannot access this resource.`);
+    }
+    next();
+  };
 }
 
 export function requireMasterAccess(minRole) {
@@ -105,12 +111,10 @@ export function requireMasterAccess(minRole) {
       'RAILWAY_MASTER': 80,
       'ADMIN': 70,
       'RAILWAY_ADMIN': 60,
+      'RAILWAY_INSPECTOR': 52,
       'RAILWAY_SUPERVISOR': 50,
       'CONTRACTOR_ADMIN': 45,
       'CONTRACTOR_SUPERVISOR': 40,
-      'STATION_MASTER': 55,
-      'AREA_MASTER': 48,
-      'PLATFORM_MASTER': 35,
       'CTS': 30,
       'WORKER': 10,
       'RAILWAY_WORKER': 10,
@@ -137,33 +141,18 @@ export function requireZoneMasterAccess(req, res, next) {
   next();
 }
 
-export function requireAreaMasterAccess(req, res, next) {
-  const role = (req.user?.role || '').toUpperCase();
-  if (!['AREA_MASTER', 'STATION_MASTER', 'PLATFORM_MASTER'].includes(role)) {
-    throw new ForbiddenError('Access denied. Requires area master, station master, or platform master role');
-  }
-  next();
-}
-
-export function requirePlatformMasterAccess(req, res, next) {
-  const role = (req.user?.role || '').toUpperCase();
-  if (!['PLATFORM_MASTER', 'AREA_MASTER', 'STATION_MASTER'].includes(role)) {
-    throw new ForbiddenError('Access denied. Requires platform master, area master, or station master role');
-  }
-  next();
-}
-
 export function requireDashboardLevelAccess(level) {
   return (req, res, next) => {
     const role = (req.user?.role || '').toUpperCase().replace(/\s+/g, '_');
     const roleHierarchy = {
       'SUPER_ADMIN': 100, 'COMPANY_MASTER': 90, 'RAILWAY_MASTER': 80,
-      'ADMIN': 70, 'RAILWAY_ADMIN': 60, 'STATION_MASTER': 55,
-      'RAILWAY_SUPERVISOR': 50, 'AREA_MASTER': 48, 'CONTRACTOR_ADMIN': 45,
-      'CONTRACTOR_SUPERVISOR': 40, 'PLATFORM_MASTER': 35, 'CTS': 30,
+      'ADMIN': 70, 'RAILWAY_ADMIN': 60,
+      'RAILWAY_INSPECTOR': 52,
+      'RAILWAY_SUPERVISOR': 50, 'CONTRACTOR_ADMIN': 45,
+      'CONTRACTOR_SUPERVISOR': 40, 'CTS': 30,
       'WORKER': 10, 'RAILWAY_WORKER': 10, 'JANITOR': 10, 'ATTENDANT': 10, 'PASSENGER': 1
     };
-    
+
     const userRoleLevel = roleHierarchy[role] || 0;
 
     switch (level) {
@@ -173,22 +162,22 @@ export function requireDashboardLevelAccess(level) {
         }
         break;
       case 'zone':
-        if (userRoleLevel < 48) { // Area Master and above
+        if (userRoleLevel < 48) {
           throw new ForbiddenError('Zone dashboard access requires zone-level privileges');
         }
         break;
       case 'station':
-        if (userRoleLevel < 48) { // Area Master and above
+        if (userRoleLevel < 48) {
           throw new ForbiddenError('Station dashboard access requires station-level privileges');
         }
         break;
       case 'platform':
-        if (userRoleLevel < 35) { // Platform Master and above
+        if (userRoleLevel < 35) {
           throw new ForbiddenError('Platform dashboard access requires platform-level privileges');
         }
         break;
       case 'area':
-        if (userRoleLevel < 35) { // Platform Master and above. Workers (10) are restricted.
+        if (userRoleLevel < 35) {
           throw new ForbiddenError('Area dashboard access requires area-level privileges');
         }
         break;

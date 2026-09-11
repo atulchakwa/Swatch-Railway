@@ -63,6 +63,8 @@ class ApiService {
     String? division,
     String? depot,
     String? entityId,
+    String? contractId,
+    List<String>? stations,
     String? stationId,
     String? areaId,
     String? platformId,
@@ -92,6 +94,8 @@ class ApiService {
           'division': division,
           'depot': depot,
           'entityId': entityId,
+          'contractId': contractId,
+          'stations': stations,
           'stationId': stationId,
           'areaId': areaId,
           'platformId': platformId,
@@ -420,6 +424,27 @@ class ApiService {
     }
   }
 
+  static Future<List<Map<String, dynamic>>> getContractsForDropdown({String? entityId}) async {
+    try {
+      final token = await getToken();
+      String url = '$baseUrl/api/contracts/for-user-creation';
+      if (entityId != null && entityId.isNotEmpty) {
+        url += '?entityId=$entityId';
+      }
+      final response = await http.get(
+        Uri.parse(url),
+        headers: { 'Authorization': 'Bearer $token' },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return List<Map<String, dynamic>>.from(data['contracts'] ?? []);
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   static Future<List<EntityModel>> getApprovedEntity() async {
     try {
       final token = await getToken();
@@ -602,6 +627,7 @@ class ApiService {
     String? division,
     String? depot,
     List<String>? stationIds,
+    List<String>? trainIds,
     required String startDate,
     required String endDate,
     double contractValue = 0,
@@ -616,6 +642,7 @@ class ApiService {
     required String repEmail,
     required String repIdProofType,
     required String repIdProofNumber,
+    String? contractType,
   }) async {
     try {
       final token = await getToken();
@@ -633,6 +660,7 @@ class ApiService {
           'division': division,
           'depot': depot,
           if (stationIds != null) 'stationIds': stationIds,
+          if (trainIds != null) 'trainIds': trainIds,
           'startDate': startDate,
           'endDate': endDate,
           'contractValue': contractValue,
@@ -647,6 +675,7 @@ class ApiService {
           'repEmail': repEmail,
           'repIdProofType': repIdProofType,
           'repIdProofNumber': repIdProofNumber,
+          if (contractType != null) 'contractType': contractType,
         }),
       );
 
@@ -707,10 +736,12 @@ class ApiService {
     }
   }
 
-  static Future<List<ContractModel>> getActiveContracts() async {
+  static Future<List<ContractModel>> getActiveContracts({String? contractType}) async {
     final token = await getToken();
+    String url = '$baseUrl/api/contracts?status=Active';
+    if (contractType != null) url += '&contractType=$contractType';
     final response = await http.get(
-      Uri.parse('$baseUrl/api/contracts?status=Active'),
+      Uri.parse(url),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -725,10 +756,12 @@ class ApiService {
     }
   }
 
-  static Future<List<ContractModel>> getInActiveContracts() async {
+  static Future<List<ContractModel>> getInActiveContracts({String? contractType}) async {
     final token = await getToken();
+    String url = '$baseUrl/api/contracts?status=Inactive';
+    if (contractType != null) url += '&contractType=$contractType';
     final response = await http.get(
-      Uri.parse('$baseUrl/api/contracts?status=Inactive'),
+      Uri.parse(url),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -769,11 +802,14 @@ class ApiService {
   }
 
   static Future<List<ContractModel>> getContractsContractor(
-    String entityId,
-  ) async {
+    String entityId, {
+    String? contractType,
+  }) async {
     final token = await getToken();
+    String url = '$baseUrl/api/contracts/by-entity/$entityId';
+    if (contractType != null) url += '?contractType=$contractType';
     final response = await http.get(
-      Uri.parse('$baseUrl/api/contracts/by-entity/$entityId'),
+      Uri.parse(url),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -791,13 +827,14 @@ class ApiService {
   static Future<List<ContractModel>> getContractsByStatus(
     String entityId,
     String zone,
-    String division,
-  ) async {
+    String division, {
+    String? contractType,
+  }) async {
     final token = await getToken();
+    String url = '$baseUrl/api/contracts/by-entity/$entityId?zone=$zone&division=$division';
+    if (contractType != null) url += '&contractType=$contractType';
     final response = await http.get(
-      Uri.parse(
-        '$baseUrl/api/contracts/by-entity/$entityId?zone=$zone&division=$division',
-      ),
+      Uri.parse(url),
       headers: {
         'Content-Type': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
@@ -815,13 +852,14 @@ class ApiService {
   static Future<List<ContractModel>> getContractsActive(
     String entityId,
     String zone,
-    String division,
-  ) async {
+    String division, {
+    String? contractType,
+  }) async {
     final token = await getToken();
+    String url = '$baseUrl/api/contracts/by-entity/$entityId?zone=$zone&division=$division&status=Active';
+    if (contractType != null) url += '&contractType=$contractType';
     final response = await http.get(
-      Uri.parse(
-        '$baseUrl/api/contracts/by-entity/$entityId?zone=$zone&division=$division&status=Active',
-      ),
+      Uri.parse(url),
       headers: {
         'Content-Type': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
@@ -1260,11 +1298,18 @@ class ApiService {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> getSupervisors() async {
+  static Future<List<Map<String, dynamic>>> getSupervisors({String? module}) async {
     try {
+      final token = await getToken();
+      final params = <String, String>{};
+      if (module != null) params['module'] = module;
+      final uri = Uri.parse('$baseUrl/api/users/railway-supervisors').replace(queryParameters: params.isNotEmpty ? params : null);
       final response = await http.get(
-        Uri.parse('$baseUrl/api/users/railway-supervisors'),
-        headers: {'Content-Type': 'application/json'},
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (response.statusCode == 200) {
@@ -1278,6 +1323,33 @@ class ApiService {
       }
     } catch (e) {
       throw Exception('Error fetching supervisors: $e');
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getContractorSupervisors({String? stationId}) async {
+    try {
+      final token = await getToken();
+      final params = <String, String>{};
+      if (stationId != null) params['stationId'] = stationId;
+      final uri = Uri.parse('$baseUrl/api/users/contractor-supervisors')
+          .replace(queryParameters: params.isNotEmpty ? params : null);
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List supervisors = data['supervisors'] ?? [];
+        return supervisors.cast<Map<String, dynamic>>();
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['error'] ?? 'Failed to fetch contractor supervisors');
+      }
+    } catch (e) {
+      throw Exception('Error fetching contractor supervisors: $e');
     }
   }
 
@@ -2586,7 +2658,7 @@ class ApiService {
       final token = await getToken();
 
       final response = await http.post(
-        Uri.parse('$baseUrl/api/cts'),
+        Uri.parse('$baseUrl/api/cts-forms'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -2629,7 +2701,7 @@ class ApiService {
     try {
       final token = await getToken();
       final response = await http.get(
-        Uri.parse('$baseUrl/api/cts'),
+        Uri.parse('$baseUrl/api/cts-forms'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -2653,7 +2725,7 @@ class ApiService {
     try {
       final token = await getToken();
       final response = await http.get(
-        Uri.parse('$baseUrl/api/cts?type=history'),
+        Uri.parse('$baseUrl/api/cts-forms?type=history'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -2678,11 +2750,11 @@ class ApiService {
   }) async {
     try {
       final token = await getToken();
-      final String endpoint = "/api/cts/$formId/approve-manpower";
+      final String endpoint = "/api/cts-forms/$formId/approve-manpower";
 
       final Uri url = Uri.parse("$baseUrl$endpoint");
 
-      final response = await http.put(
+      final response = await http.post(
         url,
         headers: {
           "Content-Type": "application/json",
@@ -2706,11 +2778,11 @@ class ApiService {
   }) async {
     try {
       final token = await getToken();
-      final String endpoint = "/api/cts/$formId/reject";
+      final String endpoint = "/api/cts-forms/$formId/reject";
 
       final Uri url = Uri.parse("$baseUrl$endpoint");
 
-      final response = await http.put(
+      final response = await http.post(
         url,
         headers: {
           "Content-Type": "application/json",
@@ -2748,7 +2820,7 @@ class ApiService {
   }) async {
     try {
       final token = await getToken();
-      final String endpoint = "/api/cts/$formId/scoring";
+      final String endpoint = "/api/cts-forms/$formId/submit-scoring";
 
       final Uri url = Uri.parse("$baseUrl$endpoint");
 
@@ -2761,7 +2833,7 @@ class ApiService {
         "railwaySignatureDate": railwaySignatureDate,
       };
 
-      final response = await http.put(
+      final response = await http.post(
         url,
         headers: {
           "Content-Type": "application/json",
@@ -2796,11 +2868,11 @@ class ApiService {
   }) async {
     try {
       final token = await getToken();
-      final String endpoint = "/api/cts/$formId/accept-rating";
+      final String endpoint = "/api/cts-forms/$formId/accept-rating";
 
       final Uri url = Uri.parse("$baseUrl$endpoint");
 
-      final response = await http.put(
+      final response = await http.post(
         url,
         headers: {
           "Content-Type": "application/json",
@@ -2833,7 +2905,7 @@ class ApiService {
     required String trainId,
     required String trainNumber,
     required String trainName,
-    required String jobDate,
+    required String formDateTime,
     required String actArrival,
     required String actDeparture,
     required String workStart,
@@ -2857,14 +2929,14 @@ class ApiService {
       throw Exception('No token found');
     }
 
-    final url = Uri.parse('$baseUrl/api/cts/$formId/resubmit');
+    final url = Uri.parse('$baseUrl/api/cts-forms/$formId/resubmit');
 
     final body = jsonEncode({
       'contractorRemarks': contractorRemarks,
       'trainId': trainId,
       'trainNumber': trainNumber,
       'trainName': trainName,
-      'jobDate': jobDate,
+      'formDateTime': formDateTime,
       'actArrival': actArrival,
       'actDeparture': actDeparture,
       'workStart': workStart,
@@ -3694,7 +3766,7 @@ class ApiService {
     }
   }
 
-  static Future<List<Station>> getStations({String? zone, String? division, String? category, bool? active}) async {
+  static Future<List<Station>> getStations({String? zone, String? division, String? category, bool? active, String? entityId}) async {
     try {
       final token = await getToken();
       final params = <String, String>{};
@@ -3702,11 +3774,18 @@ class ApiService {
       if (division != null) params['division'] = division;
       if (category != null) params['category'] = category;
       if (active != null) params['active'] = active.toString();
+      if (entityId != null) params['entityId'] = entityId;
       final uri = Uri.parse('$baseUrl/api/stations').replace(queryParameters: params.isNotEmpty ? params : null);
       final response = await http.get(uri, headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'});
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return (data['stations'] as List).map((s) => Station.fromJson(s)).toList();
+        final all = (data['stations'] as List).map((s) => Station.fromJson(s)).toList();
+        // Deduplicate by uid to prevent Flutter dropdown assertion errors
+        final seenIds = <String>{};
+        return all.where((s) {
+          if (s.uid == null || s.uid!.isEmpty) return false;
+          return seenIds.add(s.uid!);
+        }).toList();
       }
       throw Exception('Failed to fetch stations');
     } catch (e) {
@@ -3738,7 +3817,13 @@ class ApiService {
       );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return (data['areas'] as List).map((a) => StationArea.fromJson(a)).toList();
+        final all = (data['areas'] as List).map((a) => StationArea.fromJson(a)).toList();
+        // Deduplicate by uid to prevent Flutter dropdown assertion errors
+        final seenIds = <String>{};
+        return all.where((a) {
+          if (a.uid == null || a.uid!.isEmpty) return false;
+          return seenIds.add(a.uid!);
+        }).toList();
       }
       throw Exception('Failed to fetch station areas');
     } catch (e) {
@@ -3867,6 +3952,107 @@ class ApiService {
       throw Exception('Failed to fetch station schedules');
     } catch (e) {
       throw Exception('Error fetching station schedules: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> submitShiftSummary(Map<String, dynamic> data) async {
+    try {
+      final token = await getToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/station-cleaning/shift-summary'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(data),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) return jsonDecode(response.body);
+      throw Exception('Failed to submit shift summary');
+    } catch (e) {
+      throw Exception('Error submitting shift summary: $e');
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getShiftSummaries({
+    String? stationId,
+    String? date,
+    String? shift,
+    String? supervisorId,
+    String? status,
+  }) async {
+    try {
+      final token = await getToken();
+      final params = <String, String>{};
+      if (stationId != null) params['stationId'] = stationId;
+      if (date != null) params['date'] = date;
+      if (shift != null) params['shift'] = shift;
+      if (supervisorId != null) params['supervisorId'] = supervisorId;
+      if (status != null) params['status'] = status;
+      final uri = Uri.parse('$baseUrl/api/station-cleaning/shift-summaries')
+          .replace(queryParameters: params.isNotEmpty ? params : null);
+      final response = await http.get(uri, headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'});
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return (data['summaries'] as List).map((s) => Map<String, dynamic>.from(s as Map)).toList();
+      }
+      throw Exception('Failed to fetch shift summaries');
+    } catch (e) {
+      throw Exception('Error fetching shift summaries: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> getShiftSummary(String uid) async {
+    try {
+      final token = await getToken();
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/station-cleaning/shift-summaries/$uid'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+      throw Exception('Failed to fetch shift summary');
+    } catch (e) {
+      throw Exception('Error fetching shift summary: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> approveShiftSummary(String uid) async {
+    try {
+      final token = await getToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/station-cleaning/shift-summaries/$uid/approve'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+      throw Exception('Failed to approve shift summary');
+    } catch (e) {
+      throw Exception('Error approving shift summary: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> rejectShiftSummary(String uid, String reason) async {
+    try {
+      final token = await getToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/station-cleaning/shift-summaries/$uid/reject'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode({'reason': reason}),
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+      throw Exception('Failed to reject shift summary');
+    } catch (e) {
+      throw Exception('Error rejecting shift summary: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> generateTasksFromSchedule(Map<String, dynamic> data) async {
+    try {
+      final token = await getToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/station-schedule/generate-tasks'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(data),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) return jsonDecode(response.body);
+      throw Exception('Failed to generate tasks from schedule');
+    } catch (e) {
+      throw Exception('Error generating tasks: $e');
     }
   }
 

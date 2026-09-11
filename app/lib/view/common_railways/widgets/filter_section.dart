@@ -264,9 +264,9 @@ class _FilterSectionState extends State<FilterSection> {
             border: Border.all(color: Colors.grey.shade300),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: DropdownButtonHideUnderline(
+            child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: value,
+              value: value != null && items.contains(value) ? value : null,
               hint: Text(
                 'Select $title',
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade500),

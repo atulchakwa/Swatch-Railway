@@ -17,6 +17,13 @@ class PlatformFormScreen extends StatefulWidget {
   State<PlatformFormScreen> createState() => _PlatformFormScreenState();
 }
 
+const List<String> _areaTypes = [
+  'Toilet/Bathroom', 'Waiting Room', 'Concourse', 'FOB/Stairs', 'Lift/Escalator',
+  'Office', 'Water Booth', 'Track-side Rag Picking Area',
+  'Circulating Area', 'Approach Road', 'Garden',
+  'Goods Platform/Goods Line', 'Drain', 'Other',
+];
+
 class _PlatformFormScreenState extends State<PlatformFormScreen> {
   final _formKey = GlobalKey<FormState>();
   bool isSaving = false;
@@ -26,6 +33,7 @@ class _PlatformFormScreenState extends State<PlatformFormScreen> {
   late TextEditingController _lengthCtrl;
   late TextEditingController _widthCtrl;
   String _surfaceType = 'concrete';
+  String _platformArea = '';
 
   bool get isEdit => widget.existingPlatform != null;
 
@@ -38,6 +46,7 @@ class _PlatformFormScreenState extends State<PlatformFormScreen> {
     _lengthCtrl = TextEditingController(text: p?.length?.toString() ?? '');
     _widthCtrl = TextEditingController(text: p?.width?.toString() ?? '');
     if (p?.surfaceType != null) _surfaceType = p!.surfaceType!;
+    if (p?.platformArea != null) _platformArea = p!.platformArea!;
   }
 
   @override
@@ -58,6 +67,7 @@ class _PlatformFormScreenState extends State<PlatformFormScreen> {
         'platformName': _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim(),
         'stationId': widget.stationId,
         'surfaceType': _surfaceType,
+        'platformArea': _platformArea.isEmpty ? null : _platformArea,
         if (_lengthCtrl.text.isNotEmpty) 'length': double.tryParse(_lengthCtrl.text),
         if (_widthCtrl.text.isNotEmpty) 'width': double.tryParse(_widthCtrl.text),
       };
@@ -132,6 +142,13 @@ class _PlatformFormScreenState extends State<PlatformFormScreen> {
                         decoration: const InputDecoration(labelText: 'Surface Type', border: OutlineInputBorder(), prefixIcon: Icon(Icons.layers)),
                         items: ['concrete', 'asphalt', 'tile', 'marble', 'other'].map((t) => DropdownMenuItem(value: t, child: Text(t[0].toUpperCase() + t.substring(1)))).toList(),
                         onChanged: (v) { if (v != null) setState(() => _surfaceType = v); },
+                      ),
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<String>(
+                        value: _platformArea.isEmpty ? null : _platformArea,
+                        decoration: const InputDecoration(labelText: 'Platform Area', border: OutlineInputBorder(), prefixIcon: Icon(Icons.map)),
+                        items: _areaTypes.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                        onChanged: (v) { if (v != null) setState(() => _platformArea = v); },
                       ),
                     ],
                   ),

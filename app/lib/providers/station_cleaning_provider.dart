@@ -107,7 +107,7 @@ class StationCleaningProvider extends ChangeNotifier {
       if (platformId != null) params['platformId'] = platformId;
       final result = await BaseRepository.apiCall(
         method: 'GET',
-        path: '/api/areas/station/$stationId',
+        path: '/api/areas/by-station/$stationId',
         parser: (d) => d,
         queryParams: params.isNotEmpty ? params : null,
       );

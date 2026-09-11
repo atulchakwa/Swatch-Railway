@@ -2,14 +2,50 @@ import { db } from '../database/index.js';
 import { NotFoundError, ValidationError, ConflictError } from '../errors/index.js';
 
 class StationService {
-  async getStations(query = {}) {
-    const { zone, division, category, active, userRole, userDivision, limit } = query;
+  async getStations(query = {}, user) {
+    const { zone, division, category, active, limit, entityId } = query;
     let q = db.collection('stations');
-    const role = (userRole || '').toLowerCase();
 
-    if (!role.includes('master') && userDivision) {
-      q = q.where('division', '==', userDivision);
+    const contractorRoles = ['CONTRACTOR_ADMIN', 'CONTRACTOR_MASTER', 'CONTRACTOR_SUPERVISOR'];
+    const userRole = (user?.role || '').toUpperCase().replace(/\s+/g, '_');
+
+    if (entityId && !contractorRoles.includes(userRole)) {
+      const mappings = await db.collection('stationContractorMappings')
+        .where('contractorId', '==', entityId)
+        .where('status', '==', 'active')
+        .get();
+      const stationIds = mappings.docs.map(d => d.data().stationId).filter(Boolean);
+      if (stationIds.length > 0) {
+        q = q.where('uid', 'in', stationIds);
+      } else if (division) {
+        q = q.where('division', '==', division);
+      } else {
+        return { count: 0, stations: [] };
+      }
+    } else if (contractorRoles.includes(userRole) && user?.entityId) {
+      // OBHS contractors should not see stations
+      if (user.domain === 'obhs') {
+        return { count: 0, stations: [] };
+      }
+      const mappings = await db.collection('stationContractorMappings')
+        .where('contractorId', '==', user.entityId)
+        .where('status', '==', 'active')
+        .get();
+      let stationIds = mappings.docs.map(d => d.data().stationId).filter(Boolean);
+      if (stationIds.length === 0 && Array.isArray(user.stations) && user.stations.length > 0) {
+        stationIds = user.stations;
+      }
+      if (stationIds.length > 0) {
+        q = q.where('uid', 'in', stationIds);
+      } else if (division || user.division) {
+        q = q.where('division', '==', division || user.division);
+      } else {
+        return { count: 0, stations: [] };
+      }
+    } else if (userRole === 'RAILWAY_SUPERVISOR' && user?.division) {
+      q = q.where('division', '==', user.division);
     }
+
     if (division) q = q.where('division', '==', division);
     if (zone) q = q.where('zone', '==', zone);
     if (category) q = q.where('category', '==', category);

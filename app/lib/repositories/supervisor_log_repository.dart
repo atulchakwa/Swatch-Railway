@@ -14,8 +14,8 @@ class SupervisorLogRepository {
     final uri = Uri.parse('$baseUrl/api/supervisor-logs').replace(queryParameters: query);
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
-      final list = jsonDecode(res.body)['logs'] ?? [];
-      return list.map((e) => SupervisorLog.fromJson(e)).toList();
+      final list = jsonDecode(res.body)['logs'] as List<dynamic>? ?? [];
+      return list.map<SupervisorLog>((e) => SupervisorLog.fromJson(e)).toList();
     }
     throw Exception('Failed to load logs');
   }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:crm_train/model/station_cleaning_models.dart';
 import 'package:crm_train/model/railway_worker_model.dart';
 import 'package:crm_train/repositories/station_attendance_repository.dart';
+import 'package:crm_train/repositories/station_cleaning_repository.dart';
 import 'package:crm_train/repositories/obhs_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
@@ -33,7 +34,7 @@ class _StationAttendanceScreenState extends State<StationAttendanceScreen> with 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this);
     _loadWorkers();
   }
 
@@ -146,7 +147,8 @@ class _StationAttendanceScreenState extends State<StationAttendanceScreen> with 
           unselectedLabelColor: Colors.white70,
           tabs: const [
             Tab(text: 'Mark Attendance'),
-            Tab(text: 'Planned vs Actual'),
+            Tab(text: 'Attendance List'),
+            Tab(text: 'Exceptions'),
           ],
         ),
       ),
@@ -156,7 +158,8 @@ class _StationAttendanceScreenState extends State<StationAttendanceScreen> with 
               controller: _tabCtrl,
               children: [
                 _buildMarkAttendanceTab(),
-                _buildPlannedVsActualTab(),
+                _buildAttendanceListTab(),
+                _buildExceptionsTab(),
               ],
             ),
     );
@@ -319,38 +322,44 @@ class _StationAttendanceScreenState extends State<StationAttendanceScreen> with 
     );
   }
 
-  Widget _buildPlannedVsActualTab() {
-    return PlannedVsActualView(stationId: widget.stationId);
+  Widget _buildAttendanceListTab() {
+    return _AttendanceListView(stationId: widget.stationId);
+  }
+
+  Widget _buildExceptionsTab() {
+    return _AttendanceExceptionsView(stationId: widget.stationId);
   }
 }
 
-class PlannedVsActualView extends StatefulWidget {
+// ─── Attendance List (OBHS-style: workers with start/mid/end chips) ──────────────
+
+class _AttendanceListView extends StatefulWidget {
   final String stationId;
-  const PlannedVsActualView({super.key, required this.stationId});
+  const _AttendanceListView({required this.stationId});
 
   @override
-  State<PlannedVsActualView> createState() => _PlannedVsActualViewState();
+  State<_AttendanceListView> createState() => _AttendanceListViewState();
 }
 
-class _PlannedVsActualViewState extends State<PlannedVsActualView> {
+class _AttendanceListViewState extends State<_AttendanceListView> {
   String _shift = 'morning';
   DateTime _date = DateTime.now();
-  Map<String, dynamic>? _data;
+  List<Map<String, dynamic>> _records = [];
   bool _isLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  String? _error;
 
   Future<void> _load() async {
     setState(() => _isLoading = true);
     try {
-      final formattedDate = "${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}";
-      _data = await StationAttendanceRepository.getPlannedVsActual(widget.stationId, formattedDate, _shift);
-    } catch (_) {
-      _data = null;
+      final result = await StationCleaningRepository.getStationAttendanceList(stationId: widget.stationId);
+      final raw = result['records'] as List? ?? [];
+      final filtered = raw.where((r) {
+        final rDate = (r['createdAt']?.toString() ?? '').substring(0, 10);
+        return rDate == "${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}";
+      }).toList();
+      setState(() { _records = List<Map<String, dynamic>>.from(filtered); _error = null; });
+    } catch (e) {
+      setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -361,9 +370,7 @@ class _PlannedVsActualViewState extends State<PlannedVsActualView> {
     return Column(
       children: [
         Card(
-          margin: const EdgeInsets.all(16),
-          elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(12),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
@@ -383,7 +390,7 @@ class _PlannedVsActualViewState extends State<PlannedVsActualView> {
                 const SizedBox(width: 12),
                 InkWell(
                   onTap: () async {
-                    final picked = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime.now().subtract(const Duration(days: 30)), lastDate: DateTime.now());
+                    final picked = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime.now().subtract(const Duration(days: 7)), lastDate: DateTime.now());
                     if (picked != null) setState(() => _date = picked);
                   },
                   child: Container(
@@ -409,61 +416,299 @@ class _PlannedVsActualViewState extends State<PlannedVsActualView> {
           ),
         ),
         if (_isLoading)
-          const Center(child: CircularProgressIndicator())
-        else if (_data == null)
-          const Center(child: Text('No data available'))
+          const Expanded(child: Center(child: CircularProgressIndicator()))
+        else if (_error != null)
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  ElevatedButton(onPressed: _load, child: const Text('Retry')),
+                ],
+              ),
+            ),
+          )
+        else if (_records.isEmpty)
+          const Expanded(child: Center(child: Text('No attendance records found', style: TextStyle(color: Colors.grey, fontSize: 16))))
         else
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        const Text('Manpower Summary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        const Divider(),
-                        _statRow('Planned Manpower', '${_data!['plannedManpower'] ?? _data!['planned'] ?? '-'}', kRailwayBlue),
-                        _statRow('Actual Manpower', '${_data!['actualManpower'] ?? _data!['actual'] ?? '-'}', kSuccessGreen),
-                        _statRow('Variance', '${_data!['variance'] ?? '-'}', (_data!['variance'] is int && _data!['variance'] > 0) ? kErrorRed : kSuccessGreen),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (_data!['workers'] != null)
-                  ...(_data!['workers'] as List).map((w) => Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: w['status'] == 'present' ? kSuccessGreen.withOpacity(0.1) : kErrorRed.withOpacity(0.1),
-                        child: Icon(w['status'] == 'present' ? Icons.check_circle : Icons.cancel, color: w['status'] == 'present' ? kSuccessGreen : kErrorRed),
-                      ),
-                      title: Text(w['workerName'] ?? ''),
-                      subtitle: Text('Status: ${w['status'] ?? 'unknown'}'),
-                      trailing: w['photoUrl'] != null && (w['photoUrl'] as String).isNotEmpty
-                          ? CircleAvatar(radius: 18, backgroundImage: NetworkImage(w['photoUrl']))
-                          : null,
-                    ),
-                  )),
-              ],
+            child: ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: _records.length,
+              itemBuilder: (_, i) => _buildWorkerCard(_records[i]),
             ),
           ),
       ],
     );
   }
 
-  Widget _statRow(String label, String value, Color color) {
+  Widget _buildWorkerCard(Map<String, dynamic> record) {
+    final name = record['workerName']?.toString() ?? 'Unknown Worker';
+    final isStart = record['isStartMarked'] == true;
+    final isMid = record['isMidMarked'] == true;
+    final isEnd = record['isEndMarked'] == true;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: kRailwayBlue.withOpacity(0.1),
+              child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(color: kRailwayBlue, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      _chip('Start', isStart ? kSuccessGreen : Colors.grey, isStart),
+                      const SizedBox(width: 6),
+                      _chip('Mid', isMid ? Colors.orange : Colors.grey, isMid),
+                      const SizedBox(width: 6),
+                      _chip('End', isEnd ? Colors.red : Colors.grey, isEnd),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(String label, Color color, bool active) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: active ? color.withOpacity(0.15) : Colors.grey.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: active ? color : Colors.grey.shade300),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: active ? color : Colors.grey)),
+    );
+  }
+}
+
+// ─── Attendance Exceptions Tab ─────────────────────────────────────────────────────
+
+class _AttendanceExceptionsView extends StatefulWidget {
+  final String stationId;
+  const _AttendanceExceptionsView({required this.stationId});
+
+  @override
+  State<_AttendanceExceptionsView> createState() => _AttendanceExceptionsViewState();
+}
+
+class _AttendanceExceptionsViewState extends State<_AttendanceExceptionsView> {
+  List<Map<String, dynamic>> _exceptions = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final result = await StationCleaningRepository.getAttendanceExceptions(status: 'PENDING');
+      final raw = result['exceptions'] as List? ?? result['data'] as List? ?? [];
+      _exceptions = List<Map<String, dynamic>>.from(raw);
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _takeAction(String exceptionId, String action) async {
+    final remarkCtrl = TextEditingController();
+    if (action == 'REJECTED') {
+      final remark = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Rejection Reason'),
+          content: TextField(
+            controller: remarkCtrl,
+            decoration: const InputDecoration(labelText: 'Reason *', border: OutlineInputBorder()),
+            maxLines: 2,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () {
+                if (remarkCtrl.text.trim().isEmpty) return;
+                Navigator.pop(ctx, remarkCtrl.text.trim());
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: kErrorRed),
+              child: const Text('Reject', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      if (remark == null) return;
+      remarkCtrl.text = remark;
+    }
+    try {
+      await StationCleaningRepository.takeExceptionAction(
+        exceptionId: exceptionId,
+        action: action,
+        adminRemark: remarkCtrl.text.isNotEmpty ? remarkCtrl.text : null,
+      );
+      _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Exception ${action == 'APPROVED' ? 'approved' : 'rejected'}'),
+            backgroundColor: action == 'APPROVED' ? kSuccessGreen : kWarningOrange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: kErrorRed),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: kErrorRed),
+            const SizedBox(height: 12),
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            ElevatedButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    if (_exceptions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle_outline, size: 80, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            const Text('No pending exceptions', style: TextStyle(color: Colors.grey, fontSize: 16)),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: _exceptions.length,
+        itemBuilder: (_, i) => _buildExceptionCard(_exceptions[i]),
+      ),
+    );
+  }
+
+  Widget _buildExceptionCard(Map<String, dynamic> ex) {
+    final issueType = ex['issueType']?.toString() ?? 'Unknown';
+    final remark = ex['remark']?.toString() ?? '';
+    final workerName = ex['workerName']?.toString() ?? 'Unknown Worker';
+    final attendanceType = ex['attendanceType']?.toString() ?? '';
+    final createdAt = ex['createdAt']?.toString() ?? '';
+    final id = ex['exceptionId']?.toString() ?? ex['uid']?.toString() ?? '';
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: kWarningOrange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.warning_amber, color: kWarningOrange, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(workerName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      if (createdAt.isNotEmpty)
+                        Text(createdAt, style: const TextStyle(fontSize: 11, color: kTextSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _detailRow('Issue', issueType),
+            if (attendanceType.isNotEmpty) _detailRow('Attendance', attendanceType),
+            if (remark.isNotEmpty) _detailRow('Remark', remark),
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: id.isNotEmpty ? () => _takeAction(id, 'REJECTED') : null,
+                  icon: const Icon(Icons.close, color: kErrorRed, size: 18),
+                  label: const Text('Reject', style: TextStyle(color: kErrorRed)),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: id.isNotEmpty ? () => _takeAction(id, 'APPROVED') : null,
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Approve'),
+                  style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.only(top: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 14)),
-          Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+          SizedBox(
+            width: 90,
+            child: Text('$label:', style: const TextStyle(fontSize: 12, color: kTextSecondary, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 12)),
+          ),
         ],
       ),
     );
   }
 }
+
+

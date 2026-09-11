@@ -345,7 +345,7 @@ class _AddDeploymentSheetState extends State<_AddDeploymentSheet> {
         ApiService.getStationAreas(widget.stationId),
       ]);
       final workersList = await OBHSRepository.getWorkers();
-      final supervisorsList = await ApiService.getSupervisors();
+      final supervisorsList = await ApiService.getSupervisors(module: 'station_cleaning');
 
       if (mounted) {
         setState(() {

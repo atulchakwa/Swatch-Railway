@@ -38,7 +38,7 @@ class StationBillingRepository {
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       final List list = body['packs'] ?? [];
-      return list.map((e) => StationBillingPack.fromJson(e)).toList();
+      return list.map<StationBillingPack>((e) => StationBillingPack.fromJson(e)).toList();
     }
     throw Exception('Failed to load billing packs');
   }
@@ -93,6 +93,21 @@ class StationBillingRepository {
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to reject billing pack');
+    }
+  }
+
+  static Future<void> recordPayment(String uid, {required double amount, required String mode, String? reference, String? date}) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/station-billing/$uid/payment'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'amount': amount,
+        'paymentRef': reference ?? '',
+        'paymentDate': date ?? DateTime.now().toIso8601String(),
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to record payment');
     }
   }
 }

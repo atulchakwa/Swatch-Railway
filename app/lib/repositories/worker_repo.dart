@@ -285,6 +285,19 @@ class WorkerRepository {
         throw Exception('AUTH_ERROR');
       }
 
+      List<int>? fileBytes;
+      String filename = 'upload.jpg';
+      if (kIsWeb) {
+        try {
+          final res = await http.get(Uri.parse(filePath));
+          fileBytes = res.bodyBytes;
+          filename = filePath.split('/').last;
+          if (!filename.contains('.')) filename += '.jpg';
+        } catch (e) {
+          debugPrint('Error reading web blob bytes: $e');
+        }
+      }
+
       http.Response? lastResponse;
       // Only try the field names currently supported by the backend: 'image' and 'file'
       for (final fieldName in ['image', 'file']) {
@@ -294,13 +307,25 @@ class WorkerRepository {
         );
         request.headers['Authorization'] = 'Bearer $token';
         request.fields['folder'] = 'obhs_tasks';
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            fieldName,
-            filePath,
-            contentType: _mediaTypeForPath(filePath),
-          ),
-        );
+        
+        if (kIsWeb && fileBytes != null) {
+          request.files.add(
+            http.MultipartFile.fromBytes(
+              fieldName,
+              fileBytes,
+              filename: filename,
+              contentType: _mediaTypeForPath(filePath),
+            ),
+          );
+        } else {
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              fieldName,
+              filePath,
+              contentType: _mediaTypeForPath(filePath),
+            ),
+          );
+        }
 
         try {
           final streamedResponse = await request.send().timeout(

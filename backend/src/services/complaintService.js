@@ -47,10 +47,14 @@ class ComplaintService {
     return { message: 'Complaint created', uid: ref.id, complaint: data };
   }
 
-  async getComplaints(query = {}) {
+  async getComplaints(query = {}, user) {
     const { stationId, status, severity, category, limit = 50, cursor } = query;
     let q = db.collection('complaints');
-    if (stationId) q = q.where('stationId', '==', stationId);
+    if (user && user.stationId && !stationId) {
+      q = q.where('stationId', '==', user.stationId);
+    } else if (stationId) {
+      q = q.where('stationId', '==', stationId);
+    }
     if (status) {
       const normalized = status.replace(/[A-Z]/g, letter => `_${letter}`).toUpperCase().replace(/^_/, '');
       q = q.where('status', '==', normalized);

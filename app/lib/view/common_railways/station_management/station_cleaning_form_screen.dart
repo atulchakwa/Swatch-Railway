@@ -122,8 +122,14 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
     try {
       final result = await ApiService.getStations();
       if (mounted) {
+        // Deduplicate by uid to prevent Flutter dropdown assertion error
+        final seenIds = <String>{};
+        final deduped = result.where((s) {
+          if (s.uid == null || s.uid!.isEmpty) return false;
+          return seenIds.add(s.uid!);
+        }).toList();
         setState(() {
-          stations = result;
+          stations = deduped;
           isLoadingStations = false;
         });
       }
@@ -143,8 +149,14 @@ class _StationCleaningFormScreenState extends State<StationCleaningFormScreen> {
     try {
       final result = await ApiService.getStationAreas(selectedStation!.uid ?? '');
       if (mounted) {
+        // Deduplicate by uid to prevent Flutter dropdown assertion error
+        final seenIds = <String>{};
+        final deduped = result.where((a) {
+          if (a.uid == null || a.uid!.isEmpty) return false;
+          return seenIds.add(a.uid!);
+        }).toList();
         setState(() {
-          areas = result;
+          areas = deduped;
           for (final selection in _areaSelections) {
             selection.selectedArea = null;
             selection.selectedZone = null;

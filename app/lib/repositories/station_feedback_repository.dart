@@ -59,7 +59,7 @@ class StationFeedbackRepository {
       headers: {'Authorization': 'Bearer $token'},
     );
     final data = await _handleResponse(response);
-    return (data['feedbacks'] as List?)?.map((e) => StationFeedback.fromJson(e)).toList() ?? [];
+    return (data['feedbacks'] as List<dynamic>?)?.map<StationFeedback>((e) => StationFeedback.fromJson(e)).toList() ?? <StationFeedback>[];
   }
 
   static Future<FeedbackSummary> getSummary(String stationId) async {

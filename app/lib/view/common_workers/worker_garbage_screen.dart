@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:provider/provider.dart';
-import 'package:crm_train/providers/auth_provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:crm_train/repositories/worker_repo.dart';
 import '../../services/api_services.dart';
+import '../../utills/app_colors.dart';
+
 class WorkerGarbageScreen extends StatefulWidget {
   final String? stationId;
   final String? stationName;
@@ -25,15 +28,17 @@ class _WorkerGarbageScreenState extends State<WorkerGarbageScreen> {
   bool _isRecording = false;
   String _wasteType = 'General';
   String _disposalMethod = 'Landfill';
+  XFile? _beforePhoto;
+  XFile? _afterPhoto;
+
+  final picker = ImagePicker();
 
   final _wasteTypes = ['General', 'Wet', 'Dry', 'Recyclable', 'Hazardous', 'Bio-medical', 'E-waste'];
   final _disposalMethods = ['Landfill', 'Recycling', 'Composting', 'Incineration', 'Contractor pickup'];
 
   Future<String?> _getAuthToken() async {
-    final authProvider = context.read<AuthProvider>();
-    if (authProvider.token != null) return authProvider.token;
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('auth_token') ?? prefs.getString('token');
+    return prefs.getString('token') ?? prefs.getString('auth_token');
   }
 
   @override
@@ -46,8 +51,38 @@ class _WorkerGarbageScreenState extends State<WorkerGarbageScreen> {
     super.dispose();
   }
 
+  Widget _buildPhotoWidget(XFile? photo, VoidCallback onCapture) {
+    if (photo != null) {
+      return Container(
+        width: double.infinity,
+        height: 140,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          image: DecorationImage(image: FileImage(File(photo.path)), fit: BoxFit.cover),
+        ),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: onCapture,
+      icon: const Icon(Icons.camera_alt),
+      label: const Text('Capture (Camera only)'),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 48),
+        side: BorderSide(color: Colors.grey[400]!),
+      ),
+    );
+  }
+
   Future<void> _submitRecord() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_beforePhoto == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Before photo is required'), backgroundColor: kWarningOrange));
+      return;
+    }
+    if (_afterPhoto == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('After photo is required'), backgroundColor: kWarningOrange));
+      return;
+    }
     setState(() => _isRecording = true);
     try {
       final token = await _getAuthToken();
@@ -55,9 +90,13 @@ class _WorkerGarbageScreenState extends State<WorkerGarbageScreen> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not logged in'), backgroundColor: Colors.red));
         return;
       }
+
+      final beforeUrl = await WorkerRepository.uploadMedia(_beforePhoto!.path);
+      final afterUrl = await WorkerRepository.uploadMedia(_afterPhoto!.path);
+
       final body = {
-        'stationId': widget.stationId ?? 'current_station_id',
-        'stationName': widget.stationName ?? 'Current Station',
+        'stationId': widget.stationId ?? '',
+        'stationName': widget.stationName ?? '',
         'wasteType': _wasteType,
         'quantityKg': double.tryParse(_qtyCtrl.text) ?? 0,
         'area': _areaCtrl.text,
@@ -65,6 +104,9 @@ class _WorkerGarbageScreenState extends State<WorkerGarbageScreen> {
         'disposalAgency': _agencyCtrl.text,
         'vehicleNumber': _vehicleCtrl.text,
         'notes': _notesCtrl.text,
+        'evidence': [beforeUrl, afterUrl],
+        'beforePhoto': beforeUrl,
+        'afterPhoto': afterUrl,
       };
       final res = await http.post(
         Uri.parse('${ApiService.baseUrl}/api/station-garbage/record'),
@@ -73,7 +115,7 @@ class _WorkerGarbageScreenState extends State<WorkerGarbageScreen> {
       );
       if (mounted) {
         if (res.statusCode == 200 || res.statusCode == 201) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Garbage disposal recorded'), backgroundColor: Colors.green));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Garbage disposal recorded with photos'), backgroundColor: Colors.green));
           Navigator.pop(context);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${res.body}'), backgroundColor: Colors.red));
@@ -135,6 +177,20 @@ class _WorkerGarbageScreenState extends State<WorkerGarbageScreen> {
               TextFormField(controller: _agencyCtrl, decoration: const InputDecoration(labelText: 'Disposal Agency', border: OutlineInputBorder(), prefixIcon: Icon(Icons.business))),
               const SizedBox(height: 12),
               TextFormField(controller: _vehicleCtrl, decoration: const InputDecoration(labelText: 'Vehicle No.', border: OutlineInputBorder(), prefixIcon: Icon(Icons.local_shipping))),
+              const SizedBox(height: 12),
+              Text('Before Photo (Camera)', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700])),
+              const SizedBox(height: 4),
+              _buildPhotoWidget(_beforePhoto, () async {
+                final photo = await picker.pickImage(source: ImageSource.camera, imageQuality: 80, maxWidth: 1280);
+                if (photo != null) setState(() => _beforePhoto = photo);
+              }),
+              const SizedBox(height: 12),
+              Text('After Photo (Camera)', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700])),
+              const SizedBox(height: 4),
+              _buildPhotoWidget(_afterPhoto, () async {
+                final photo = await picker.pickImage(source: ImageSource.camera, imageQuality: 80, maxWidth: 1280);
+                if (photo != null) setState(() => _afterPhoto = photo);
+              }),
               const SizedBox(height: 12),
               TextFormField(controller: _notesCtrl, decoration: const InputDecoration(labelText: 'Notes', border: OutlineInputBorder(), prefixIcon: Icon(Icons.notes)), maxLines: 2),
               const SizedBox(height: 24),

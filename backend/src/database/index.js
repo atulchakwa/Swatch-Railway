@@ -23,6 +23,7 @@ class Database {
     }
 
     this.db = firebaseAdmin.firestore();
+    this.db.settings({ ignoreUndefinedProperties: true });
     this.bucket = firebaseAdmin.storage().bucket(appConfig.firebase.storageBucket);
 
     return this;

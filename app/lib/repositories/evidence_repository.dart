@@ -14,8 +14,8 @@ class EvidenceRepository {
     final uri = Uri.parse('$baseUrl/api/evidence/search').replace(queryParameters: query);
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
-      final list = jsonDecode(res.body)['results'] ?? [];
-      return list.map((e) => EvidenceMetadata.fromJson(e)).toList();
+      final list = jsonDecode(res.body)['results'] as List<dynamic>? ?? [];
+      return list.map<EvidenceMetadata>((e) => EvidenceMetadata.fromJson(e)).toList();
     }
     throw Exception('Failed to search evidence');
   }

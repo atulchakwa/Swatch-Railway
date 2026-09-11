@@ -9,6 +9,8 @@ class ContractModel {
   String? depot;
   List<String> stationIds;
   List<String> stationNames;
+  List<String> trainIds;
+  List<String> trainNames;
   String? startDate;
   String? endDate;
   String? contractDuration;
@@ -17,6 +19,7 @@ class ContractModel {
   String? remarks;
   String? status;
   String? billingCycle;
+  String? contractType;
   bool scoringApplicability;
 
   String? repName;
@@ -46,6 +49,8 @@ class ContractModel {
     this.depot,
     this.stationIds = const [],
     this.stationNames = const [],
+    this.trainIds = const [],
+    this.trainNames = const [],
     this.startDate,
     this.endDate,
     this.contractDuration,
@@ -54,6 +59,7 @@ class ContractModel {
     this.remarks,
     this.status,
     this.billingCycle,
+    this.contractType,
     this.scoringApplicability = true,
     this.repName,
     this.repDesignation,
@@ -96,6 +102,8 @@ class ContractModel {
 
     final stations = (json['stationIds'] as List?)?.cast<String>() ?? [];
     final stNames = (json['stationNames'] as List?)?.cast<String>() ?? [];
+    final trains = (json['trainIds'] as List?)?.cast<String>() ?? [];
+    final trNames = (json['trainNames'] as List?)?.cast<String>() ?? [];
 
     return ContractModel(
       uid: json['uid'] ?? '',
@@ -108,6 +116,8 @@ class ContractModel {
       depot: json['depot'],
       stationIds: stations,
       stationNames: stNames,
+      trainIds: trains,
+      trainNames: trNames,
       startDate: json['startDate'],
       endDate: json['endDate'],
       contractDuration: json['contractDuration'],
@@ -116,6 +126,7 @@ class ContractModel {
       remarks: json['remarks'],
       status: json['status'],
       billingCycle: json['billingCycle'],
+      contractType: json['contractType'],
       scoringApplicability: json['scoringApplicability'] ?? true,
 
       repName: json['repName'] ?? rep['name'],
@@ -148,6 +159,8 @@ class ContractModel {
       'depot': depot,
       'stationIds': stationIds,
       'stationNames': stationNames,
+      'trainIds': trainIds,
+      'trainNames': trainNames,
       'startDate': startDate,
       'endDate': endDate,
       'contractDuration': contractDuration,
@@ -156,6 +169,7 @@ class ContractModel {
       'remarks': remarks,
       'status': status,
       'billingCycle': billingCycle,
+      'contractType': contractType,
       'scoringApplicability': scoringApplicability,
 
       'repName': repName,

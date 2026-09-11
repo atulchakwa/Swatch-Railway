@@ -100,6 +100,7 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
       return [
         'All Roles',
         'Railway Admin',
+        'Railway Inspector',
         'Railway Supervisor',
         'Railway Worker',
         'Contractor Admin',
@@ -122,6 +123,7 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
       'Company Master',
       'Railway Master',
       'Railway Admin',
+      'Railway Inspector',
       'Railway Supervisor',
       'Railway Worker',
       'Contractor Master',
@@ -470,7 +472,7 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: selectedRoleFilter,
+                          value: (_getAvailableRoleFilters(user).contains(selectedRoleFilter)) ? selectedRoleFilter : 'All Roles',
                           decoration: InputDecoration(
                             labelText: 'Role',
                             labelStyle: const TextStyle(fontSize: 14),
@@ -535,7 +537,7 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
 
 
                   DropdownButtonFormField<String>(
-                    value: selectedZoneFilter,
+                    value: (selectedZoneFilter != null && zones.contains(selectedZoneFilter)) ? selectedZoneFilter : null,
                     decoration: InputDecoration(
                       labelText: 'Zone',
                       labelStyle: const TextStyle(fontSize: 14),
@@ -565,7 +567,7 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
 
 
                   DropdownButtonFormField<String>(
-                    value: selectedDivisionFilter,
+                    value: (selectedDivisionFilter != null && divisions.contains(selectedDivisionFilter)) ? selectedDivisionFilter : null,
                     decoration: InputDecoration(
                       labelText: 'Division',
                       labelStyle: const TextStyle(fontSize: 14),
@@ -594,7 +596,7 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
 
 
                   DropdownButtonFormField<String>(
-                    value: selectedDepotFilter,
+                    value: (selectedDepotFilter != null && depots.contains(selectedDepotFilter)) ? selectedDepotFilter : null,
                     decoration: InputDecoration(
                       labelText: 'Depot',
                       labelStyle: const TextStyle(fontSize: 14),

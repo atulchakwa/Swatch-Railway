@@ -20,6 +20,7 @@ router.get('/api/worker/tasks', verifyToken, userController.getWorkerTasks);
 router.post('/api/worker/complaints', verifyToken, userController.submitWorkerComplaint);
 router.get('/api/users/workers', verifyToken, requirePermission(PERMISSIONS.VIEW_USERS), userController.getWorkers);
 router.get('/api/users/railway-supervisors', verifyToken, requirePermission(PERMISSIONS.VIEW_USERS), userController.getRailwaySupervisors);
+router.get('/api/users/contractor-supervisors', verifyToken, requirePermission(PERMISSIONS.VIEW_USERS), userController.getContractorSupervisors);
 router.get('/api/admin/analytics/workers-performance', verifyToken, requirePermission(PERMISSIONS.VIEW_ANALYTICS), userController.getWorkersPerformance);
 router.get('/api/users/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_USER_DETAILS), userController.getUserById);
 

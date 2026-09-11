@@ -86,7 +86,7 @@ class AreaCleaningRepository {
       queryParams: queryParams.isNotEmpty ? queryParams : null,
       parser: (data) {
         final list = data['data'] as List<dynamic>? ?? data['areas'] as List<dynamic>? ?? [];
-        return list.map((e) => AreaConfig.fromJson(e as Map<String, dynamic>)).toList();
+        return list.map<AreaConfig>((e) => AreaConfig.fromJson(e as Map<String, dynamic>)).toList();
       },
     );
     return result;
@@ -128,7 +128,7 @@ class AreaCleaningRepository {
       queryParams: {'areaId': areaId},
       parser: (data) {
         final list = data['data'] as List<dynamic>? ?? [];
-        return list.map((e) => AreaWorkerAssignment.fromJson(e as Map<String, dynamic>)).toList();
+        return list.map<AreaWorkerAssignment>((e) => AreaWorkerAssignment.fromJson(e as Map<String, dynamic>)).toList();
       },
     );
     return result;
@@ -181,7 +181,7 @@ class AreaCleaningRepository {
       queryParams: queryParams.isNotEmpty ? queryParams : null,
       parser: (data) {
         final list = data['tasks'] as List<dynamic>? ?? data['data'] as List<dynamic>? ?? [];
-        return list.map((e) => CleaningTask.fromJson(e as Map<String, dynamic>)).toList();
+        return list.map<CleaningTask>((e) => CleaningTask.fromJson(e as Map<String, dynamic>)).toList();
       },
     );
     return result;
@@ -200,12 +200,12 @@ class AreaCleaningRepository {
     );
   }
 
-  static Future<CleaningTask> completeTask(String taskId, {required String afterPhoto, double? gpsLat, double? gpsLng, String? remarks}) async {
+  static Future<CleaningTask> completeTask(String taskId, {String? afterPhoto, double? gpsLat, double? gpsLng, String? remarks}) async {
     return await _apiCall(
       method: 'POST',
       path: '/api/tasks-v2/$taskId/complete',
       body: {
-        'afterPhoto': afterPhoto,
+        if (afterPhoto != null) 'afterPhoto': afterPhoto,
         if (gpsLat != null) 'gpsLat': gpsLat,
         if (gpsLng != null) 'gpsLng': gpsLng,
         if (remarks != null) 'remarks': remarks,
@@ -214,12 +214,12 @@ class AreaCleaningRepository {
     );
   }
 
-  static Future<CleaningTask> resubmitTask(String taskId, {required String afterPhoto, double? gpsLat, double? gpsLng, String? remarks}) async {
+  static Future<CleaningTask> resubmitTask(String taskId, {String? afterPhoto, double? gpsLat, double? gpsLng, String? remarks}) async {
     return await _apiCall(
       method: 'POST',
       path: '/api/tasks-v2/$taskId/resubmit',
       body: {
-        'afterPhoto': afterPhoto,
+        if (afterPhoto != null) 'afterPhoto': afterPhoto,
         if (gpsLat != null) 'gpsLat': gpsLat,
         if (gpsLng != null) 'gpsLng': gpsLng,
         if (remarks != null) 'remarks': remarks,
@@ -256,7 +256,7 @@ class AreaCleaningRepository {
       queryParams: queryParams,
       parser: (data) {
         final list = data['tasks'] as List<dynamic>? ?? [];
-        return list.map((e) => CleaningTask.fromJson(e as Map<String, dynamic>)).toList();
+        return list.map<CleaningTask>((e) => CleaningTask.fromJson(e as Map<String, dynamic>)).toList();
       },
     );
     return result;
@@ -272,19 +272,26 @@ class AreaCleaningRepository {
       queryParams: queryParams,
       parser: (data) {
         final list = data['tasks'] as List<dynamic>? ?? [];
-        return list.map((e) => CleaningTask.fromJson(e as Map<String, dynamic>)).toList();
+        return list.map<CleaningTask>((e) => CleaningTask.fromJson(e as Map<String, dynamic>)).toList();
       },
     );
     return result;
   }
 
-  static Future<Map<String, dynamic>> generateTasks({List<String>? areaIds, String? date}) async {
+  static Future<Map<String, dynamic>> generateTasks({List<String>? areaIds, String? date, List<String>? workerIds, String? supervisorId, String? frequency, String? activityType, String? taskTypeId, String? taskTypeName, Map<String, dynamic>? areaActivities}) async {
     return await _apiCall(
       method: 'POST',
       path: '/api/tasks-v2/generate',
       body: {
         if (areaIds != null) 'areaIds': areaIds,
         if (date != null) 'date': date,
+        if (workerIds != null && workerIds.isNotEmpty) 'workerIds': workerIds,
+        if (supervisorId != null && supervisorId.isNotEmpty) 'supervisorId': supervisorId,
+        if (frequency != null && frequency.isNotEmpty) 'frequency': frequency,
+        if (activityType != null && activityType.isNotEmpty) 'activityType': activityType,
+        if (taskTypeId != null && taskTypeId.isNotEmpty) 'taskTypeId': taskTypeId,
+        if (taskTypeName != null && taskTypeName.isNotEmpty) 'taskTypeName': taskTypeName,
+        if (areaActivities != null && areaActivities.isNotEmpty) 'areaActivities': areaActivities,
       },
       parser: (data) => data,
     );

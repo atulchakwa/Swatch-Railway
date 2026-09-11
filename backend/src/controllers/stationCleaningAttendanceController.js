@@ -18,7 +18,7 @@ export const listAttendance = asyncHandler(async (req, res) => {
     ...req.query,
     callerId: req.user.uid,
     role: req.user.role
-  });
+  }, req.user);
   res.json(result);
 });
 

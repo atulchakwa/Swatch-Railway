@@ -28,6 +28,14 @@ export const verifyToken = asyncHandler(async (req, res, next) => {
     }
   }
 
+  let contractDetails = null;
+  if (userData.contractId) {
+    const contractDoc = await db.collection('contracts').doc(userData.contractId).get();
+    if (contractDoc.exists) {
+      contractDetails = contractDoc.data();
+    }
+  }
+
   req.user = {
     uid: decoded.uid,
     email: decoded.email,
@@ -43,7 +51,11 @@ export const verifyToken = asyncHandler(async (req, res, next) => {
     userType: userData.userType,
     entityId: userData.entityId,
     entityName: entityDetails?.companyName || null,
-    entityDetails: entityDetails
+    entityDetails: entityDetails,
+    contractId: userData.contractId || null,
+    contractType: userData.contractType || null,
+    stations: userData.stations || [],
+    domain: userData.domain || null
   };
 
   next();

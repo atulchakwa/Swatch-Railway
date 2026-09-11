@@ -2,7 +2,7 @@ import { complaintService } from '../services/complaintService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const create = asyncHandler(async (req, res) => res.status(201).json(await complaintService.createComplaint(req.user, req.body)));
-export const list = asyncHandler(async (req, res) => res.json(await complaintService.getComplaints(req.query)));
+export const list = asyncHandler(async (req, res) => res.json(await complaintService.getComplaints(req.query, req.user)));
 export const getById = asyncHandler(async (req, res) => res.json(await complaintService.getComplaintById(req.params.uid)));
 export const assign = asyncHandler(async (req, res) => res.json(await complaintService.assignComplaint(req.params.uid, req.user, req.body)));
 export const startProgress = asyncHandler(async (req, res) => res.json(await complaintService.startProgress(req.params.uid, req.user)));

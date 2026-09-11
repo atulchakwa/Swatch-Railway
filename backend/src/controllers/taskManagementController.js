@@ -12,7 +12,7 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const getById = asyncHandler(async (req, res) => {
-  const result = await taskManagementService.getTaskById(req.params.id);
+  const result = await taskManagementService.getTaskById(req.params.id, req.user);
   res.status(200).json(result);
 });
 
@@ -62,7 +62,7 @@ export const getAreaTasks = asyncHandler(async (req, res) => {
 });
 
 export const getSupervisorTasks = asyncHandler(async (req, res) => {
-  const result = await taskManagementService.getSupervisorTasks(req.params.supervisorId, req.query.date, req.query.status);
+  const result = await taskManagementService.getSupervisorTasks(req.params.supervisorId, req.query.date, req.query.status, req.user);
   res.status(200).json(result);
 });
 
@@ -72,7 +72,7 @@ export const getPendingReview = asyncHandler(async (req, res) => {
 });
 
 export const getDailyTasks = asyncHandler(async (req, res) => {
-  const result = await taskManagementService.getDailyTasks(req.params.date);
+  const result = await taskManagementService.getDailyTasks(req.params.date, req.user);
   res.status(200).json(result);
 });
 

@@ -1,7 +1,7 @@
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/model/station_models.dart';
+import 'package:crm_train/model/train_model.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -44,9 +44,16 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
   List<String> selectedWorkCategories = [];
   List<String> selectedStationIds = [];
   List<String> selectedStationNames = [];
+  List<String> selectedTrainIds = [];
+  List<String> selectedTrainNames = [];
   List<Station> _availableStations = [];
+  List<TrainModel> _availableTrains = [];
   bool _stationsLoading = false;
+  final TextEditingController _stationNameController = TextEditingController();
+  String? _manualStationId;
+  String? _manualStationName;
   String? selectedBillingCycle;
+  String? selectedContractType;
   double contractValue = 0;
   bool scoringApplicability = true;
 
@@ -74,15 +81,25 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
         });
       }
       _loadStations();
+      _loadTrains();
+      if (selectedDivision != null) {
+        _loadStations(division: selectedDivision);
+      }
     });
   }
 
-  Future<void> _loadStations() async {
+  Future<void> _loadStations({String? division}) async {
     setState(() => _stationsLoading = true);
     try {
-      _availableStations = await ApiService.getStations(active: true);
+      _availableStations = await ApiService.getStations(active: true, division: division);
     } catch (_) {}
     if (mounted) setState(() => _stationsLoading = false);
+  }
+
+  Future<void> _loadTrains() async {
+    try {
+      _availableTrains = await ApiService.getActiveTrains();
+    } catch (_) {}
   }
 
   void _loadContractData() {
@@ -108,6 +125,9 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
         : null;
 
     selectedStatus = c.status;
+    selectedContractType = c.contractType != null
+        ? (c.contractType == 'station_cleaning' ? 'Station Cleaning' : 'OBHS')
+        : null;
     repNameController.text = c.repName ?? '';
     repDesignationController.text = c.repDesignation ?? '';
     repMobileController.text = c.repMobile ?? '';
@@ -115,7 +135,48 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
     repIdNumberController.text = c.repIdProofNumber ?? '';
     selectedIDType = c.repIdProofType;
 
+    if (c.stationIds != null && c.stationIds.isNotEmpty) {
+      _manualStationId = c.stationIds.first;
+      _manualStationName = c.stationNames.isNotEmpty ? c.stationNames.first : c.stationIds.first;
+      _stationNameController.text = _manualStationName ?? '';
+    }
+
     setState(() {});
+  }
+
+  Future<void> _resolveStation(String name) async {
+    if (name.isEmpty) return;
+    try {
+      final stations = await ApiService.getStations(division: selectedDivision, active: true);
+      final match = stations.firstWhere(
+        (s) => s.stationName?.toLowerCase() == name.toLowerCase(),
+        orElse: () => stations.firstWhere(
+          (s) => (s.stationName?.toLowerCase().contains(name.toLowerCase()) ?? false),
+          orElse: () => Station(stationCode: '', stationName: '', zone: '', division: ''),
+        ),
+      );
+      if (match.uid != null && match.uid!.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _manualStationId = match.uid;
+            _manualStationName = match.stationName;
+            _stationNameController.text = match.stationName ?? name;
+          });
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Station not found in this division'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   @override
@@ -206,11 +267,46 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                               selectedDivision = division;
                               selectedDepot = depot;
                             });
+                            if (selectedContractType == 'Station Cleaning') {
+                              _loadStations(division: division);
+                            }
                           },
                         ),
                       ),
                     ),
                   ),
+                  if (selectedContractType == 'Station Cleaning') ...[
+                    const SizedBox(height: 16),
+                    _buildCard(
+                      title: "Station Assignment",
+                      icon: Icons.train,
+                      child: _manualStationId != null && _manualStationName != null
+                          ? Chip(
+                              avatar: const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                              label: Text('Station: $_manualStationName'),
+                              onDeleted: () => setState(() {
+                                _manualStationId = null;
+                                _manualStationName = null;
+                                _stationNameController.clear();
+                              }),
+                            )
+                          : TextFormField(
+                              controller: _stationNameController,
+                              decoration: const InputDecoration(
+                                labelText: 'Station Name *',
+                                hintText: 'Type station name',
+                                border: OutlineInputBorder(),
+                                suffixIcon: Icon(Icons.search),
+                              ),
+                              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                              onChanged: (v) {
+                                _manualStationId = null;
+                                _manualStationName = null;
+                              },
+                              onFieldSubmitted: (v) => _resolveStation(v.trim()),
+                            ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
 
                   _buildCard(
@@ -225,36 +321,6 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                           if (!isEditMode) setState(() => endDate = date);
                         }, enabled: !isEditMode),
                         const SizedBox(height: 12),
-                        const Text('Assigned Stations *', style: TextStyle(fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 4),
-                        _stationsLoading
-                            ? const SizedBox(height: 40, child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
-                            : AbsorbPointer(
-                                absorbing: isEditMode,
-                                child: Opacity(
-                                  opacity: isEditMode ? 0.5 : 1.0,
-                                  child: _buildMultiSelectDropdown(
-                                    "Stations",
-                                    "Select stations",
-                                    _availableStations.map((s) => '${s.stationCode} - ${s.stationName}').toList(),
-                                    selectedStationNames,
-                                    (values) {
-                                      setState(() {
-                                        selectedStationNames = values;
-                                        selectedStationIds = values.map((v) {
-                                          final match = _availableStations.firstWhere(
-                                            (s) => '${s.stationCode} - ${s.stationName}' == v,
-                                            orElse: () => _availableStations.first,
-                                          );
-                                          return match.uid ?? match.stationCode;
-                                        }).toList();
-                                      });
-                                    },
-                                    enabled: !isEditMode,
-                                  ),
-                                ),
-                              ),
-                        const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
@@ -262,6 +328,28 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                                 "Contract Value (₹)",
                                 "Enter value",
                                 contractValueController,
+                                enabled: !isEditMode,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _buildDropdown(
+                                'Contract Type',
+                                'Select type',
+                                ['Station Cleaning', 'OBHS'],
+                                selectedContractType,
+                                (v) {
+                                  setState(() {
+                                    selectedContractType = v;
+                                    selectedStationIds = [];
+                                    selectedStationNames = [];
+                                    selectedTrainIds = [];
+                                    selectedTrainNames = [];
+                                  });
+                                  if (v == 'Station Cleaning' && selectedDivision != null) {
+                                    _loadStations(division: selectedDivision);
+                                  }
+                                },
                                 enabled: !isEditMode,
                               ),
                             ),
@@ -307,6 +395,64 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                               (v) => setState(() => selectedStatus = v),
                           enabled: true,
                         ),
+                        // OBHS → train picker
+                        if (selectedContractType == 'OBHS') ...[
+                          const SizedBox(height: 12),
+                          const Text('Assigned Trains *', style: TextStyle(fontWeight: FontWeight.w500)),
+                          const SizedBox(height: 4),
+                          _buildMultiSelectDropdown(
+                            "Trains",
+                            "Select trains",
+                            _availableTrains.map((t) => '${t.trainNo ?? ""} - ${t.trainName ?? ""}').toList(),
+                            selectedTrainNames,
+                            (values) {
+                              setState(() {
+                                selectedTrainNames = values;
+                                selectedTrainIds = values.map((v) {
+                                  final match = _availableTrains.firstWhere(
+                                    (t) => '${t.trainNo ?? ""} - ${t.trainName ?? ""}' == v,
+                                    orElse: () => _availableTrains.first,
+                                  );
+                                  return match.uid ?? '';
+                                }).toList();
+                              });
+                            },
+                            enabled: !isEditMode,
+                          ),
+                        ],
+
+                        if (selectedContractType != null && selectedContractType != 'Station Cleaning' && selectedContractType != 'OBHS') ...[
+                          const SizedBox(height: 12),
+                          const Text('Assigned Stations *', style: TextStyle(fontWeight: FontWeight.w500)),
+                          const SizedBox(height: 4),
+                          _stationsLoading
+                              ? const SizedBox(height: 40, child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
+                              : AbsorbPointer(
+                                  absorbing: isEditMode,
+                                  child: Opacity(
+                                    opacity: isEditMode ? 0.5 : 1.0,
+                                    child: _buildMultiSelectDropdown(
+                                      "Stations",
+                                      "Select stations",
+                                      _availableStations.map((s) => '${s.stationCode} - ${s.stationName}').toList(),
+                                      selectedStationNames,
+                                      (values) {
+                                        setState(() {
+                                          selectedStationNames = values;
+                                          selectedStationIds = values.map((v) {
+                                            final match = _availableStations.firstWhere(
+                                              (s) => '${s.stationCode} - ${s.stationName}' == v,
+                                              orElse: () => _availableStations.first,
+                                            );
+                                            return match.uid ?? match.stationCode;
+                                          }).toList();
+                                        });
+                                      },
+                                      enabled: !isEditMode,
+                                    ),
+                                  ),
+                                ),
+                        ],
                         _buildTextField(
                           "Remarks",
                           "Notes about scope or location",
@@ -613,7 +759,7 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
           Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
           DropdownButtonFormField<String>(
-            value: value,
+            value: value != null && items.contains(value) ? value : null,
             decoration: InputDecoration(
               hintText: hint,
               filled: !enabled,
@@ -851,16 +997,20 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
         _showErrorSnackBar("Please select a zone");
         return;
       }
-      if (selectedStationIds.isEmpty) {
-        _showErrorSnackBar("Please select at least one station");
-        return;
-      }
       if (startDate == null || endDate == null) {
         _showErrorSnackBar("Please select start and end dates");
         return;
       }
       if (selectedWorkCategories.isEmpty) {
         _showErrorSnackBar("Please select at least one work category");
+        return;
+      }
+      if (selectedContractType == 'OBHS' && selectedTrainIds.isEmpty) {
+        _showErrorSnackBar("Please select at least one train");
+        return;
+      }
+      if (selectedContractType != 'Station Cleaning' && selectedContractType != 'OBHS' && selectedStationIds.isEmpty) {
+        _showErrorSnackBar("Please select at least one station");
         return;
       }
     }
@@ -896,7 +1046,10 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
           zone: selectedZone!,
           division: selectedDivision,
           depot: selectedDepot,
-          stationIds: selectedStationIds.isNotEmpty ? selectedStationIds : null,
+          stationIds: selectedContractType == 'Station Cleaning'
+              ? (_manualStationId != null ? [_manualStationId!] : null)
+              : (selectedStationIds.isNotEmpty ? selectedStationIds : null),
+          trainIds: selectedContractType == 'OBHS' ? (selectedTrainIds.isNotEmpty ? selectedTrainIds : null) : null,
           startDate: formattedStartDate,
           endDate: formattedEndDate,
           contractValue: double.tryParse(contractValueController.text) ?? 0,
@@ -911,16 +1064,17 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
           repEmail: repEmailController.text,
           repIdProofType: selectedIDType!,
           repIdProofNumber: repIdNumberController.text,
+          contractType: selectedContractType != null ? selectedContractType!.toLowerCase().replaceAll(' ', '_') : null,
         );
-      }
 
-      if (mounted) {
-        _showSuccessSnackBar(
-            response['message'] ??
-                (isEditMode
-                    ? "Contract updated successfully!"
-                    : "Contract created successfully!"));
-        Navigator.pop(context, true);
+        if (mounted) {
+          _showSuccessSnackBar(
+              response['message'] ??
+                  (isEditMode
+                      ? "Contract updated successfully!"
+                      : "Contract created successfully!"));
+          Navigator.pop(context, true);
+        }
       }
     } catch (e) {
       if (mounted) {

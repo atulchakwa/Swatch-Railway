@@ -19,61 +19,77 @@ class CommonNavBar extends StatelessWidget {
   final String userRole;
   final String userLevel;
   final String? userDisplayRole;
+  final String? contractType;
 
   const CommonNavBar({
     super.key,
     required this.userRole,
     required this.userLevel,
     this.userDisplayRole,
+    this.contractType,
   });
 
-  List<Widget> _contractorScreens() => [
-    ContractorMasterDashboard(),
-    ContractorMasterFormsScreen(),
-    ContractorMasterMyContractsScreen(),
-    ContractorReportScreen(),
-    CommonUserManagementScreen(),
-    CommonTrainScreen(),
-  ];
+  bool get _isStationCleaning => contractType == 'station_cleaning';
 
-  List<PersistentBottomNavBarItem> _contractorNavItems() => [
-    PersistentBottomNavBarItem(
-      icon: const Icon(Icons.dashboard_rounded),
-      title: "Dashboard",
-      activeColorPrimary: Colors.blue,
-      inactiveColorPrimary: Colors.grey,
-    ),
-    PersistentBottomNavBarItem(
-      icon: const Icon(Icons.description_rounded),
-      title: "Forms",
-      activeColorPrimary: Colors.blue,
-      inactiveColorPrimary: Colors.grey,
-    ),
-    PersistentBottomNavBarItem(
-      icon: const Icon(Icons.file_copy_rounded),
-      title: "My Contracts",
-      activeColorPrimary: Colors.blue,
-      inactiveColorPrimary: Colors.grey,
-    ),
-    PersistentBottomNavBarItem(
-      icon: const Icon(Icons.bar_chart),
-      title: "Report",
-      activeColorPrimary: Colors.blue,
-      inactiveColorPrimary: Colors.grey,
-    ),
-    PersistentBottomNavBarItem(
-      icon: const Icon(Icons.people),
-      title: "Users",
-      activeColorPrimary: Colors.blue,
-      inactiveColorPrimary: Colors.grey,
-    ),
-    PersistentBottomNavBarItem(
-      icon: const Icon(Icons.train),
-      title: "Train",
-      activeColorPrimary: Colors.blue,
-      inactiveColorPrimary: Colors.grey,
-    ),
-  ];
+  List<Widget> _contractorScreens() {
+    final screens = <Widget>[
+      ContractorMasterDashboard(contractType: contractType),
+      ContractorMasterFormsScreen(contractType: contractType),
+      ContractorMasterMyContractsScreen(),
+      ContractorReportScreen(contractType: contractType),
+      CommonUserManagementScreen(),
+    ];
+    if (!_isStationCleaning) {
+      screens.add(CommonTrainScreen());
+    }
+    return screens;
+  }
+
+  List<PersistentBottomNavBarItem> _contractorNavItems() {
+    final items = <PersistentBottomNavBarItem>[
+      PersistentBottomNavBarItem(
+        icon: const Icon(Icons.dashboard_rounded),
+        title: "Dashboard",
+        activeColorPrimary: Colors.blue,
+        inactiveColorPrimary: Colors.grey,
+      ),
+      PersistentBottomNavBarItem(
+        icon: const Icon(Icons.description_rounded),
+        title: "Forms",
+        activeColorPrimary: Colors.blue,
+        inactiveColorPrimary: Colors.grey,
+      ),
+      PersistentBottomNavBarItem(
+        icon: const Icon(Icons.file_copy_rounded),
+        title: "My Contracts",
+        activeColorPrimary: Colors.blue,
+        inactiveColorPrimary: Colors.grey,
+      ),
+      PersistentBottomNavBarItem(
+        icon: const Icon(Icons.bar_chart),
+        title: "Report",
+        activeColorPrimary: Colors.blue,
+        inactiveColorPrimary: Colors.grey,
+      ),
+      PersistentBottomNavBarItem(
+        icon: const Icon(Icons.people),
+        title: "Users",
+        activeColorPrimary: Colors.blue,
+        inactiveColorPrimary: Colors.grey,
+      ),
+    ];
+    if (!_isStationCleaning) {
+      items.add(
+        PersistentBottomNavBarItem(
+          icon: const Icon(Icons.train),
+          title: "Train",
+          activeColorPrimary: Colors.blue,
+          inactiveColorPrimary: Colors.grey,
+        ),
+      );
+    }
+    return items;
+  }
 
 
   List<Widget> _commonScreens() => [

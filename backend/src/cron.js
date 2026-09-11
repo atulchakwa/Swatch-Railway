@@ -5,6 +5,7 @@ import { db, admin } from './database/index.js';
 import * as evidence from '../evidence_manager.js';
 import logger from './logger/index.js';
 import { taskManagementService } from './services/taskManagementService.js';
+import { stationCleaningService } from './services/stationCleaningService.js';
 
 let resend = null;
 try {
@@ -216,8 +217,44 @@ cron.schedule('0 0 * * *', async () => {
   try {
     await checkContractExpiry();
     const today = new Date().toISOString().split('T')[0];
-    const taskResult = await taskManagementService.generateFrequencyBasedTasks(today);
-    logger.info('Cron', ` [TaskGen] ${taskResult.message}`);
+    const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+
+    const legacyResult = await taskManagementService.generateFrequencyBasedTasks(today);
+    logger.info('Cron', ` [TaskGen-Legacy] ${legacyResult.message}`);
+
+    const scheduleSnap = await db.collection('stationSchedules')
+      .where('status', '==', 'active').get();
+    let totalSchedules = 0;
+    let totalTasks = 0;
+
+    for (const doc of scheduleSnap.docs) {
+      const s = doc.data();
+      if (s.daysOfWeek && Array.isArray(s.daysOfWeek) && s.daysOfWeek.length > 0) {
+        if (!s.daysOfWeek.includes(dayName)) continue;
+      }
+      if (s.effectiveFrom && s.effectiveTo) {
+        const from = new Date(s.effectiveFrom);
+        const to = new Date(s.effectiveTo);
+        const now = new Date();
+        if (now < from || now > to) continue;
+      }
+
+      try {
+        const result = await stationCleaningService.generateTasksFromSchedule({
+          scheduleId: doc.id,
+          date: today,
+          generateForDays: 1,
+        });
+        totalSchedules++;
+        totalTasks += result.count || 0;
+      } catch (err) {
+        logger.error('Cron', ` [StationSchedule] Error processing ${doc.id}: ${err.message}`);
+      }
+    }
+
+    if (totalSchedules > 0) {
+      logger.info('Cron', ` [StationSchedule] Generated ${totalTasks} tasks across ${totalSchedules} schedule(s)`);
+    }
   } catch (e) { logger.error('Cron', ' [Cron Error] Midnight tasks:', e.message); }
 });
 

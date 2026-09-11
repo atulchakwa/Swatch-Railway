@@ -208,15 +208,24 @@ class StationBillingPack {
   final String contractNumber;
   final String contractorName;
   final int monthlyContractValue;
+  final int gstRate;
+  final int gstAmount;
+  final int totalPayableWithGst;
   final Map<String, dynamic> attendanceSummary;
   final Map<String, dynamic> activitySummary;
   final Map<String, dynamic> scorecardSummary;
   final Map<String, dynamic> complaintSummary;
   final Map<String, dynamic> feedbackSummary;
+  final Map<String, dynamic> inspectionSummary;
+  final Map<String, dynamic> pettyIssueSummary;
+  final Map<String, dynamic> evidenceSummary;
   final Map<String, dynamic> machineSummary;
+  final Map<String, dynamic> executionSheetSummary;
+  final Map<String, dynamic> inspectionBillingSummary;
   final Map<String, dynamic> penalties;
   final int billableAmount;
   final String status;
+  final String? rejectionReason;
   final Map<String, dynamic> complianceChecklist;
   final String generatedBy;
   final String generatedByName;
@@ -232,15 +241,24 @@ class StationBillingPack {
     required this.contractNumber,
     required this.contractorName,
     required this.monthlyContractValue,
+    this.gstRate = 18,
+    this.gstAmount = 0,
+    this.totalPayableWithGst = 0,
     required this.attendanceSummary,
     required this.activitySummary,
     required this.scorecardSummary,
     required this.complaintSummary,
     required this.feedbackSummary,
+    this.inspectionSummary = const {},
+    this.pettyIssueSummary = const {},
+    this.evidenceSummary = const {},
     required this.machineSummary,
+    this.executionSheetSummary = const {},
+    this.inspectionBillingSummary = const {},
     required this.penalties,
     required this.billableAmount,
     required this.status,
+    this.rejectionReason,
     required this.complianceChecklist,
     required this.generatedBy,
     required this.generatedByName,
@@ -257,20 +275,127 @@ class StationBillingPack {
     contractNumber: json['contractNumber'] ?? '',
     contractorName: json['contractorName'] ?? '',
     monthlyContractValue: json['monthlyContractValue'] ?? 0,
+    gstRate: json['gstRate'] ?? 18,
+    gstAmount: json['gstAmount'] ?? 0,
+    totalPayableWithGst: json['totalPayableWithGst'] ?? 0,
     attendanceSummary: json['attendanceSummary'] ?? {},
     activitySummary: json['activitySummary'] ?? {},
     scorecardSummary: json['scorecardSummary'] ?? {},
     complaintSummary: json['complaintSummary'] ?? {},
     feedbackSummary: json['feedbackSummary'] ?? {},
+    inspectionSummary: json['inspectionSummary'] ?? {},
+    pettyIssueSummary: json['pettyIssueSummary'] ?? {},
+    evidenceSummary: json['evidenceSummary'] ?? {},
     machineSummary: json['machineSummary'] ?? {},
+    executionSheetSummary: json['executionSheetSummary'] ?? {},
+    inspectionBillingSummary: json['inspectionBillingSummary'] ?? {},
     penalties: json['penalties'] ?? {},
     billableAmount: json['billableAmount'] ?? 0,
     status: json['status'] ?? 'DRAFT',
+    rejectionReason: json['rejectionReason'],
     complianceChecklist: json['complianceChecklist'] ?? {},
     generatedBy: json['generatedBy'] ?? '',
     generatedByName: json['generatedByName'] ?? '',
     generatedAt: json['generatedAt'] != null ? DateTime.parse(json['generatedAt']) : DateTime.now(),
   );
+}
+
+const gradeLabels = ['excellent', 'very_good', 'good', 'average', 'poor'];
+const gradeDisplayNames = {
+  'excellent': 'Excellent',
+  'very_good': 'Very Good',
+  'good': 'Good',
+  'average': 'Average',
+  'poor': 'Poor',
+};
+const gradeScores = {
+  'excellent': 10,
+  'very_good': 8,
+  'good': 6,
+  'average': 5,
+  'poor': 3,
+};
+
+const sectionConfig = {
+  'floor': {
+    'displayName': 'Floor',
+    'parameters': ['shineLevel', 'dustLevel', 'footMarks', 'panGhutkaStains', 'birdDroppings'],
+  },
+  'stairs': {
+    'displayName': 'Stairs',
+    'parameters': ['shineLevel', 'dustLevel', 'footMarks', 'panGhutkaStains', 'birdDroppings'],
+  },
+  'wallCladdings': {
+    'displayName': 'Wall & Claddings',
+    'parameters': ['shineLevel', 'dustLevel', 'panGhutkaStains', 'birdDroppings'],
+  },
+  'steelWorks': {
+    'displayName': 'Steel Works',
+    'parameters': ['shineLevel', 'birdDroppings', 'fingerPalmMarks', 'dustLevel', 'waterHardnessMarks'],
+  },
+  'glassWorks': {
+    'displayName': 'Glass Works',
+    'parameters': ['birdDroppings', 'fingerPalmMarks', 'dustLevel'],
+  },
+  'escalators': {
+    'displayName': 'Escalators',
+    'parameters': ['birdDroppings', 'fingerPalmMarks', 'dustLevel'],
+  },
+  'toilets': {
+    'displayName': 'Toilets',
+    'parameters': ['mirrors', 'washBasins', 'wcSeats', 'floor', 'odour'],
+  },
+};
+
+const paramDisplayNames = {
+  'shineLevel': 'Shine Level',
+  'dustLevel': 'Dust Level',
+  'footMarks': 'Foot Marks',
+  'panGhutkaStains': 'Pan & Ghutka Stains',
+  'birdDroppings': 'Bird Droppings',
+  'fingerPalmMarks': 'Finger/Palm Marks',
+  'waterHardnessMarks': 'Water Hardness Marks',
+  'mirrors': 'Mirrors',
+  'washBasins': 'Wash Basins',
+  'wcSeats': 'W.C. Seats',
+  'floor': 'Floor',
+  'odour': 'Odour',
+};
+
+const paramHints = {
+  'shineLevel': 'Gloss meter at multiple locations',
+  'dustLevel': 'White blotting paper test',
+  'footMarks': 'Count per sqm',
+  'panGhutkaStains': 'Visual inspection',
+  'birdDroppings': 'Visual inspection',
+  'fingerPalmMarks': 'Visual inspection',
+  'waterHardnessMarks': 'Visual inspection',
+  'mirrors': 'All mirrors to be inspected',
+  'washBasins': 'All wash basins to be inspected',
+  'wcSeats': 'All WCs to be inspected',
+  'floor': 'All toilets to be inspected',
+  'odour': 'All toilets to be inspected',
+};
+
+String numericToGrade(double avg) {
+  if (avg >= 9) return 'excellent';
+  if (avg >= 7) return 'very_good';
+  if (avg >= 5.5) return 'good';
+  if (avg >= 4) return 'average';
+  return 'poor';
+}
+
+int? gradeToScore(String? grade) => gradeScores[grade];
+
+double? sectionAverage(Map<String, dynamic> parameters) {
+  double total = 0;
+  int count = 0;
+  for (final param in parameters.values) {
+    final grade = param['grade'] as String?;
+    final score = gradeScores[grade];
+    if (score != null) { total += score; count++; }
+  }
+  return count > 0 ? total / count : null;
 }
 
 class StationInspection {
@@ -284,12 +409,17 @@ class StationInspection {
   final String inspectorId;
   final String inspectorName;
   final String status;
-  final Map<String, dynamic> ratings;
+  final Map<String, dynamic> sections;
   final int? overallScore;
   final String? grade;
+  final String? overallGrade;
   final String remarks;
   final List<String> photos;
   final List<Deficiency> deficiencies;
+  final String? templateId;
+  final String? templateName;
+  final List<dynamic> checklist;
+  final List<dynamic> checklistResults;
 
   StationInspection({
     required this.uid,
@@ -302,12 +432,17 @@ class StationInspection {
     required this.inspectorId,
     required this.inspectorName,
     required this.status,
-    required this.ratings,
+    required this.sections,
     this.overallScore,
     this.grade,
+    this.overallGrade,
     required this.remarks,
     required this.photos,
     required this.deficiencies,
+    this.templateId,
+    this.templateName,
+    this.checklist = const [],
+    this.checklistResults = const [],
   });
 
   factory StationInspection.fromJson(Map<String, dynamic> json) => StationInspection(
@@ -316,17 +451,22 @@ class StationInspection {
     stationName: json['stationName'] ?? '',
     platformId: json['platformId'],
     areaId: json['areaId'],
-    inspectionType: json['inspectionType'] ?? 'daily',
+    inspectionType: json['inspectionType'] ?? 'schedule',
     scheduledDate: json['scheduledDate'] ?? '',
     inspectorId: json['inspectorId'] ?? '',
     inspectorName: json['inspectorName'] ?? '',
     status: json['status'] ?? '',
-    ratings: json['ratings'] ?? {},
+    sections: json['sections'] ?? {},
     overallScore: json['overallScore'],
-    grade: json['grade'],
+    grade: json['grade'] ?? json['overallGrade'],
+    overallGrade: json['overallGrade'] ?? json['grade'],
     remarks: json['remarks'] ?? '',
     photos: List<String>.from(json['photos'] ?? []),
     deficiencies: (json['deficiencies'] as List?)?.map((e) => Deficiency.fromJson(e)).toList() ?? [],
+    templateId: json['templateId'],
+    templateName: json['templateName'],
+    checklist: json['checklist'] ?? [],
+    checklistResults: json['checklistResults'] ?? [],
   );
 }
 
@@ -915,6 +1055,203 @@ class WorkforceDeployment {
     startDate: json['startDate'] ?? '',
     endDate: json['endDate'],
     status: json['status'] ?? 'active',
+  );
+}
+
+class PettyIssue {
+  final String uid;
+  final String stationId;
+  final String stationName;
+  final String category;
+  final String description;
+  final String? areaId;
+  final String? platformId;
+  final String severity;
+  final String status;
+  final String? photo;
+  final double? gpsLatitude;
+  final double? gpsLongitude;
+  final String remarks;
+  final String? assignedTo;
+  final String? assignedToName;
+  final String reportedBy;
+  final String reportedByName;
+  final String reportedAt;
+  final String? resolvedAt;
+  final String? resolvedBy;
+  final String? resolvedByName;
+  final List<Map<String, dynamic>> closureHistory;
+  final String createdAt;
+  final String updatedAt;
+
+  PettyIssue({
+    required this.uid,
+    required this.stationId,
+    required this.stationName,
+    required this.category,
+    required this.description,
+    this.areaId,
+    this.platformId,
+    this.severity = 'medium',
+    this.status = 'REPORTED',
+    this.photo,
+    this.gpsLatitude,
+    this.gpsLongitude,
+    this.remarks = '',
+    this.assignedTo,
+    this.assignedToName,
+    required this.reportedBy,
+    required this.reportedByName,
+    required this.reportedAt,
+    this.resolvedAt,
+    this.resolvedBy,
+    this.resolvedByName,
+    this.closureHistory = const [],
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory PettyIssue.fromJson(Map<String, dynamic> json) => PettyIssue(
+    uid: json['uid'] ?? '',
+    stationId: json['stationId'] ?? '',
+    stationName: json['stationName'] ?? '',
+    category: json['category'] ?? '',
+    description: json['description'] ?? '',
+    areaId: json['areaId'],
+    platformId: json['platformId'],
+    severity: json['severity'] ?? 'medium',
+    status: json['status'] ?? 'REPORTED',
+    photo: json['photo'],
+    gpsLatitude: (json['gpsLatitude'] as num?)?.toDouble(),
+    gpsLongitude: (json['gpsLongitude'] as num?)?.toDouble(),
+    remarks: json['remarks'] ?? '',
+    assignedTo: json['assignedTo'],
+    assignedToName: json['assignedToName'],
+    reportedBy: json['reportedBy'] ?? '',
+    reportedByName: json['reportedByName'] ?? '',
+    reportedAt: json['reportedAt'] ?? '',
+    resolvedAt: json['resolvedAt'],
+    resolvedBy: json['resolvedBy'],
+    resolvedByName: json['resolvedByName'],
+    closureHistory: (json['closureHistory'] as List?)?.cast<Map<String, dynamic>>() ?? [],
+    createdAt: json['createdAt'] ?? '',
+    updatedAt: json['updatedAt'] ?? '',
+  );
+}
+
+class SupervisorWorker {
+  final String uid;
+  final String supervisorId;
+  final String supervisorName;
+  final String fullName;
+  final String phone;
+  final String employeePhotoUrl;
+  final String aadhaarNumber;
+  final String aadhaarPhotoUrl;
+  final String panNumber;
+  final String panPhotoUrl;
+  final String pfUanNumber;
+  final String pfDocumentUrl;
+  final String policeVerificationNumber;
+  final String policeVerificationDocUrl;
+  final String stationId;
+  final String contractId;
+  final bool isActive;
+  final String createdAt;
+  final String updatedAt;
+
+  SupervisorWorker({
+    required this.uid, required this.supervisorId, required this.supervisorName,
+    required this.fullName, required this.phone,
+    this.employeePhotoUrl = '', this.aadhaarNumber = '', this.aadhaarPhotoUrl = '',
+    this.panNumber = '', this.panPhotoUrl = '', this.pfUanNumber = '',
+    this.pfDocumentUrl = '', this.policeVerificationNumber = '',
+    this.policeVerificationDocUrl = '', this.stationId = '', this.contractId = '',
+    this.isActive = true, required this.createdAt, required this.updatedAt,
+  });
+
+  factory SupervisorWorker.fromJson(Map<String, dynamic> json) => SupervisorWorker(
+    uid: json['uid'] ?? '',
+    supervisorId: json['supervisorId'] ?? '',
+    supervisorName: json['supervisorName'] ?? '',
+    fullName: json['fullName'] ?? '',
+    phone: json['phone'] ?? '',
+    employeePhotoUrl: json['employeePhotoUrl'] ?? '',
+    aadhaarNumber: json['aadhaarNumber'] ?? '',
+    aadhaarPhotoUrl: json['aadhaarPhotoUrl'] ?? '',
+    panNumber: json['panNumber'] ?? '',
+    panPhotoUrl: json['panPhotoUrl'] ?? '',
+    pfUanNumber: json['pfUanNumber'] ?? '',
+    pfDocumentUrl: json['pfDocumentUrl'] ?? '',
+    policeVerificationNumber: json['policeVerificationNumber'] ?? '',
+    policeVerificationDocUrl: json['policeVerificationDocUrl'] ?? '',
+    stationId: json['stationId'] ?? '',
+    contractId: json['contractId'] ?? '',
+    isActive: json['isActive'] ?? true,
+    createdAt: json['createdAt'] ?? '',
+    updatedAt: json['updatedAt'] ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'fullName': fullName, 'phone': phone,
+    'employeePhotoUrl': employeePhotoUrl,
+    'aadhaarNumber': aadhaarNumber, 'aadhaarPhotoUrl': aadhaarPhotoUrl,
+    'panNumber': panNumber, 'panPhotoUrl': panPhotoUrl,
+    'pfUanNumber': pfUanNumber, 'pfDocumentUrl': pfDocumentUrl,
+    'policeVerificationNumber': policeVerificationNumber, 'policeVerificationDocUrl': policeVerificationDocUrl,
+    'stationId': stationId,
+  };
+}
+
+class CleaningSubmission {
+  final String uid;
+  final String stationId;
+  final String stationName;
+  final String areaId;
+  final String areaName;
+  final String taskTypeId;
+  final String taskTypeName;
+  final String beforePhotoUrl;
+  final String afterPhotoUrl;
+  final String notes;
+  final String supervisorId;
+  final String supervisorName;
+  final String contractId;
+  final String submittedAt;
+  final String status;
+  final String? reviewedBy;
+  final String? reviewedAt;
+  final String? rejectionReason;
+
+  CleaningSubmission({
+    required this.uid, required this.stationId, this.stationName = '',
+    required this.areaId, this.areaName = '',
+    this.taskTypeId = '', this.taskTypeName = '',
+    required this.beforePhotoUrl, required this.afterPhotoUrl,
+    this.notes = '', required this.supervisorId, this.supervisorName = '',
+    this.contractId = '', required this.submittedAt,
+    this.status = 'pending', this.reviewedBy, this.reviewedAt, this.rejectionReason,
+  });
+
+  factory CleaningSubmission.fromJson(Map<String, dynamic> json) => CleaningSubmission(
+    uid: json['uid'] ?? '',
+    stationId: json['stationId'] ?? '',
+    stationName: json['stationName'] ?? '',
+    areaId: json['areaId'] ?? '',
+    areaName: json['areaName'] ?? '',
+    taskTypeId: json['taskTypeId'] ?? '',
+    taskTypeName: json['taskTypeName'] ?? '',
+    beforePhotoUrl: json['beforePhotoUrl'] ?? '',
+    afterPhotoUrl: json['afterPhotoUrl'] ?? '',
+    notes: json['notes'] ?? '',
+    supervisorId: json['supervisorId'] ?? '',
+    supervisorName: json['supervisorName'] ?? '',
+    contractId: json['contractId'] ?? '',
+    submittedAt: json['submittedAt'] ?? '',
+    status: json['status'] ?? 'pending',
+    reviewedBy: json['reviewedBy'],
+    reviewedAt: json['reviewedAt'],
+    rejectionReason: json['rejectionReason'],
   );
 }
 

@@ -1,6 +1,7 @@
 import 'package:crm_train/controller/cts_form_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../../../../../data/zone_database.dart';
 
 class CTSStep4Submit extends GetView<CTSFormController> {
   const CTSStep4Submit({super.key});
@@ -114,10 +115,87 @@ class CTSStep4Submit extends GetView<CTSFormController> {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Railway Employee',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+                if (controller.userRole.value == 'SUPER_ADMIN') ...[
+                  const Text('Select Zone (Super Admin)',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 5),
+                  DropdownButtonFormField<String>(
+                    decoration: InputDecoration(
+                      hintText: 'Select Zone',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    value: controller.selectedZone.value,
+                    onChanged: (v) {
+                      controller.selectedZone.value = v;
+                      controller.selectedDivision.value = null;
+                      controller.selectedSupervisor.value = null;
+                      controller.supervisors.clear();
+                    },
+                    items: DepotDatabase.zoneData.keys
+                        .map((z) => DropdownMenuItem(value: z, child: Text(z)))
+                        .toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('Select Division (Super Admin)',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 5),
+                  DropdownButtonFormField<String>(
+                    decoration: InputDecoration(
+                      hintText: 'Select Division',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    value: controller.selectedDivision.value,
+                    onChanged: controller.selectedZone.value == null
+                        ? null
+                        : (v) {
+                            controller.selectedDivision.value = v;
+                            controller.selectedSupervisor.value = null;
+                            controller.supervisors.clear();
+                            if (v != null) {
+                              controller.fetchSupervisors(zone: controller.selectedZone.value, division: v);
+                            }
+                          },
+                    items: controller.selectedZone.value == null
+                        ? []
+                        : DepotDatabase.zoneData[controller.selectedZone.value]!.keys
+                            .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                            .toList(),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
+                if (controller.supervisors.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'No Railway Employee found for your Division. Please ensure supervisors exist for your division before submitting.',
+                            style: TextStyle(color: Colors.orange, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  const Text(
+                    'Railway Employee',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 const SizedBox(height: 5),
                 DropdownButtonFormField(
                   decoration: InputDecoration(
@@ -143,24 +221,27 @@ class CTSStep4Submit extends GetView<CTSFormController> {
                       )
                       .toList(),
                 ),
+                ],
                 const SizedBox(height: 20),
-                const Text(
-                  'Division *',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 5),
-                TextFormField(
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    hintText: 'Auto populated Division',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+                if (controller.userRole.value != 'SUPER_ADMIN') ...[
+                  const Text(
+                    'Division *',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 5),
+                  TextFormField(
+                    readOnly: true,
+                    decoration: InputDecoration(
+                      hintText: 'Auto populated Division',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    controller: TextEditingController(
+                      text: controller.selectedSupervisor.value?.division ?? '',
                     ),
                   ),
-                  controller: TextEditingController(
-                    text: controller.selectedSupervisor.value?.division ?? '',
-                  ),
-                ),
+                ],
                 const SizedBox(height: 5),
                 const Text(
                   'Auto-populated from your assignment',

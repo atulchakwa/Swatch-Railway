@@ -5,8 +5,10 @@ import { safeFormat } from '../utils/helpers.js';
 
 class UserService {
   async createUser(creatorData, userData) {
-    const { email, password, role, userType, fullName, designation, mobile, zone, division, depot, entityId, trainId, trainIds, worker_type, stationId, platformId, areaId } = userData;
+    let { email, password, role, userType, fullName, designation, mobile, zone, division, depot, entityId, contractId, stations, trainId, trainIds, worker_type, stationId, platformId, areaId } = userData;
+    let domain = userData.domain;
     const normalizedEmail = email ? email.trim().toLowerCase() : null;
+    const normalizedUserType = (userType || '').toLowerCase();
     const { uid: creatorId, name, fullName: creatorNameAuth, role: creatorRole } = creatorData;
     const creatorName = creatorNameAuth || name || creatorRole || 'Admin';
 
@@ -27,40 +29,58 @@ class UserService {
     }
 
     const roleUpper = role.toUpperCase();
-    if (roleUpper === 'CTS' || roleUpper === 'CONTRACTOR SUPERVISOR') {
-      if (!division || !trainId) {
-        throw new ValidationError("Division and Train ID are mandatory for Contractor Supervisor.");
-      }
-      if (trainIds && trainIds.length > 1) {
-        throw new ValidationError("Contractor Supervisor can only be mapped to ONE train.");
+
+    if (normalizedUserType === 'contractor') {
+      if (!contractId) {
+        throw new ValidationError("Contract is mandatory for all Contractor users.");
       }
     }
 
-    if (roleUpper === 'RAILWAY SUPERVISOR') {
-      if (!division || (!trainId && (!trainIds || trainIds.length === 0))) {
-        throw new ValidationError("Division and at least one Train ID are mandatory for Railway Supervisor.");
+    // Resolve station names in the stations list to actual station document IDs
+    if (stations && stations.length > 0) {
+      const resolvedStations = [];
+      for (const stationName of stations) {
+        if (!stationName || typeof stationName !== 'string') continue;
+        const trimmed = stationName.trim();
+        if (!trimmed) continue;
+        // If it looks like a Firestore document ID (>=20 alphanum), check directly
+        if (/^[a-zA-Z0-9]{20,}$/.test(trimmed)) {
+          const directSnap = await db.collection('stations').doc(trimmed).get();
+          if (directSnap.exists) {
+            resolvedStations.push(trimmed);
+            continue;
+          }
+        }
+        // Try exact match on stationName
+        let snap = await db.collection('stations')
+          .where('stationName', '==', trimmed)
+          .limit(1)
+          .get();
+        if (snap.empty) {
+          snap = await db.collection('stations')
+            .where('stationName', '>=', trimmed)
+            .where('stationName', '<=', trimmed + '\uf8ff')
+            .limit(1)
+            .get();
+        }
+        if (!snap.empty) {
+          resolvedStations.push(snap.docs[0].id);
+        } else {
+          // Try matching by stationCode
+          const codeSnap = await db.collection('stations')
+            .where('stationCode', '==', trimmed.toUpperCase())
+            .limit(1)
+            .get();
+          if (!codeSnap.empty) {
+            resolvedStations.push(codeSnap.docs[0].id);
+          } else {
+            throw new ValidationError(`Station "${stationName}" not found. Please check the station name.`);
+          }
+        }
       }
+      stations = resolvedStations;
     }
 
-    if (roleUpper === 'STATION_MASTER') {
-      if (!stationId) {
-        throw new ValidationError("stationId is mandatory for Station Master.");
-      }
-    }
-
-    if (roleUpper === 'PLATFORM_MASTER') {
-      if (!areaId) {
-        throw new ValidationError("areaId is mandatory for Platform Master.");
-      }
-      if (!platformId) {
-        throw new ValidationError("platformId is mandatory for Platform Master.");
-      }
-      if (!stationId) {
-        throw new ValidationError("stationId is mandatory for Platform Master.");
-      }
-    }
-
-    const normalizedUserType = userType.toLowerCase();
     const isWorkerRole = roleUpper.includes('WORKER') || roleUpper === 'JANITOR' || roleUpper === 'ATTENDANT';
     if (isWorkerRole) {
       const explicitWorkerType = worker_type || (roleUpper === 'JANITOR' ? 'Janitor' : (roleUpper === 'ATTENDANT' ? 'Attendant' : null));
@@ -71,34 +91,81 @@ class UserService {
     }
 
     let entityData = null;
+    let resolvedContractType = null;
     if (normalizedUserType === 'contractor') {
-      if (!entityId) {
-        throw new ValidationError("Contractor users must have an 'entityId' (Company ID).");
+      const contractDoc = await db.collection('contracts').doc(contractId).get();
+      if (!contractDoc.exists) {
+        throw new NotFoundError("Contract not found.");
       }
-      const entityDoc = await db.collection('entities').doc(entityId).get();
-      if (!entityDoc.exists) {
-        throw new NotFoundError("Entity (Company) not found.");
-      }
-      entityData = entityDoc.data();
+      const contractData = contractDoc.data();
+      entityData = contractData.entityName ? { companyName: contractData.entityName } : null;
+      resolvedContractType = contractData.contractType || null;
+      entityId = contractData.entityId || entityId;
+      userData.entityId = entityId;
       const userRoleLower = role.toLowerCase().replace(/_/g, " ");
+      const creatorRoleUpper = (creatorRole || '').toUpperCase().replace(/\s+/g, '_');
+      const bypassRoles = ['SUPER_ADMIN', 'COMPANY_MASTER', 'ADMIN'];
+      const isCreatorSuperAdmin = bypassRoles.includes(creatorRoleUpper);
       if ((!userRoleLower.includes("super admin") && userRoleLower.includes("admin")) || userRoleLower.includes('supervisor')) {
-        if (!zone || !division) {
-          throw new ValidationError("Zone and Division are mandatory to check Active Contracts.");
-        }
-        console.log(`(CreateUser) Checking Active Contract for Entity: ${entityId}`);
-        const contractSnapshot = await db.collection('contracts')
-          .where('entityId', '==', entityId)
-          .get();
-          
-        const invalidStatuses = ['Expired', 'EXPIRED', 'REJECTED', 'rejected', 'SUSPENDED', 'suspended'];
-        const hasValidContract = contractSnapshot.docs.some(doc => {
-          const d = doc.data();
-          return !invalidStatuses.includes(d.status) && d.zone === zone && d.division === division;
-        });
+        if (!isCreatorSuperAdmin) {
+          if (!zone || !division) {
+            throw new ValidationError("Zone and Division are mandatory to check Active Contracts.");
+          }
+          console.log(`(CreateUser) Checking Active Contract for Entity: ${entityId}`);
+          const contractSnapshot = await db.collection('contracts')
+            .where('entityId', '==', entityId)
+            .get();
+            
+          const invalidStatuses = ['Expired', 'EXPIRED', 'REJECTED', 'rejected', 'SUSPENDED', 'suspended'];
+          const hasValidContract = contractSnapshot.docs.some(doc => {
+            const d = doc.data();
+            return !invalidStatuses.includes(d.status) && d.zone === zone && d.division === division;
+          });
 
-        if (!hasValidContract) {
-          throw new ForbiddenError(`Cannot create ${role}. No valid Contract found for this Company in Zone: ${zone}, Division: ${division}. Please ensure a contract exists and is not expired or rejected.`);
+          if (!hasValidContract) {
+            throw new ForbiddenError(`Cannot create ${role}. No valid Contract found for this Company in Zone: ${zone}, Division: ${division}. Please ensure a contract exists and is not expired or rejected.`);
+          }
         }
+      }
+
+      if (!domain) {
+        const contractDoc = await db.collection('contracts').doc(contractId).get();
+        if (contractDoc.exists) {
+          const contractData = contractDoc.data();
+          if (contractData.contractType === 'station_cleaning' || contractData.contractType === 'obhs') {
+            domain = contractData.contractType;
+          }
+        }
+      }
+      
+      // If we still don't have a domain, but the creator specifies it or it can be derived, ensure it matches
+      if (domain && !['station_cleaning', 'obhs'].includes(domain)) {
+        domain = null;
+      }
+    }
+
+    // Railway Inspector is always scoped to the Station Cleaning contract
+    if (roleUpper === 'RAILWAY INSPECTOR') {
+      domain = 'station_cleaning';
+    }
+
+    if (roleUpper === 'CTS' || roleUpper === 'CONTRACTOR SUPERVISOR') {
+      if (!division) {
+        throw new ValidationError("Division is mandatory for Contractor Supervisor.");
+      }
+      if (resolvedContractType !== 'station_cleaning') {
+        if (!trainId) {
+          throw new ValidationError("Train ID is mandatory for Contractor Supervisor on this contract type.");
+        }
+        if (trainIds && trainIds.length > 1) {
+          throw new ValidationError("Contractor Supervisor can only be mapped to ONE train.");
+        }
+      }
+    }
+
+    if (roleUpper === 'RAILWAY SUPERVISOR') {
+      if (!division || (!trainId && (!trainIds || trainIds.length === 0))) {
+        throw new ValidationError("Division and at least one Train ID are mandatory for Railway Supervisor.");
       }
     }
 
@@ -131,12 +198,16 @@ class UserService {
         depot: depot || null,
         entityId: entityId || null,
         entityDetails: entityData,
+        contractId: contractId || null,
+        contractType: resolvedContractType || domain || null,
+        stations: stations || [],
         trainId: trainId || null,
         trainIds: trainIds || (trainId ? [trainId] : []),
         worker_type: worker_type || null,
         stationId: stationId || null,
         platformId: platformId || null,
         areaId: areaId || null,
+        domain: domain || null,
         createdBy: creatorId,
         createdByName: creatorName,
         status: initialStatus,
@@ -149,7 +220,7 @@ class UserService {
   }
 
   async updateUser(editorData, uid, updates) {
-    const { fullName, designation, mobile, zone, division, depot, role, userType, password, entityId, trainId, trainIds, worker_type, stationId, platformId, areaId } = updates;
+    const { fullName, designation, mobile, zone, division, depot, role, userType, password, entityId, contractId, stations, trainId, trainIds, worker_type, stationId, platformId, areaId } = updates;
     const { uid: editorId, name, fullName: editorAuthName, role: editorRole } = editorData;
     const editorName = editorAuthName || name || editorRole || 'Admin';
 
@@ -172,8 +243,14 @@ class UserService {
     const finalTrainIds = trainIds || currentData.trainIds;
 
     if (finalRoleUpper === 'CTS' || finalRoleUpper === 'CONTRACTOR SUPERVISOR') {
-      if (!finalDivision || !finalTrainId) {
-        throw new ValidationError("Division and Train ID are mandatory for Contractor Supervisor.");
+      if (!finalDivision) {
+        throw new ValidationError("Division is mandatory for Contractor Supervisor.");
+      }
+      const finalContractId = contractId || currentData.contractId;
+      const finalContractType = currentData.contractType;
+      const isStationCleaning = finalContractType === 'station_cleaning';
+      if (!isStationCleaning && !finalTrainId) {
+        throw new ValidationError("Train ID is mandatory for Contractor Supervisor on this contract type.");
       }
       if (Array.isArray(finalTrainId) || (finalTrainIds && finalTrainIds.length > 1)) {
         throw new ValidationError("Contractor Supervisor can only be mapped to ONE train.");
@@ -206,6 +283,22 @@ class UserService {
     if (stationId !== undefined) updateData.stationId = stationId;
     if (platformId !== undefined) updateData.platformId = platformId;
     if (areaId !== undefined) updateData.areaId = areaId;
+    
+    // Auto-resolve domain if entity changes or updates domain
+    if (updates.domain !== undefined) {
+      updateData.domain = updates.domain;
+    } else if (entityId !== undefined && entityId) {
+      const contractSnapshot = await db.collection('contracts')
+        .where('entityId', '==', entityId)
+        .where('status', '==', 'Active')
+        .limit(1).get();
+      if (!contractSnapshot.empty) {
+        const firstContract = contractSnapshot.docs[0].data();
+        if (firstContract.contractType === 'station_cleaning' || firstContract.contractType === 'obhs') {
+          updateData.domain = firstContract.contractType;
+        }
+      }
+    }
     updateData.status = 'PENDING';
     updateData.updatedAt = new Date().toISOString();
     updateData.updatedBy = editorId;
@@ -234,6 +327,68 @@ class UserService {
       }
     }
 
+    if (contractId !== undefined) {
+      updateData.contractId = contractId;
+      if (contractId) {
+        const contractDoc = await db.collection('contracts').doc(contractId).get();
+        if (contractDoc.exists) {
+          const contractData = contractDoc.data();
+          updateData.contractType = contractData.contractType || null;
+          if (!updateData.entityDetails) {
+            updateData.entityDetails = contractData.entityName ? { companyName: contractData.entityName } : null;
+          }
+        }
+      } else {
+        updateData.contractType = null;
+      }
+    }
+
+    if (stations !== undefined) {
+      if (stations && stations.length > 0) {
+        const resolvedStations = [];
+        for (const stationName of stations) {
+          if (!stationName || typeof stationName !== 'string') continue;
+          const trimmed = stationName.trim();
+          if (!trimmed) continue;
+          // If it looks like a Firestore document ID, check directly
+          if (/^[a-zA-Z0-9]{20,}$/.test(trimmed)) {
+            const directSnap = await db.collection('stations').doc(trimmed).get();
+            if (directSnap.exists) {
+              resolvedStations.push(trimmed);
+              continue;
+            }
+          }
+          let snap = await db.collection('stations')
+            .where('stationName', '==', trimmed)
+            .limit(1)
+            .get();
+          if (snap.empty) {
+            snap = await db.collection('stations')
+              .where('stationName', '>=', trimmed)
+              .where('stationName', '<=', trimmed + '\uf8ff')
+              .limit(1)
+              .get();
+          }
+          if (!snap.empty) {
+            resolvedStations.push(snap.docs[0].id);
+          } else {
+            const codeSnap = await db.collection('stations')
+              .where('stationCode', '==', trimmed.toUpperCase())
+              .limit(1)
+              .get();
+            if (!codeSnap.empty) {
+              resolvedStations.push(codeSnap.docs[0].id);
+            } else {
+              throw new ValidationError(`Station "${stationName}" not found.`);
+            }
+          }
+        }
+        updateData.stations = resolvedStations;
+      } else {
+        updateData.stations = stations;
+      }
+    }
+
     if (Object.keys(updateData).length === 0 && !password) {
       throw new ValidationError("No fields to update provided.");
     }
@@ -244,8 +399,9 @@ class UserService {
   }
 
   async approveUser(approverData, uid) {
-    const { uid: approverId, name, fullName, role } = approverData;
+    const { uid: approverId, name, fullName, role, entityId } = approverData;
     const approverName = fullName || name || role || 'Master Admin';
+    const approverRole = (role || '').toUpperCase();
 
     if (!uid) {
       throw new ValidationError("User ID is required.");
@@ -259,6 +415,16 @@ class UserService {
 
     const userData = doc.data();
     const userName = userData.fullName || "User";
+    const targetRole = (userData.role || '').toUpperCase();
+
+    if (approverRole === 'CONTRACTOR_ADMIN') {
+      if (targetRole !== 'CONTRACTOR_SUPERVISOR') {
+        throw new ForbiddenError('Contractor Admin can only approve Contractor Supervisor users.');
+      }
+      if (entityId && userData.entityId && entityId !== userData.entityId) {
+        throw new ForbiddenError('You can only approve users under your own entity.');
+      }
+    }
 
     await userDocRef.update({
       status: 'APPROVED',
@@ -297,8 +463,9 @@ class UserService {
   }
 
   async rejectUser(rejectorData, uid) {
-    const { uid: adminId, name, fullName, role } = rejectorData;
+    const { uid: adminId, name, fullName, role, entityId } = rejectorData;
     const adminName = fullName || name || role || 'Master Admin';
+    const rejectorRole = (role || '').toUpperCase();
 
     if (!uid) {
       throw new ValidationError("User ID is required.");
@@ -312,6 +479,16 @@ class UserService {
 
     const userData = doc.data();
     const userName = userData.fullName || "User";
+    const targetRole = (userData.role || '').toUpperCase();
+
+    if (rejectorRole === 'CONTRACTOR_ADMIN') {
+      if (targetRole !== 'CONTRACTOR_SUPERVISOR') {
+        throw new ForbiddenError('Contractor Admin can only reject Contractor Supervisor users.');
+      }
+      if (entityId && userData.entityId && entityId !== userData.entityId) {
+        throw new ForbiddenError('You can only reject users under your own entity.');
+      }
+    }
 
     await userDocRef.update({
       status: 'REJECTED',
@@ -387,9 +564,10 @@ class UserService {
 
     const ROLE_HIERARCHY = {
       'SUPER_ADMIN': 100, 'COMPANY_MASTER': 90, 'RAILWAY_MASTER': 80,
-      'ADMIN': 70, 'RAILWAY_ADMIN': 60, 'STATION_MASTER': 55,
-      'RAILWAY_SUPERVISOR': 50, 'AREA_MASTER': 48, 'CONTRACTOR_ADMIN': 45,
-      'CONTRACTOR_SUPERVISOR': 40, 'PLATFORM_MASTER': 35, 'CTS': 30,
+      'ADMIN': 70, 'RAILWAY_ADMIN': 60,
+      'RAILWAY_INSPECTOR': 52,
+      'RAILWAY_SUPERVISOR': 50, 'CONTRACTOR_ADMIN': 45,
+      'CONTRACTOR_SUPERVISOR': 40, 'CTS': 30,
       'WORKER': 10, 'RAILWAY_WORKER': 10, 'JANITOR': 10, 'ATTENDANT': 10, 'PASSENGER': 1
     };
     const requesterLevel = ROLE_HIERARCHY[userRole] || 0;
@@ -404,6 +582,16 @@ class UserService {
       if (division) query = query.where('division', '==', division);
     } else {
       query = query.where('division', '==', userDivision);
+    }
+
+    if (filters.domain) {
+      query = query.where('domain', '==', filters.domain);
+    } else if (requesterData.userType === 'contractor' && requesterData.domain) {
+      query = query.where('domain', '==', requesterData.domain);
+    }
+
+    if (requesterData.contractId) {
+      query = query.where('contractId', '==', requesterData.contractId);
     }
 
     const snapshot = await query.limit(5000).get();
@@ -443,9 +631,10 @@ class UserService {
 
     const ROLE_HIERARCHY = {
       'SUPER_ADMIN': 100, 'COMPANY_MASTER': 90, 'RAILWAY_MASTER': 80,
-      'ADMIN': 70, 'RAILWAY_ADMIN': 60, 'STATION_MASTER': 55,
-      'RAILWAY_SUPERVISOR': 50, 'AREA_MASTER': 48, 'CONTRACTOR_ADMIN': 45,
-      'CONTRACTOR_SUPERVISOR': 40, 'PLATFORM_MASTER': 35, 'CTS': 30,
+      'ADMIN': 70, 'RAILWAY_ADMIN': 60,
+      'RAILWAY_INSPECTOR': 52,
+      'RAILWAY_SUPERVISOR': 50, 'CONTRACTOR_ADMIN': 45,
+      'CONTRACTOR_SUPERVISOR': 40, 'CTS': 30,
       'WORKER': 10, 'RAILWAY_WORKER': 10, 'JANITOR': 10, 'ATTENDANT': 10, 'PASSENGER': 1
     };
     const requesterLevel = ROLE_HIERARCHY[userRole] || 0;
@@ -467,7 +656,11 @@ class UserService {
         query = query.where('zone', '==', requesterZone);
       }
     }
-
+    if (filters.domain) {
+      query = query.where('domain', '==', filters.domain);
+    } else if (requesterData.userType === 'contractor' && requesterData.domain) {
+      query = query.where('domain', '==', requesterData.domain);
+    }
     let snapshot = await query.get();
     console.log(`[GET /api/admin/railway-workers] Firestore query returned ${snapshot.size} users`);
 
@@ -687,15 +880,26 @@ class UserService {
     };
   }
 
-  async getWorkers() {
-    const snapshot = await db.collection('users').get();
+  async getWorkers(requesterData = {}, filters = {}) {
+    let query = db.collection('users');
 
-    const validRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'obhs staff', 'staff'];
+    if (filters.domain) {
+      query = query.where('domain', '==', filters.domain);
+    } else if (requesterData.userType === 'contractor' && requesterData.domain) {
+      query = query.where('domain', '==', requesterData.domain);
+    }
+
+    const snapshot = await query.get();
+
+    const validRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'obhs staff', 'staff', 'supervisor', 'railway supervisor', 'contractor supervisor'];
     const workersList = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      const role = (data.role || '').toLowerCase();
+      if (doc.id === requesterData.uid) return;
+      const role = (data.role || '').toLowerCase().replace(/_/g, ' ');
       if (!validRoles.includes(role)) return;
+      if (requesterData.userType === 'contractor' && role.includes('railway supervisor')) return;
+      if (requesterData.userType === 'contractor' && requesterData.contractId && data.contractId && data.contractId !== requesterData.contractId) return;
       workersList.push({
         uid: data.uid || doc.id,
         fullName: data.fullName || '',
@@ -704,38 +908,82 @@ class UserService {
         role: data.role || '',
         designation: data.designation || '',
         status: data.status || 'PENDING',
-        userType: data.userType || ''
+        userType: data.userType || '',
+        stationId: data.stationId || '',
+        depot: data.depot || '',
+        zone: data.zone || '',
+        division: data.division || '',
+        domain: data.domain || ''
       });
     });
+
+    // Also fetch workers from supervisorWorkers collection (created via station cleaning module)
+    try {
+      let supQuery = db.collection('supervisorWorkers')
+        .where('isActive', '==', true);
+      if (requesterData.userType === 'contractor' && requesterData.contractId) {
+        supQuery = supQuery.where('contractId', '==', requesterData.contractId);
+      }
+      const supSnapshot = await supQuery.limit(300).get();
+      supSnapshot.forEach(doc => {
+        const data = doc.data();
+        const uid = data.uid || doc.id;
+        if (workersList.some(w => w.uid === uid)) return;
+        workersList.push({
+          uid,
+          fullName: data.fullName || '',
+          email: data.email || data.phone || '',
+          mobile: data.phone || '',
+          role: 'worker',
+          designation: 'Worker',
+          status: 'APPROVED',
+          userType: 'worker',
+          stationId: data.stationId || '',
+          depot: '',
+          zone: '',
+          division: '',
+          domain: ''
+        });
+      });
+    } catch (e) {
+      console.error('Error fetching supervisorWorkers:', e.message);
+    }
 
     return { count: workersList.length, workers: workersList };
   }
 
-  async getRailwaySupervisors(zone, division, role) {
+  async getRailwaySupervisors(zone, division, role, module, requesterData = {}) {
     const userRole = (role || "").toUpperCase().replace(/\s+/g, '_');
     
     const ROLE_HIERARCHY = {
       'SUPER_ADMIN': 100, 'COMPANY_MASTER': 90, 'RAILWAY_MASTER': 80,
-      'ADMIN': 70, 'RAILWAY_ADMIN': 60, 'STATION_MASTER': 55,
-      'RAILWAY_SUPERVISOR': 50, 'AREA_MASTER': 48, 'CONTRACTOR_ADMIN': 45,
-      'CONTRACTOR_SUPERVISOR': 40, 'PLATFORM_MASTER': 35, 'CTS': 30,
+      'ADMIN': 70, 'RAILWAY_ADMIN': 60,
+      'RAILWAY_INSPECTOR': 52,
+      'RAILWAY_SUPERVISOR': 50, 'CONTRACTOR_ADMIN': 45,
+      'CONTRACTOR_SUPERVISOR': 40, 'CTS': 30,
       'WORKER': 10, 'RAILWAY_WORKER': 10, 'JANITOR': 10, 'ATTENDANT': 10, 'PASSENGER': 1
     };
     const requesterLevel = ROLE_HIERARCHY[userRole] || 0;
     
-    // Master or Admin levels
     const isMaster = requesterLevel >= 60;
 
     let query = db.collection('users')
       .where('status', '==', 'APPROVED');
 
+    if (module) {
+      query = query.where('domain', '==', module);
+    } else if (requesterData.domain) {
+      query = query.where('domain', '==', requesterData.domain);
+    }
+
     if (isMaster) {
       if (zone) {
         query = query.where('zone', '==', zone);
-        console.log(`(GetSupervisors) Master access: Fetching entire Zone ${zone}`);
-      } else {
-        console.log('(GetSupervisors) Master access: No zone set, fetching all supervisors');
       }
+      if (division) {
+        query = query.where('division', '==', division);
+      }
+      console.log(`(GetSupervisors) Master access: Fetching zone=${zone || 'ALL'} division=${division || 'ALL'}`);
     } else {
       if (!zone) {
         throw new ValidationError("Your user profile is missing Zone.");
@@ -761,19 +1009,21 @@ class UserService {
       return { count: 0, supervisors: [] };
     }
 
+    const allowedRoles = ['RAILWAY_SUPERVISOR', 'RAILWAY_ADMIN', 'RAILWAY_MASTER', 'CONTRACTOR_ADMIN', 'CONTRACTOR_MASTER'];
     const supervisorList = [];
-    const allowedRoles = ['Railway Supervisor', 'Station Master', 'Railway Admin', 'Area Master', 'Platform Master'];
 
     snapshot.forEach(doc => {
       const data = doc.data();
-      if (allowedRoles.includes(data.role)) {
-        supervisorList.push({
+      const normalizedRole = (data.role || '').toUpperCase().replace(/\s+/g, '_');
+      
+      if (!allowedRoles.includes(normalizedRole)) return;
+
+      supervisorList.push({
           uid: data.uid,
           fullName: data.fullName,
           division: data.division,
           depot: data.depot
         });
-      }
     });
 
     return { count: supervisorList.length, supervisors: supervisorList };
@@ -951,6 +1201,35 @@ class UserService {
     };
     await db.collection('complaints').doc(complaintId).set(complaint);
     return { success: true, message: 'Complaint submitted successfully', complaintId };
+  }
+
+  async getContractorSupervisors(requesterData, queryParams = {}) {
+    const entityId = requesterData.entityId;
+    if (!entityId) throw new ValidationError("Your profile is missing entityId");
+    const { stationId } = queryParams;
+    const snapshot = await db.collection('users')
+      .where('entityId', '==', entityId)
+      .where('status', '==', 'APPROVED')
+      .limit(200)
+      .get();
+    const supervisors = [];
+    snapshot.forEach(doc => {
+      const d = doc.data();
+      const role = (d.role || '').toUpperCase().replace(/\s+/g, '_');
+      if (role !== 'CONTRACTOR_SUPERVISOR') return;
+      const userStations = d.stations || [];
+      if (stationId && !userStations.includes(stationId)) return;
+      supervisors.push({
+        uid: doc.id,
+        fullName: d.fullName || '',
+        email: d.email || '',
+        mobile: d.mobile || '',
+        stations: userStations,
+        contractId: d.contractId || null,
+        contractType: d.contractType || null,
+      });
+    });
+    return { supervisors };
   }
 }
 

@@ -142,7 +142,7 @@ class _StationFormDetailScreenState extends State<StationFormDetailScreen> {
   Widget build(BuildContext context) {
     final role = Provider.of<AuthProvider>(context).currentUser?.role ?? '';
     final isSupervisor = role == 'Railway Supervisor';
-    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master' || role == 'Station Master' || role == 'Area Master' || role == 'Platform Master';
+    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master';
     final isContractor = role == 'Contractor' || role == 'Contractor Master';
 
     return Scaffold(

@@ -31,7 +31,7 @@ export const getByStation = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
-// Platform Master specific endpoints
+// Platform-specific endpoints
 export const getMasterDashboard = asyncHandler(async (req, res) => {
   const result = await platformService.getMasterDashboard(req.user);
   res.status(200).json(result);
@@ -77,9 +77,9 @@ export const unassignAreaFromPlatform = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
-// Platform Master can generate tasks from frequency
+// Generate tasks from frequency
 export const generateTasksFromFrequency = asyncHandler(async (req, res) => {
-  const result = await platformService.generateTasksFromFrequency(req.params.uid, req.body);
+  const result = await platformService.generateTasksFromFrequency(req.params.uid, req.body, req.user);
   res.status(200).json(result);
 });
 

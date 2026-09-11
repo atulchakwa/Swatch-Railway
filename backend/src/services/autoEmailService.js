@@ -10,6 +10,7 @@ const DAILY_RECIPIENT_MAP = {
   daily_scorecard: ['RAILWAY_SUPERVISOR', 'DIVISION_ADMIN'],
   daily_complaint: ['RAILWAY_SUPERVISOR', 'CONTRACTOR_ADMIN'],
   daily_feedback: ['RAILWAY_SUPERVISOR', 'DIVISION_ADMIN'],
+  daily_inspection: ['RAILWAY_SUPERVISOR', 'DIVISION_ADMIN', 'SR_DCM'],
   daily_supervisor_log: ['RAILWAY_SUPERVISOR'],
   missed_activity: ['CONTRACTOR_SUPERVISOR', 'RAILWAY_SUPERVISOR'],
 };
@@ -31,6 +32,7 @@ const REPORT_TYPE_TITLES = {
   daily_scorecard: 'Daily Cleanliness Scorecard',
   daily_complaint: 'Daily Complaint Report',
   daily_feedback: 'Daily Passenger Feedback Report',
+  daily_inspection: 'Daily Inspection Report',
   daily_supervisor_log: 'Daily Supervisor Log',
   missed_activity: 'Missed Activity / Exception Report',
   monthly_attendance: 'Monthly Attendance Summary',
@@ -147,7 +149,8 @@ class AutoEmailService {
     const fnMap = {
       daily_attendance: 'generateDailyAttendanceReport', daily_activity: 'generateDailyActivityReport',
       daily_scorecard: 'generateDailyScorecardReport', daily_complaint: 'generateDailyComplaintReport',
-      daily_feedback: 'generateDailyFeedbackReport', daily_supervisor_log: 'generateDailySupervisorLog',
+      daily_feedback: 'generateDailyFeedbackReport', daily_inspection: 'generateDailyInspectionReport',
+      daily_supervisor_log: 'generateDailySupervisorLog',
       missed_activity: 'generateMissedActivityReport',
     };
     let reportData;
@@ -159,7 +162,7 @@ class AutoEmailService {
     }
 
     const summaryHtml = Object.entries(reportData.summary || {})
-      .filter(([k]) => !['records', 'missedActivities', 'areaCompletion', 'scores'].includes(k))
+      .filter(([k]) => !['records', 'missedActivities', 'overdueActivities', 'delayedActivities', 'inspections', 'areaCompletion', 'scores'].includes(k))
       .map(([k, v]) => `<tr><td>${k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}</td><td>${JSON.stringify(v)}</td></tr>`)
       .join('');
 
@@ -220,7 +223,7 @@ class AutoEmailService {
     }
 
     const summaryHtml = Object.entries(reportData.summary || {})
-      .filter(([k]) => !['records', 'inspections', 'modifications'].includes(k))
+      .filter(([k]) => !['records', 'inspections', 'missedActivities', 'overdueActivities', 'delayedActivities', 'modifications'].includes(k))
       .map(([k, v]) => `<tr><td>${k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}</td><td>${JSON.stringify(v)}</td></tr>`)
       .join('');
 

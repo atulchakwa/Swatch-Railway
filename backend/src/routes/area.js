@@ -11,6 +11,7 @@ const router = express.Router();
 router.post('/api/areas', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREAS), validate(createAreaSchema), areaController.create);
 router.post('/api/areas/configure', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREAS), areaController.configure);
 router.get('/api/areas', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), areaController.list);
+router.get('/api/areas/summary/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), areaController.getSummary);
 router.get('/api/areas/by-hierarchy', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), areaController.getByHierarchy);
 router.get('/api/areas/by-station/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), areaController.getByStation);
 router.get('/api/areas/by-platform/:platformId', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), areaController.getByPlatform);

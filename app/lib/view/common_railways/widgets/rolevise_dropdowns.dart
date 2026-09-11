@@ -85,7 +85,7 @@ class _ZoneDivisionDepotDropdownsState
   Widget build(BuildContext context) {
     final userRole = widget.user.role;
 
-    if (userRole == 'Railway Supervisor' || userRole == 'Contractor Supervisor' || userRole == 'Station Master' || userRole == 'Area Master') {
+    if (userRole == 'Railway Supervisor' || userRole == 'Contractor Supervisor') {
       return const SizedBox.shrink();
     }
 
@@ -215,7 +215,7 @@ class _ZoneDivisionDepotDropdownsState
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: value,
+              value: value != null && items.contains(value) ? value : null,
               hint: Text('Select $title', style: const TextStyle(fontSize: 12, color: Colors.grey)),
               items: items
                   .map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 12))))

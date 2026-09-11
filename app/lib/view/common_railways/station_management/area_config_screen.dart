@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:crm_train/model/area_cleaning_models.dart';
 import 'package:crm_train/model/station_models.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
@@ -32,7 +34,12 @@ class _AreaConfigScreenState extends State<AreaConfigScreen> {
     try {
       _stations = await ApiService.getStations(active: true);
       if (_stations.isNotEmpty) {
-        _selectedStation = _stations.first;
+        final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+        if (user?.stationId != null && user!.stationId!.isNotEmpty) {
+          final match = _stations.where((s) => s.uid == user!.stationId).firstOrNull;
+          if (match != null) _selectedStation = match;
+        }
+        _selectedStation ??= _stations.first;
         _loadAreas();
       }
     } catch (e) {

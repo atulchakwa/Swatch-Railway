@@ -48,7 +48,7 @@ class StationAttendanceRepository {
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       final List list = body['records'] ?? [];
-      return list.map((e) => StationAttendance.fromJson(e)).toList();
+      return list.map<StationAttendance>((e) => StationAttendance.fromJson(e)).toList();
     }
     throw Exception('Failed to get shift attendance');
   }

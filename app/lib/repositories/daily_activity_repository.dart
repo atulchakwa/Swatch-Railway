@@ -31,7 +31,7 @@ class DailyActivityRepository {
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       final List list = body['activities'] ?? [];
-      return list.map((e) => DailyActivityRecord.fromJson(e)).toList();
+      return list.map<DailyActivityRecord>((e) => DailyActivityRecord.fromJson(e)).toList();
     }
     throw Exception('Failed to load activities');
   }
@@ -95,7 +95,7 @@ class DailyActivityRepository {
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       final List list = body['activities'] ?? [];
-      return list.map((e) => DailyActivityRecord.fromJson(e)).toList();
+      return list.map<DailyActivityRecord>((e) => DailyActivityRecord.fromJson(e)).toList();
     }
     throw Exception('Failed to load pending activities');
   }

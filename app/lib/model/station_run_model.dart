@@ -3,12 +3,16 @@ class StationPlatformAssignment {
   final String janitorId;
   final String janitorName;
   final String status;
+  final String? areaId;
+  final String? areaName;
 
   StationPlatformAssignment({
     required this.platformNumber,
     required this.janitorId,
     required this.janitorName,
     this.status = 'Pending',
+    this.areaId,
+    this.areaName,
   });
 
   factory StationPlatformAssignment.fromJson(Map<String, dynamic> json) {
@@ -17,6 +21,8 @@ class StationPlatformAssignment {
       janitorId: json['janitorId'] ?? '',
       janitorName: json['janitorName'] ?? '',
       status: json['status'] ?? 'Pending',
+      areaId: json['areaId'],
+      areaName: json['areaName'],
     );
   }
 
@@ -26,6 +32,8 @@ class StationPlatformAssignment {
       'janitorId': janitorId,
       'janitorName': janitorName,
       'status': status,
+      if (areaId != null) 'areaId': areaId,
+      if (areaName != null) 'areaName': areaName,
     };
   }
 }
@@ -38,7 +46,10 @@ class StationCleaningRunModel {
   String shift;
   String date;
   String status;
+  String? frequency;
   List<StationPlatformAssignment> platforms;
+  String? supervisorId;
+  String? supervisorName;
   String? createdAt;
   String? updatedAt;
 
@@ -50,7 +61,10 @@ class StationCleaningRunModel {
     required this.shift,
     required this.date,
     this.status = 'Pending',
+    this.frequency = 'daily',
     this.platforms = const [],
+    this.supervisorId,
+    this.supervisorName,
     this.createdAt,
     this.updatedAt,
   });
@@ -69,7 +83,10 @@ class StationCleaningRunModel {
       shift: json['shift'] ?? '',
       date: json['date'] ?? '',
       status: json['status'] ?? 'Pending',
+      frequency: json['frequency'] ?? 'daily',
       platforms: parsedPlatforms,
+      supervisorId: json['supervisorId'],
+      supervisorName: json['supervisorName'],
       createdAt: json['createdAt'],
       updatedAt: json['updatedAt'],
     );
@@ -83,6 +100,7 @@ class StationCleaningRunModel {
       'shift': shift,
       'date': date,
       'status': status,
+      if (frequency != null) 'frequency': frequency,
       'platforms': platforms.map((p) => p.toJson()).toList(),
       'createdAt': createdAt,
       'updatedAt': updatedAt,

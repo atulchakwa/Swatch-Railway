@@ -1,5 +1,8 @@
 import 'dart:io';
+import 'package:crm_train/model/station_models.dart';
+import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/view/common_railways/widgets/date_range_picker.dart';
+import 'package:crm_train/view/station_cleaning/cleaning_form/station_cleaning_form_list_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
@@ -13,8 +16,11 @@ import '../../../services/dashboard_counts_service.dart';
 const kRailwayBlue = Color(0xFF1565C0);
 
 class ContractorReportScreen extends StatefulWidget {
+  final String? contractType;
+
   const ContractorReportScreen({
     super.key,
+    this.contractType,
   });
 
   @override
@@ -61,7 +67,8 @@ class _ContractorReportScreenState extends State<ContractorReportScreen>
   void initState() {
     super.initState();
     _loadContracts();
-    _tabController = TabController(length: 3, vsync: this);
+    final isStationCleaning = widget.contractType == 'station_cleaning';
+    _tabController = TabController(length: isStationCleaning ? 1 : 3, vsync: this);
     _loadStatistics();
   }
 
@@ -79,6 +86,7 @@ class _ContractorReportScreenState extends State<ContractorReportScreen>
         division: user.division,
         depot: user.depot,
         entityId: user.entityId,
+        contractId: user.contractId,
       );
 
       final coachData = await FirebaseCountService.getCoachCleaningStats(
@@ -88,6 +96,7 @@ class _ContractorReportScreenState extends State<ContractorReportScreen>
         division: user.division,
         depot: user.depot,
         entityId: user.entityId,
+        contractId: user.contractId,
       );
 
       final apiCoachData = await ApiService.getCoachStats();
@@ -1201,20 +1210,26 @@ class _ContractorReportScreenState extends State<ContractorReportScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
-          tabs: const [
-            Tab(text: "Coach"),
-            Tab(text: "Premises"),
-            Tab(text: "CTS"),
-          ],
+          tabs: widget.contractType == 'station_cleaning'
+              ? const [
+                  Tab(text: "Station Cleaning"),
+                ]
+              : const [
+                  Tab(text: "Coach"),
+                  Tab(text: "Premises"),
+                  Tab(text: "CTS"),
+                ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildCoachCleaningTab(),
-          _buildPremisesCleaningTab(),
-          _buildCTSTab(),
-        ],
+        children: widget.contractType == 'station_cleaning'
+            ? [_buildStationCleaningTab()]
+            : [
+                _buildCoachCleaningTab(),
+                _buildPremisesCleaningTab(),
+                _buildCTSTab(),
+              ],
       ),
     );
   }
@@ -1948,7 +1963,7 @@ class _ContractorReportScreenState extends State<ContractorReportScreen>
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: value,
+              value: value != null && items.contains(value) ? value : null,
               items: items
                   .map((uid) {
                     String displayText = uid;
@@ -2176,4 +2191,63 @@ class _ContractorReportScreenState extends State<ContractorReportScreen>
     );
   }
 
+  Widget _buildStationCleaningTab() {
+    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+    final stations = user?.stations ?? [];
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Station Cleaning Reports",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          if (stations.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('No stations assigned to your contract.',
+                    style: TextStyle(color: Colors.grey, fontSize: 16)),
+              ),
+            )
+          else
+            FutureBuilder<List<Station>>(
+              future: ApiService.getStations(),
+              builder: (ctx, snapshot) {
+                final allStations = snapshot.data ?? [];
+                return Column(
+                  children: stations.map((sid) {
+                    final station = allStations.cast<Station?>().firstWhere(
+                      (s) => s?.uid == sid || s?.stationCode == sid || s?.stationName == sid,
+                      orElse: () => null,
+                    );
+                    final displayName = station?.stationName ?? sid;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: const Icon(Icons.bar_chart, color: kRailwayBlue),
+                        title: Text(displayName),
+                        subtitle: const Text('View station cleaning report'),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => StationCleaningFormListScreen(
+                                stationId: sid,
+                                stationName: displayName,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
 }

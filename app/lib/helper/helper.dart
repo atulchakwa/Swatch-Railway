@@ -9,7 +9,8 @@ void navigateUser(BuildContext context, UserModel user) {
   final mccRoles = [
     'CTS',
     'Janitor', 'JANITOR',
-    'Attendant', 'ATTENDANT'
+    'Attendant', 'ATTENDANT',
+    'Worker', 'WORKER'
   ];
 
   if (mccRoles.contains(user.role)) {
@@ -19,7 +20,7 @@ void navigateUser(BuildContext context, UserModel user) {
         builder: (_) => ObhsMccRouter(user: user),
       ),
     );
-  } else if (user.role == 'Railway Worker' || user.role == 'RAILWAY_WORKER' || user.role == 'Worker' || user.role == 'WORKER') {
+  } else if (user.role == 'Railway Worker' || user.role == 'RAILWAY_WORKER') {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -35,3 +36,4 @@ void navigateUser(BuildContext context, UserModel user) {
     );
   }
 }
+

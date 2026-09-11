@@ -1076,11 +1076,20 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
   String? _selectedWorkerId;
   bool _isLoadingWorkers = false;
 
+  List<String> _officialCoaches = [
+    'S1', 'S2', 'S3', 'S4', 'S5',
+    'A1', 'A2', 'B1', 'B2',
+    'F1', 'F2', 'G1', 'H1',
+  ];
+  bool _isFetchingOfficialCoaches = false;
+
   @override
   void initState() {
     super.initState();
     if (widget.isOfficialMode) {
-      _fetchWorkers();
+      _fetchActiveRunCoaches().then((_) {
+        _fetchWorkers();
+      });
     } else {
       _trainFocusNode.addListener(_onTrainFocusChange);
     }
@@ -1102,17 +1111,39 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
           });
         }
       } catch (e) {
-        debugPrint('Failed to fetch coaches: \$e');
+        debugPrint('Failed to fetch coaches: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Could not fetch coaches: try again.'),
+              content: const Text('Could not fetch coaches: try again.'),
               backgroundColor: kErrorRed,
             ),
           );
         }
       } finally {
         if (mounted) setState(() => _isFetchingCoaches = false);
+      }
+    }
+  }
+
+  Future<void> _fetchActiveRunCoaches() async {
+    if (Get.isRegistered<WorkerController>()) {
+      final controller = Get.find<WorkerController>();
+      final tNo = controller.trainNo;
+      if (tNo.isNotEmpty) {
+        setState(() => _isFetchingOfficialCoaches = true);
+        try {
+          final coaches = await PassengerService.fetchCoachesForTrain(tNo);
+          if (coaches.isNotEmpty && mounted) {
+            setState(() {
+              _officialCoaches = coaches;
+            });
+          }
+        } catch (e) {
+          debugPrint('Failed to fetch official coaches: $e');
+        } finally {
+          if (mounted) setState(() => _isFetchingOfficialCoaches = false);
+        }
       }
     }
   }
@@ -1124,6 +1155,51 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
       if (mounted) {
         setState(() {
           _workers = workers;
+
+          // Pre-select the logged-in worker
+          if (Get.isRegistered<WorkerController>()) {
+            final controller = Get.find<WorkerController>();
+            final loggedInUid = controller.workerProfile.value?.uid ?? controller.currentUser.value?.uid;
+            if (loggedInUid != null && loggedInUid.isNotEmpty) {
+              final hasWorker = workers.any((w) => w.uid == loggedInUid);
+              if (hasWorker) {
+                _selectedWorkerId = loggedInUid;
+              } else {
+                final name = controller.workerName;
+                final email = controller.workerEmail;
+                final mobile = controller.workerPhone;
+                final role = controller.workerRole;
+                final status = controller.workerStatus;
+                final userType = controller.currentUser.value?.userType ?? 'worker';
+                final me = RailwayWorkerModel(
+                  uid: loggedInUid,
+                  email: email,
+                  fullName: name.isNotEmpty ? name : 'Worker',
+                  mobile: mobile,
+                  role: role,
+                  status: status,
+                  userType: userType,
+                );
+                _workers.add(me);
+                _selectedWorkerId = loggedInUid;
+              }
+
+              // Also pre-select inspector name with logged-in user name if empty
+              if (_inspectorController.text.trim().isEmpty) {
+                _inspectorController.text = controller.workerName.isNotEmpty ? controller.workerName : 'Worker';
+              }
+
+              // Pre-select worker's assigned coach
+              final assigned = controller.assignedCoaches;
+              if (assigned.isNotEmpty) {
+                final coachVal = assigned.first;
+                if (!_officialCoaches.contains(coachVal)) {
+                  _officialCoaches.insert(0, coachVal);
+                }
+                _selectedCoach = coachVal;
+              }
+            }
+          }
         });
       }
     } catch (e) {
@@ -1132,6 +1208,7 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
       if (mounted) setState(() => _isLoadingWorkers = false);
     }
   }
+
 
   @override
   void dispose() {
@@ -1341,7 +1418,7 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
               _inputContainer(
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _selectedRaterType,
+                    value: _selectedRaterType != null && ['Official', 'TTE', 'PSME', 'Supervisor/Admin'].contains(_selectedRaterType) ? _selectedRaterType : null,
                     isExpanded: true,
                     items: ['Official', 'TTE', 'PSME', 'Supervisor/Admin']
                         .map((t) => DropdownMenuItem(value: t, child: Text(t)))
@@ -1360,6 +1437,7 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
               _inputContainer(
                 child: TextField(
                   controller: _inspectorController,
+                  onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
                     hintText: 'Enter your name / TTE ID',
                     border: InputBorder.none,
@@ -1387,7 +1465,7 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
                   : DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     isExpanded: true,
-                    value: _selectedWorkerId,
+                    value: _selectedWorkerId != null && _workers.any((w) => w.uid == _selectedWorkerId) ? _selectedWorkerId : null,
                     hint: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 12),
                       child: Text('Choose worker'),
@@ -1464,7 +1542,7 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
               _inputContainer(
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _selectedCoach,
+                    value: _selectedCoach != null && _availableCoaches.contains(_selectedCoach) ? _selectedCoach : null,
                     hint: Text(
                       _trainNoController.text.trim().isEmpty
                           ? 'Enter train number first'
@@ -1485,22 +1563,33 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
               )
             else
               _inputContainer(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedCoach,
-                    hint: const Text('Choose a coach'),
-                    isExpanded: true,
-                    items: const [
-                      'S1', 'S2', 'S3', 'S4', 'S5',
-                      'A1', 'A2', 'B1', 'B2',
-                      'F1', 'F2', 'G1', 'H1',
-                    ]
-                        .map((c) =>
-                            DropdownMenuItem(value: c, child: Text(c)))
-                        .toList(),
-                    onChanged: (v) => setState(() => _selectedCoach = v),
-                  ),
-                ),
+                child: _isFetchingOfficialCoaches
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 12),
+                            Text('Loading coaches...', style: TextStyle(color: Colors.grey)),
+                          ],
+                        ),
+                      )
+                    : DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedCoach != null && _officialCoaches.contains(_selectedCoach) ? _selectedCoach : null,
+                          hint: const Text('Choose a coach'),
+                          isExpanded: true,
+                          items: _officialCoaches
+                              .map((c) =>
+                                  DropdownMenuItem(value: c, child: Text(c)))
+                              .toList(),
+                          onChanged: (v) => setState(() => _selectedCoach = v),
+                        ),
+                      ),
               ),
 
             const SizedBox(height: 20),

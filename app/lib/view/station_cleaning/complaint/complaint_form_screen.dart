@@ -2,6 +2,11 @@ import 'package:crm_train/model/station_cleaning_models.dart';
 import 'package:crm_train/repositories/complaint_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'dart:convert';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:crm_train/services/api_services.dart';
 
 class ComplaintFormScreen extends StatefulWidget {
   final Complaint? complaint;
@@ -18,7 +23,6 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
   bool _isLoading = false;
 
   late TextEditingController _descriptionCtrl;
-  late TextEditingController _photoUrlCtrl;
   late TextEditingController _assigneeCtrl;
   late TextEditingController _resolutionCtrl;
   late TextEditingController _resolutionPhotoCtrl;
@@ -29,6 +33,8 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
   String _severity = 'medium';
   double? _latitude;
   double? _longitude;
+  bool _uploadingPhoto = false;
+  String? _photoUrl;
 
   bool get isEdit => widget.complaint != null;
   String get _currentStatus => widget.complaint?.status ?? '';
@@ -38,7 +44,6 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
     super.initState();
     final r = widget.complaint;
     _descriptionCtrl = TextEditingController(text: r?.description ?? '');
-    _photoUrlCtrl = TextEditingController();
     _assigneeCtrl = TextEditingController();
     _resolutionCtrl = TextEditingController();
     _resolutionPhotoCtrl = TextEditingController();
@@ -50,10 +55,36 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
     }
   }
 
+  Future<void> _pickAndUploadPhoto() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+    if (picked == null) return;
+    setState(() => _uploadingPhoto = true);
+    try {
+      final bytes = await picked.readAsBytes();
+      final token = await ApiService.getToken();
+      if (token == null) return;
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/api/evidence/upload/base64'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode({
+          'image': base64Encode(bytes),
+          'fileName': 'complaint_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _photoUrl = data['url'] ?? data['imageUrl'] ?? '';
+        });
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _uploadingPhoto = false);
+  }
+
   @override
   void dispose() {
     _descriptionCtrl.dispose();
-    _photoUrlCtrl.dispose();
     _assigneeCtrl.dispose();
     _resolutionCtrl.dispose();
     _resolutionPhotoCtrl.dispose();
@@ -64,6 +95,12 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
 
   Future<void> _createComplaint() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_photoUrl == null || _photoUrl!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please capture a photo. Photo is mandatory.'), backgroundColor: kErrorRed),
+      );
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final body = <String, dynamic>{
@@ -72,7 +109,7 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
         'category': _category,
         'description': _descriptionCtrl.text.trim(),
         'severity': _severity,
-        'photoUrl': _photoUrlCtrl.text.trim().isNotEmpty ? _photoUrlCtrl.text.trim() : null,
+        'photoUrl': _photoUrl,
       };
       if (_latitude != null) body['latitude'] = _latitude;
       if (_longitude != null) body['longitude'] = _longitude;
@@ -419,6 +456,28 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
     }
   }
 
+  bool _gpsLoading = false;
+
+  Future<void> _captureGps() async {
+    final permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      final granted = await Geolocator.requestPermission();
+      if (granted == LocationPermission.denied || granted == LocationPermission.deniedForever) return;
+    }
+    setState(() => _gpsLoading = true);
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
+      );
+      setState(() { _latitude = pos.latitude; _longitude = pos.longitude; });
+    } catch (_) {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) setState(() { _latitude = last.latitude; _longitude = last.longitude; });
+    } finally {
+      setState(() => _gpsLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = widget.complaint;
@@ -481,34 +540,53 @@ class _ComplaintFormScreenState extends State<ComplaintFormScreen> {
                           onChanged: (v) { if (v != null) setState(() => _severity = v); },
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _photoUrlCtrl,
-                          decoration: const InputDecoration(labelText: 'Photo URL (optional)', border: OutlineInputBorder()),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: _uploadingPhoto ? null : _pickAndUploadPhoto,
+                              icon: _uploadingPhoto
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                  : const Icon(Icons.camera_alt),
+                              label: Text(_photoUrl != null && _photoUrl!.isNotEmpty ? 'Retake Photo' : 'Capture Photo *'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _photoUrl != null && _photoUrl!.isNotEmpty ? Colors.grey : kRailwayBlue,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            if (_photoUrl != null && _photoUrl!.isNotEmpty) ...[
+                              const SizedBox(width: 12),
+                              const Icon(Icons.verified, color: kSuccessGreen, size: 20),
+                              const SizedBox(width: 4),
+                              const Text('Captured', style: TextStyle(color: kSuccessGreen, fontWeight: FontWeight.bold)),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
-                              child: TextFormField(
-                                decoration: const InputDecoration(
-                                  labelText: 'Latitude',
-                                  border: OutlineInputBorder(),
-                                  hintText: 'GPS latitude',
-                                ),
-                                onChanged: (v) => _latitude = double.tryParse(v),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              child: InputDecorator(
+                                decoration: const InputDecoration(labelText: 'Latitude', border: OutlineInputBorder()),
+                                child: Text(_latitude?.toStringAsFixed(6) ?? 'Not captured', style: const TextStyle(fontSize: 14)),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: TextFormField(
-                                decoration: const InputDecoration(
-                                  labelText: 'Longitude',
-                                  border: OutlineInputBorder(),
-                                  hintText: 'GPS longitude',
-                                ),
-                                onChanged: (v) => _longitude = double.tryParse(v),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              child: InputDecorator(
+                                decoration: const InputDecoration(labelText: 'Longitude', border: OutlineInputBorder()),
+                                child: Text(_longitude?.toStringAsFixed(6) ?? 'Not captured', style: const TextStyle(fontSize: 14)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              height: 48,
+                              child: ElevatedButton(
+                                onPressed: _gpsLoading ? null : _captureGps,
+                                style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
+                                child: _gpsLoading
+                                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                    : const Icon(Icons.my_location, size: 20),
                               ),
                             ),
                           ],

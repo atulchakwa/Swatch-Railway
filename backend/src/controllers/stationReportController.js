@@ -14,6 +14,8 @@ export const generateDailyComplaintReport = asyncHandler(async (req, res) => res
 export const generateDailyFeedbackReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateDailyFeedbackReport(req.body.stationId, req.body.date, req.user)));
 export const generateDailySupervisorLogReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateDailySupervisorLog(req.body.stationId, req.body.date, req.user)));
 export const generateMissedActivityReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateMissedActivityReport(req.body.stationId, req.body.date, req.user)));
+export const generateDailyInspectionReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateDailyInspectionReport(req.body.stationId, req.body.date, req.user)));
+export const generateArchiveRetrievalReport = asyncHandler(async (req, res) => res.json(await stationReportService.generateArchiveRetrievalReport(req.body.stationId, req.body.startDate, req.body.endDate, req.user)));
 export const generateMonthlyAttendanceSummary = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyAttendanceSummary(req.body.stationId, req.body.month, req.body.year, req.user)));
 export const generateMonthlyCleaningSummary = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyCleaningSummary(req.body.stationId, req.body.month, req.body.year, req.user)));
 export const generateMonthlyScorecardSummary = asyncHandler(async (req, res) => res.json(await stationReportService.generateMonthlyScorecardReport(req.body.stationId, req.body.month, req.body.year, req.user)));

@@ -2,7 +2,7 @@ import { inspectionService } from '../services/inspectionService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const create = asyncHandler(async (req, res) => res.status(201).json(await inspectionService.createInspection(req.user, req.body)));
-export const list = asyncHandler(async (req, res) => res.json(await inspectionService.getInspections(req.query)));
+export const list = asyncHandler(async (req, res) => res.json(await inspectionService.getInspections(req.query, req.user)));
 export const getById = asyncHandler(async (req, res) => res.json(await inspectionService.getInspectionById(req.params.uid)));
 export const update = asyncHandler(async (req, res) => res.json(await inspectionService.updateInspection(req.params.uid, req.body)));
 export const remove = asyncHandler(async (req, res) => res.json(await inspectionService.deleteInspection(req.params.uid)));

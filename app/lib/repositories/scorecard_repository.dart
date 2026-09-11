@@ -14,8 +14,8 @@ class ScorecardRepository {
     final uri = Uri.parse('$baseUrl/api/scorecards/daily').replace(queryParameters: query);
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
-      final list = jsonDecode(res.body)['scorecards'] ?? [];
-      return list.map((e) => Scorecard.fromJson(e)).toList();
+      final raw = jsonDecode(res.body)['scorecards'] as List? ?? [];
+      return raw.map<Scorecard>((e) => Scorecard.fromJson(e)).toList();
     }
     throw Exception('Failed to load scorecards');
   }

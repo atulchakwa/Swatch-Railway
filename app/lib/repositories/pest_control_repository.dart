@@ -15,7 +15,7 @@ class PestControlRepository {
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
       final list = jsonDecode(res.body)['plans'] ?? [];
-      return list.map((e) => PestTreatment.fromJson(e)).toList();
+      return list.map<PestTreatment>((e) => PestTreatment.fromJson(e)).toList();
     }
     throw Exception('Failed to load plans');
   }

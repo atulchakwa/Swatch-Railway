@@ -1207,7 +1207,7 @@ class _CommonFormScreenState extends State<CommonFormScreen> with TickerProvider
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: _selectedStatus,
+              value: displayStatusOptions.contains(_selectedStatus) ? _selectedStatus : 'All',
               items: displayStatusOptions.map((status) => DropdownMenuItem(value: status, child: Text(status, style: const TextStyle(fontSize: 12)))).toList(),
               onChanged: (val) {
                 setState(() {

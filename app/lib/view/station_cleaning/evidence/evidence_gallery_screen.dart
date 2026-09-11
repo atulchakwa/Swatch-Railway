@@ -29,26 +29,31 @@ class _EvidenceGalleryScreenState extends State<EvidenceGalleryScreen> {
 
   Future<void> _loadEvidence() async {
     setState(() => _isLoading = true);
+    String? errorMsg;
     try {
-      final query = <String, String>{
-        'stationId': widget.stationId,
-      };
+      final query = <String, String>{'stationId': widget.stationId};
       if (_selectedType != 'all') query['type'] = _selectedType;
-      final list = await EvidenceRepository.search(query);
-      final analytics = await EvidenceRepository.getStorageAnalytics(widget.stationId);
-      setState(() {
-        _evidenceList = list;
-        _totalStorageMb = ((analytics['totalSizeBytes'] ?? 0).toDouble() / (1024 * 1024));
-      });
+      _evidenceList = await EvidenceRepository.search(query);
     } catch (e) {
-      if (mounted) {
+      errorMsg = 'search: $e';
+    }
+    try {
+      final analytics = await EvidenceRepository.getStorageAnalytics(widget.stationId);
+      final totals = analytics['totals'] as Map<String, dynamic>?;
+      _totalStorageMb = double.tryParse(totals?['totalMB']?.toString() ?? '0') ?? 0;
+    } catch (e) {
+      _totalStorageMb = 0;
+      errorMsg = errorMsg ?? 'analytics: $e';
+    }
+    if (mounted) {
+      setState(() {});
+      if (errorMsg != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load evidence: $e'), backgroundColor: kErrorRed),
+          SnackBar(content: Text('Failed to load evidence: $errorMsg'), backgroundColor: kErrorRed, duration: const Duration(seconds: 4)),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+    if (mounted) setState(() => _isLoading = false);
   }
 
   IconData _typeIcon(String type) {

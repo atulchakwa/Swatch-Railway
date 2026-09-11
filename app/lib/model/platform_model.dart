@@ -7,6 +7,7 @@ class Platform {
   final String? surfaceType;
   final double? length;
   final double? width;
+  final String? platformArea;
   final String status;
   final String? createdBy;
   final String? createdAt;
@@ -21,13 +22,22 @@ class Platform {
     this.surfaceType,
     this.length,
     this.width,
+    this.platformArea,
     this.status = 'active',
     this.createdBy,
     this.createdAt,
     this.updatedAt,
   });
 
-  String get displayName => platformName ?? 'Platform $platformNumber';
+  String get displayName {
+    final base = (platformName != null && platformName!.trim().isNotEmpty)
+        ? platformName!
+        : 'Platform $platformNumber';
+    if (platformArea != null && platformArea!.isNotEmpty) {
+      return '$base (${platformArea!})';
+    }
+    return base;
+  }
 
   factory Platform.fromJson(Map<String, dynamic> json) => Platform(
     uid: json['uid'] ?? json['id'],
@@ -38,6 +48,7 @@ class Platform {
     surfaceType: json['surfaceType'],
     length: (json['length'] as num?)?.toDouble(),
     width: (json['width'] as num?)?.toDouble(),
+    platformArea: json['platformArea'],
     status: json['status'] ?? 'active',
     createdBy: json['createdBy'],
     createdAt: json['createdAt'],
@@ -53,6 +64,18 @@ class Platform {
     if (surfaceType != null) 'surfaceType': surfaceType,
     if (length != null) 'length': length,
     if (width != null) 'width': width,
+    if (platformArea != null) 'platformArea': platformArea,
     'status': status,
   };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Platform &&
+          runtimeType == other.runtimeType &&
+          uid == other.uid &&
+          platformNumber == other.platformNumber;
+
+  @override
+  int get hashCode => uid.hashCode ^ platformNumber.hashCode;
 }

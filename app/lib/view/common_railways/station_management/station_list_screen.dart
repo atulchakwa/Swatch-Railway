@@ -88,7 +88,7 @@ class _StationListScreenState extends State<StationListScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Station Master', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Stations', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
       ),

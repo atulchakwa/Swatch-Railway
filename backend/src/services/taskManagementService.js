@@ -1,5 +1,5 @@
 import { db, admin } from '../database/index.js';
-import { NotFoundError, ValidationError } from '../errors/index.js';
+import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
 
 class TaskManagementService {
   async generateFrequencyBasedTasks(targetDate) {
@@ -27,6 +27,7 @@ class TaskManagementService {
       const frequencyTimes = area.frequencyTimes || this._getDefaultFrequencyTimes(cleaningFrequency);
       const areaName = area.areaName || area.name || assignment.areaName || '';
       const areaCode = area.areaCode || '';
+      const mainArea = area.mainArea || '';
       const platformId = assignment.platformId || area.platformId || null;
       const supervisorId = area.supervisorId || assignment.supervisorId || null;
 
@@ -35,13 +36,15 @@ class TaskManagementService {
 
       for (const scheduledTime of frequencyTimes) {
         const taskRef = db.collection('cleaningTasks').doc();
+        const displayName = [mainArea, areaName].filter(Boolean).join(' - ');
         const task = {
           uid: taskRef.id,
           stationId: area.stationId || assignment.stationId,
           platformId,
           areaId: assignment.areaId,
-          areaName,
+          areaName: displayName,
           areaCode,
+          mainArea,
           workerId: assignment.workerId,
           workerName: assignment.workerName,
           supervisorId,
@@ -83,7 +86,9 @@ class TaskManagementService {
       case '2hrs': return ['06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'];
       case '4hrs': return ['06:00', '10:00', '14:00', '18:00', '22:00'];
       case 'daily': return ['08:00'];
+      case 'twice_daily': return ['06:00', '18:00'];
       case 'shift_wise': return ['06:00', '14:00', '22:00'];
+      case 'four_times_daily': return ['06:00', '10:00', '14:00', '18:00'];
       case 'week_wise': return ['08:00'];
       case 'fortnightly': return ['08:00'];
       case 'monthly': return ['08:00'];
@@ -126,12 +131,10 @@ class TaskManagementService {
       throw new ValidationError(`Only in-progress or resubmitted tasks can be completed. Current: ${task.status}`);
     }
 
-    if (!data.afterPhoto) throw new ValidationError('After photo is required to complete task');
-
     const updates = {
       status: 'completed',
       completedAt: new Date().toISOString(),
-      afterPhoto: data.afterPhoto,
+      afterPhoto: data.afterPhoto || task.afterPhoto || null,
       gpsLat: data.gpsLat || task.gpsLat || null,
       gpsLng: data.gpsLng || task.gpsLng || null,
       remarks: data.remarks || task.remarks || '',
@@ -148,12 +151,10 @@ class TaskManagementService {
     const task = doc.data();
     if (task.status !== 'rejected') throw new ValidationError('Only rejected tasks can be resubmitted');
 
-    if (!data.afterPhoto) throw new ValidationError('After photo is required to resubmit');
-
     const updates = {
       status: 'resubmitted',
       resubmittedAt: new Date().toISOString(),
-      afterPhoto: data.afterPhoto,
+      afterPhoto: data.afterPhoto || task.afterPhoto || null,
       gpsLat: data.gpsLat || task.gpsLat || null,
       gpsLng: data.gpsLng || task.gpsLng || null,
       remarks: data.remarks || task.remarks || '',
@@ -166,7 +167,35 @@ class TaskManagementService {
 
   async getTasks(query = {}, user) {
     const { stationId, platformId, areaId, workerId, status, date, startDate, endDate, supervisorId, includeOverdue } = query;
-    const snapshot = await db.collection('cleaningTasks').limit(300).get();
+    let q = db.collection('cleaningTasks');
+    const filters = [];
+    if (stationId) { q = q.where('stationId', '==', stationId); filters.push('stationId'); }
+    if (workerId) { q = q.where('workerId', '==', workerId); filters.push('workerId'); }
+    if (areaId) { q = q.where('areaId', '==', areaId); filters.push('areaId'); }
+    if (platformId) { q = q.where('platformId', '==', platformId); filters.push('platformId'); }
+    if (supervisorId) { q = q.where('supervisorId', '==', supervisorId); filters.push('supervisorId'); }
+    if (status) { q = q.where('status', '==', status); filters.push('status'); }
+    if (date) { q = q.where('date', '==', date); filters.push('date'); }
+    if (startDate && endDate) {
+      q = q.where('date', '>=', startDate).where('date', '<=', endDate);
+    } else if (startDate) {
+      q = q.where('date', '>=', startDate);
+    } else if (endDate) {
+      q = q.where('date', '<=', endDate);
+    }
+    if (user && !['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes((user.role || '').toUpperCase())) {
+      const userStations = user.stations || (user.stationId ? [user.stationId] : []);
+      if (stationId) {
+        if (userStations.length > 0 && !userStations.includes(stationId)) {
+          throw new ForbiddenError('You can only access tasks for your assigned stations');
+        }
+      } else if (userStations.length === 1) {
+        q = q.where('stationId', '==', userStations[0]);
+      } else if (userStations.length > 1) {
+        q = q.where('stationId', 'in', userStations);
+      }
+    }
+    const snapshot = await q.limit(300).get();
     const tasks = [];
     const now = new Date();
     snapshot.forEach(doc => {
@@ -180,37 +209,31 @@ class TaskManagementService {
       tasks.push(t);
     });
 
-    let filtered = tasks;
-    if (stationId) filtered = filtered.filter(t => t.stationId === stationId);
-    if (platformId) filtered = filtered.filter(t => t.platformId === platformId);
-    if (areaId) filtered = filtered.filter(t => t.areaId === areaId);
-    if (workerId) filtered = filtered.filter(t => t.workerId === workerId);
-    if (status) filtered = filtered.filter(t => t.status === status);
-    if (supervisorId) filtered = filtered.filter(t => t.supervisorId === supervisorId);
-    if (includeOverdue === 'true') filtered = filtered.filter(t => t.isOverdue);
-    if (date) {
-      filtered = filtered.filter(t => t.date === date || t.scheduledDate === date);
-    }
-    if (startDate) {
-      filtered = filtered.filter(t => (t.date || t.scheduledDate || '') >= startDate);
-    }
-    if (endDate) {
-      filtered = filtered.filter(t => (t.date || t.scheduledDate || '') <= endDate);
+    if (includeOverdue === 'true') {
+      tasks = tasks.filter(t => t.isOverdue);
     }
 
-    filtered.sort((a, b) => {
+    tasks.sort((a, b) => {
       const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bTime - aTime;
     });
 
-    return { count: filtered.length, tasks: filtered };
+    return { count: tasks.length, tasks };
   }
 
-  async getTaskById(taskId) {
+  async getTaskById(taskId, user) {
     const doc = await db.collection('cleaningTasks').doc(taskId).get();
     if (!doc.exists) throw new NotFoundError('Task not found');
-    return { id: doc.id, ...doc.data() };
+    const task = { id: doc.id, ...doc.data() };
+    const role = (user?.role || '').toUpperCase();
+    if (!['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes(role)) {
+      const userStations = user?.stations || (user?.stationId ? [user.stationId] : []);
+      if (userStations.length > 0 && task.stationId && !userStations.includes(task.stationId)) {
+        throw new ForbiddenError('You can only access tasks in your assigned stations');
+      }
+    }
+    return task;
   }
 
   async updateTaskStatus(taskId, status, user) {
@@ -335,21 +358,53 @@ class TaskManagementService {
     return { count: tasks.length, tasks };
   }
 
-  async getDailyTasks(date) {
+  async getDailyTasks(date, user) {
     if (!date) date = new Date().toISOString().split('T')[0];
-    const snapshot = await db.collection('cleaningTasks').limit(500).get();
+    const role = (user?.role || '').toUpperCase();
+    let q = db.collection('cleaningTasks').limit(500);
+    if (!['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes(role)) {
+      const userStations = user?.stations || (user?.stationId ? [user.stationId] : []);
+      if (userStations.length === 1) {
+        q = q.where('stationId', '==', userStations[0]);
+      } else if (userStations.length > 1) {
+        q = q.where('stationId', 'in', userStations);
+      }
+    }
+    const snapshot = await q.get();
     let tasks = [];
     snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
     tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
     return { count: tasks.length, date, tasks };
   }
 
-  async getSupervisorTasks(supervisorId, date, statusFilter) {
+  async getSupervisorTasks(supervisorId, date, statusFilter, user) {
     if (!supervisorId) throw new ValidationError('supervisorId is required');
-    let q = db.collection('cleaningTasks').where('supervisorId', '==', supervisorId);
-    const snapshot = await q.orderBy('updatedAt', 'desc').limit(200).get();
+    const role = (user?.role || '').toUpperCase();
+    if (!['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes(role)) {
+      const allowedSupervisorIds = [user?.uid];
+      if (user?.contractId) {
+        const supSnap = await db.collection('users').where('contractId', '==', user.contractId).where('role', '==', 'Contractor Supervisor').get();
+        supSnap.forEach(d => allowedSupervisorIds.push(d.id));
+      }
+      if (!allowedSupervisorIds.includes(supervisorId)) {
+        throw new ForbiddenError('You can only view tasks for supervisors in your contract');
+      }
+    }
+    const snapshot = await db.collection('cleaningTasks')
+      .where('supervisorId', '==', supervisorId)
+      .get();
     let tasks = [];
-    snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
+    const now = new Date();
+    snapshot.forEach(doc => {
+      const t = { id: doc.id, ...doc.data() };
+      const taskDate = t.date || t.scheduledDate || '';
+      const taskTime = t.scheduledTime || '23:59';
+      const taskDateTime = new Date(`${taskDate}T${taskTime}:00`);
+      const actionableStatuses = ['pending', 'assigned', 'in_progress'];
+      t.isOverdue = actionableStatuses.includes(t.status) && taskDateTime < now;
+      t.isDue = actionableStatuses.includes(t.status) && !t.isOverdue;
+      tasks.push(t);
+    });
     if (date) {
       tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
     }
@@ -360,8 +415,47 @@ class TaskManagementService {
     return { count: tasks.length, tasks };
   }
 
+  _resolveActivityForArea(areaId, areaData, data = {}) {
+    const { areaActivities, activityType, taskTypeId, taskTypeName } = data;
+    const perArea = areaActivities ? areaActivities[areaId] : null;
+    if (perArea) {
+      if (typeof perArea === 'string') {
+        return {
+          id: null,
+          name: perArea,
+          label: perArea.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+        };
+      }
+      return {
+        id: perArea.uid || perArea.id || taskTypeId || null,
+        name: perArea.name || taskTypeName || '',
+        label: perArea.label || (perArea.name ? perArea.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : taskTypeName || (areaData.areaType || 'Cleaning'))
+      };
+    }
+    if (activityType) {
+      return {
+        id: taskTypeId || null,
+        name: taskTypeName || activityType,
+        label: activityType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      };
+    }
+    return null;
+  }
+
+  _resolveActivitiesForArea(areaId, areaData, data = {}) {
+    const perArea = data.areaActivities ? data.areaActivities[areaId] : null;
+    if (Array.isArray(perArea)) {
+      return perArea
+        .filter(a => a && (typeof a === 'string' || a.uid || a.id || a.name || a.label))
+        .map(a => this._resolveActivityForArea(areaId, areaData, { ...data, areaActivities: { [areaId]: a } }))
+        .filter(Boolean);
+    }
+    const single = this._resolveActivityForArea(areaId, areaData, data);
+    return single ? [single] : [];
+  }
+
   async bulkGenerate(data, user) {
-    const { areaIds, date, workerId, zoneIds } = data;
+    const { areaIds, date, workerId, workerIds, zoneIds, supervisorId, frequency } = data;
     if (!areaIds || !Array.isArray(areaIds) || areaIds.length === 0) {
       throw new ValidationError('areaIds array is required');
     }
@@ -369,8 +463,31 @@ class TaskManagementService {
     let total = 0;
     const allTaskIds = [];
 
+    // Resolve the supervisor if provided
+    let assignedSupervisorId = null;
+    let assignedSupervisorName = '';
+    if (supervisorId) {
+      const supDoc = await db.collection('users').doc(supervisorId).get();
+      if (supDoc.exists) {
+        const supData = supDoc.data();
+        assignedSupervisorId = supervisorId;
+        assignedSupervisorName = supData.fullName || supData.name || '';
+      }
+    }
+
     let assignedWorker = null;
-    if (workerId) {
+    let assignedWorkers = [];
+    if (workerIds && Array.isArray(workerIds) && workerIds.length > 0) {
+      const workerDocs = await Promise.all(
+        workerIds.map(wId => db.collection('users').doc(wId).get())
+      );
+      assignedWorkers = workerDocs
+        .filter(d => d.exists)
+        .map(d => ({ uid: d.id, ...d.data() }));
+      if (assignedWorkers.length === 0) {
+        throw new NotFoundError('None of the specified workers were found');
+      }
+    } else if (workerId) {
       const workerDoc = await db.collection('users').doc(workerId).get();
       if (!workerDoc.exists) {
         throw new NotFoundError(`Worker with ID ${workerId} not found`);
@@ -378,9 +495,24 @@ class TaskManagementService {
       assignedWorker = { uid: workerDoc.id, ...workerDoc.data() };
     }
 
+    const existingTaskKeys = new Set();
+    const chunkSize = 10;
+    for (let i = 0; i < areaIds.length; i += chunkSize) {
+      const chunk = areaIds.slice(i, i + chunkSize);
+      const existingTasksSnap = await db.collection('cleaningTasks')
+        .where('date', '==', targetDate)
+        .where('areaId', 'in', chunk)
+        .select('workerId', 'areaId', 'scheduledTime', 'taskTypeId')
+        .get();
+      existingTasksSnap.forEach(doc => {
+        const d = doc.data();
+        existingTaskKeys.add(`${d.areaId}|${d.workerId}|${d.scheduledTime}|${d.taskTypeId || 'default'}`);
+      });
+    }
+
     for (const areaId of areaIds) {
       const [workersSnap, areaSnap] = await Promise.all([
-        assignedWorker ? null : db.collection('areaWorkerAssignments').where('areaId', '==', areaId).where('isActive', '==', true).limit(200).get(),
+        assignedWorker || assignedWorkers.length > 0 ? null : db.collection('areaWorkerAssignments').where('areaId', '==', areaId).where('isActive', '==', true).limit(200).get(),
         db.collection('areas').doc(areaId).get()
       ]);
       let areaDoc = areaSnap;
@@ -388,10 +520,13 @@ class TaskManagementService {
         areaDoc = await db.collection('stationAreas').doc(areaId).get();
       }
       const areaData = areaDoc.exists ? areaDoc.data() : {};
-      const cleaningFrequency = areaData.cleaningFrequency || areaData.frequency || 'daily';
+      const activities = this._resolveActivitiesForArea(areaId, areaData, data);
+      const taskActivities = activities.length > 0 ? activities : [null];
+      const cleaningFrequency = frequency || areaData.cleaningFrequency || areaData.frequency || 'daily';
       const frequencyTimes = areaData.frequencyTimes || this._getDefaultFrequencyTimes(cleaningFrequency);
       const baseAreaName = areaData.areaName || areaData.name || '';
       const areaCode = areaData.areaCode || '';
+      const mainArea = areaData.mainArea || '';
 
       const batch = db.batch();
       let batchCount = 0;
@@ -408,86 +543,117 @@ class TaskManagementService {
         }
       }
 
-      if (assignedWorker) {
+      const buildTask = (workerInfo, zoneInfo, scheduledTime, activity) => {
+        const taskRef = db.collection('cleaningTasks').doc();
+        const displayAreaName = [mainArea, baseAreaName, zoneInfo?.name].filter(Boolean).join(' - ');
+        const task = {
+          uid: taskRef.id,
+          stationId: workerInfo.stationId || '',
+          platformId: workerInfo.platformId || null,
+          areaId,
+          areaName: displayAreaName,
+          areaCode,
+          mainArea,
+          zoneId: zoneInfo ? zoneInfo.uid : null,
+          zoneName: zoneInfo ? zoneInfo.name : null,
+          workerId: workerInfo.workerId,
+          workerName: workerInfo.workerName || 'Unknown',
+          supervisorId: workerInfo.supervisorId,
+          supervisorName: workerInfo.supervisorName || '',
+          assignmentId: workerInfo.assignmentId || null,
+          activityType: activity ? activity.label : (areaData.areaType || 'Cleaning'),
+          taskTypeId: activity ? activity.id : null,
+          taskTypeName: activity ? activity.name : null,
+          frequency: cleaningFrequency,
+          date: targetDate,
+          scheduledDate: targetDate,
+          scheduledTime,
+          priority: areaData.priority || 3,
+          shift: workerInfo.shift,
+          status: 'pending',
+          startedAt: null, completedAt: null,
+          approvedAt: null, rejectedAt: null,
+          beforePhoto: null, afterPhoto: null,
+          gpsLat: null, gpsLng: null,
+          supervisorNotes: null, rejectionReason: null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: new Date().toISOString()
+        };
+        return { taskRef, task };
+      };
+
+      const processWorker = (workerInfo) => {
         for (const scheduledTime of frequencyTimes) {
           for (const zoneInfo of targetZones) {
-            const taskRef = db.collection('cleaningTasks').doc();
-            const displayAreaName = zoneInfo ? `${baseAreaName} - ${zoneInfo.name}` : baseAreaName;
-            const task = {
-              uid: taskRef.id,
-              stationId: areaData.stationId || assignedWorker.stationId || '',
-              platformId: areaData.platformId || null,
-              areaId,
-              areaName: displayAreaName,
-              areaCode,
-              zoneId: zoneInfo ? zoneInfo.uid : null,
-              zoneName: zoneInfo ? zoneInfo.name : null,
-              workerId: assignedWorker.uid,
-              workerName: assignedWorker.fullName || assignedWorker.name || 'Unknown',
-              supervisorId: areaData.supervisorId || null,
-              assignmentId: null,
-              activityType: areaData.areaType || 'Cleaning',
-              frequency: cleaningFrequency,
-              date: targetDate,
-              scheduledDate: targetDate,
-              scheduledTime,
-              priority: areaData.priority || 3,
-              shift: data.shift || areaData.defaultShift || 'morning',
-              status: 'pending',
-              startedAt: null, completedAt: null,
-              approvedAt: null, rejectedAt: null,
-              beforePhoto: null, afterPhoto: null,
-              gpsLat: null, gpsLng: null,
-              supervisorNotes: null, rejectionReason: null,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-              updatedAt: new Date().toISOString()
-            };
-            batch.set(taskRef, task);
-            allTaskIds.push(taskRef.id);
-            batchCount++;
-          }
-        }
-      } else if (workersSnap) {
-        workersSnap.forEach(workerDoc => {
-          const assignment = workerDoc.data();
-          for (const scheduledTime of frequencyTimes) {
-            for (const zoneInfo of targetZones) {
-              const taskRef = db.collection('cleaningTasks').doc();
-              const displayAreaName = zoneInfo ? `${baseAreaName} - ${zoneInfo.name}` : baseAreaName;
-              const task = {
-                uid: taskRef.id,
-                stationId: areaData.stationId || assignment.stationId,
-                platformId: areaData.platformId || assignment.platformId || null,
-                areaId,
-                areaName: displayAreaName,
-                areaCode,
-                zoneId: zoneInfo ? zoneInfo.uid : null,
-                zoneName: zoneInfo ? zoneInfo.name : null,
-                workerId: assignment.workerId,
-                workerName: assignment.workerName,
-                supervisorId: areaData.supervisorId || null,
-                assignmentId: assignment.uid,
-                activityType: areaData.areaType || 'Cleaning',
-                frequency: cleaningFrequency,
-                date: targetDate,
-                scheduledDate: targetDate,
-                scheduledTime,
-                priority: areaData.priority || 3,
-                shift: assignment.shift || areaData.defaultShift || 'morning',
-                status: 'pending',
-                startedAt: null, completedAt: null,
-                approvedAt: null, rejectedAt: null,
-                beforePhoto: null, afterPhoto: null,
-                gpsLat: null, gpsLng: null,
-                supervisorNotes: null, rejectionReason: null,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: new Date().toISOString()
-              };
+            for (const activity of taskActivities) {
+              const dupKey = `${areaId}|${workerInfo.workerId}|${scheduledTime}|${activity ? (activity.id || 'default') : 'default'}`;
+              if (existingTaskKeys.has(dupKey)) continue;
+              const { taskRef, task } = buildTask(workerInfo, zoneInfo, scheduledTime, activity);
               batch.set(taskRef, task);
               allTaskIds.push(taskRef.id);
               batchCount++;
             }
           }
+        }
+      };
+
+      if (assignedWorkers.length > 0) {
+        let workerIdx = 0;
+        for (const scheduledTime of frequencyTimes) {
+          for (const zoneInfo of targetZones) {
+            const w = assignedWorkers[workerIdx % assignedWorkers.length];
+            workerIdx++;
+            for (const activity of taskActivities) {
+              const dupKey = `${areaId}|${w.uid}|${scheduledTime}|${activity ? (activity.id || 'default') : 'default'}`;
+              if (existingTaskKeys.has(dupKey)) continue;
+              const { taskRef, task } = buildTask({
+                workerId: w.uid,
+                workerName: w.fullName || w.name || 'Unknown',
+                stationId: areaData.stationId || w.stationId || '',
+                platformId: areaData.platformId || null,
+                supervisorId: assignedSupervisorId || areaData.supervisorId || null,
+                supervisorName: assignedSupervisorName || areaData.supervisorName || '',
+                shift: data.shift || areaData.defaultShift || 'morning',
+              }, zoneInfo, scheduledTime, activity);
+              batch.set(taskRef, task);
+              allTaskIds.push(taskRef.id);
+              batchCount++;
+            }
+          }
+        }
+      } else if (assignedWorker) {
+        processWorker({
+          workerId: assignedWorker.uid,
+          workerName: assignedWorker.fullName || assignedWorker.name || 'Unknown',
+          stationId: areaData.stationId || assignedWorker.stationId || '',
+          platformId: areaData.platformId || null,
+          supervisorId: assignedSupervisorId || areaData.supervisorId || null,
+          supervisorName: assignedSupervisorName || areaData.supervisorName || '',
+          shift: data.shift || areaData.defaultShift || 'morning',
+        });
+      } else if (workersSnap && workersSnap.size > 0) {
+        workersSnap.forEach(workerDoc => {
+          const assignment = workerDoc.data();
+          processWorker({
+            workerId: assignment.workerId,
+            workerName: assignment.workerName,
+            stationId: areaData.stationId || assignment.stationId,
+            platformId: areaData.platformId || assignment.platformId || null,
+            assignmentId: assignment.uid,
+            supervisorId: assignedSupervisorId || areaData.supervisorId || null,
+            supervisorName: assignedSupervisorName || areaData.supervisorName || '',
+            shift: assignment.shift || areaData.defaultShift || 'morning',
+          });
+        });
+      } else if (assignedSupervisorId) {
+        processWorker({
+          workerId: assignedSupervisorId,
+          workerName: assignedSupervisorName || 'Supervisor',
+          stationId: areaData.stationId || '',
+          platformId: areaData.platformId || null,
+          supervisorId: assignedSupervisorId,
+          supervisorName: assignedSupervisorName || '',
+          shift: data.shift || areaData.defaultShift || 'morning',
         });
       }
 
@@ -516,7 +682,7 @@ class TaskManagementService {
 
     while (current <= end) {
       const dateStr = current.toISOString().split('T')[0];
-      const result = await this.bulkGenerate({ areaIds, date: dateStr, workerId, shift: data.shift }, user);
+      const result = await this.bulkGenerate({ areaIds, date: dateStr, workerId, shift: data.shift, activityType: data.activityType, areaActivities: data.areaActivities, taskTypeId: data.taskTypeId, taskTypeName: data.taskTypeName }, user);
       total += result.count;
       allTaskIds.push(...result.taskIds);
       current.setDate(current.getDate() + 1);

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -60,7 +61,17 @@ class StationCleaningApi {
       final headers = await _headers();
       request.headers.addAll(headers);
       if (fields != null) request.fields.addAll(fields);
-      request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+      
+      if (kIsWeb) {
+        final res = await http.get(Uri.parse(filePath));
+        final bytes = res.bodyBytes;
+        String filename = filePath.split('/').last;
+        if (!filename.contains('.')) filename += '.jpg';
+        request.files.add(http.MultipartFile.fromBytes(fieldName, bytes, filename: filename));
+      } else {
+        request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+      }
+      
       final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamedResponse);
       return {'statusCode': response.statusCode, 'body': jsonDecode(response.body)};

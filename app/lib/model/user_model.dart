@@ -14,6 +14,10 @@ class UserModel {
   final String? areaId;
   final String? entityId;
   final Map<String, dynamic>? entityDetails;
+  final String? contractId;
+  final String? contractType;
+  final String? domain;
+  final List<String> stations;
   final String? status;
   final DateTime? createdAt;
   final DateTime? submittedAt;
@@ -35,6 +39,10 @@ class UserModel {
     this.areaId,
     this.entityId,
     this.entityDetails,
+    this.contractId,
+    this.contractType,
+    this.domain,
+    this.stations = const [],
     this.status,
     this.createdAt,
     this.submittedAt,
@@ -55,18 +63,14 @@ class UserModel {
         return 'Admin';
       case 'RAILWAY_ADMIN':
         return 'Railway Admin';
+      case 'RAILWAY_INSPECTOR':
+        return 'Railway Inspector';
       case 'RAILWAY_SUPERVISOR':
         return 'Railway Supervisor';
       case 'CONTRACTOR_ADMIN':
         return 'Contractor Admin';
       case 'CONTRACTOR_SUPERVISOR':
         return 'Contractor Supervisor';
-      case 'STATION_MASTER':
-        return 'Station Master';
-      case 'AREA_MASTER':
-        return 'Area Master';
-      case 'PLATFORM_MASTER':
-        return 'Platform Master';
       case 'CTS':
         return 'CTS';
       case 'WORKER':
@@ -105,6 +109,10 @@ class UserModel {
       entityDetails: user['entityDetails'] is Map<String, dynamic>
           ? user['entityDetails']
           : null,
+      contractId: user['contractId'],
+      contractType: user['contractType'],
+      domain: user['domain'],
+      stations: (user['stations'] as List?)?.cast<String>() ?? [],
       status: user['status'],
       createdAt: _parseTimestamp(user['createdAt']),
       submittedAt: _parseTimestamp(user['submitted_at']),
@@ -131,6 +139,10 @@ class UserModel {
       entityDetails: json['entityDetails'] is Map<String, dynamic>
           ? json['entityDetails']
           : null,
+      contractId: json['contractId'],
+      contractType: json['contractType'],
+      domain: json['domain'],
+      stations: (json['stations'] as List?)?.cast<String>() ?? [],
       status: json['status'],
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'])
@@ -161,6 +173,10 @@ class UserModel {
       'areaId': areaId,
       'entityId': entityId,
       'entityDetails': entityDetails,
+      'contractId': contractId,
+      'contractType': contractType,
+      'domain': domain,
+      'stations': stations,
       'status': status,
       'createdAt': createdAt?.toIso8601String(),
       'submittedAt': submittedAt?.toIso8601String(),

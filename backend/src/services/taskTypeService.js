@@ -54,7 +54,10 @@ class TaskTypeService {
   async getTaskTypes(filters = {}) {
     let query = db.collection('taskTypes');
     if (filters.category) query = query.where('category', '==', filters.category);
-    if (filters.isActive !== undefined) query = query.where('isActive', '==', filters.isActive);
+    if (filters.isActive !== undefined && filters.isActive !== '') {
+      const isActive = filters.isActive === 'true' || filters.isActive === true;
+      query = query.where('isActive', '==', isActive);
+    }
     const snapshot = await query.limit(200).get();
     const types = [];
     snapshot.forEach(doc => types.push({ id: doc.id, ...doc.data() }));

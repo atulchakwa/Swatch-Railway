@@ -118,6 +118,7 @@ class EntityService {
 
   async getEntities(requesterData, query) {
     const queryStatus = query.status;
+    const queryContractType = query.contractType;
     const { userType, entityId, division, zone, role } = requesterData;
     const userRole = (role || "").trim().toLowerCase().replace(/_/g, " ");
 
@@ -134,6 +135,10 @@ class EntityService {
         if (!division) throw new ValidationError('Division missing in profile.');
         contractQuery = contractQuery.where('division', '==', division);
         isFilteredByContract = true;
+      }
+
+      if (queryContractType) {
+        contractQuery = contractQuery.where('contractType', '==', queryContractType);
       }
 
       if (isFilteredByContract) {

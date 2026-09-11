@@ -312,7 +312,7 @@ class _AreaDetailScreenState extends State<AreaDetailScreen> {
                               child: ElevatedButton.icon(
                                 icon: const Icon(Icons.auto_awesome, size: 18),
                                 label: const Text('Generate Tasks'),
-                                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TaskGenerationScreen())),
+                                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TaskGenerationScreen(stationId: widget.stationId, stationName: widget.stationName))),
                                 style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
                               ),
                             ),

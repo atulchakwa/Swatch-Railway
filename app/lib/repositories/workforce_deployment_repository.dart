@@ -16,7 +16,7 @@ class WorkforceDeploymentRepository {
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
       final list = jsonDecode(res.body)['deployments'] ?? [];
-      return list.map((e) => WorkforceDeployment.fromJson(e)).toList();
+      return list.map<WorkforceDeployment>((e) => WorkforceDeployment.fromJson(e)).toList();
     }
     throw Exception('Failed to load deployments');
   }

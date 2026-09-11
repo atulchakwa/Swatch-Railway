@@ -14,11 +14,18 @@ class UserRegistrationModel {
 
   final String? entityId;
   final EntityModel? entityDetails;
+  final String? contractId;
+  final String? contractType;
+  final String? domain;
+  final List<String> stations;
 
   final String? zone;
   final String? division;
   final String? depot;
   final String? status;
+  final String? stationId;
+  final String? areaId;
+  final String? platformId;
 
 
   final DateTime? createdAt;
@@ -54,10 +61,17 @@ class UserRegistrationModel {
     this.designation,
     this.entityId,
     this.entityDetails,
+    this.contractId,
+    this.contractType,
+    this.domain,
+    this.stations = const [],
     this.zone,
     this.division,
     this.depot,
     this.status,
+    this.stationId,
+    this.areaId,
+    this.platformId,
     this.createdAt,
     this.submittedAt,
     this.approvedAt,
@@ -92,11 +106,18 @@ class UserRegistrationModel {
       entityDetails: json['entityDetails'] != null
           ? EntityModel.fromJson(Map<String, dynamic>.from(json['entityDetails']))
           : null,
+      contractId: json['contractId'],
+      contractType: json['contractType'],
+      domain: json['domain'],
+      stations: (json['stations'] as List?)?.cast<String>() ?? [],
 
       zone: json['zone'],
       division: json['division'],
       depot: json['depot'],
       status: json['status'],
+      stationId: json['stationId'],
+      areaId: json['areaId'],
+      platformId: json['platformId'],
 
       createdAt: _parseDateTime(json['createdAt'] ?? json['created_at']),
       submittedAt: _parseDateTime(json['submittedAt'] ?? json['submitted_at']),

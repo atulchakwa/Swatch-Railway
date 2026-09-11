@@ -1,6 +1,7 @@
 import { db, admin } from '../database/index.js';
 import logger from '../logger/index.js';
 import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
+import { fcmService } from './fcmService.js';
 
 class StationCleaningAttendanceService {
   async markAttendance(userData, body) {
@@ -9,9 +10,10 @@ class StationCleaningAttendanceService {
       if (!allowedFields.includes(key)) throw new ValidationError(`Invalid field: '${key}'`);
     }
     const { runInstanceId, stationId, attendanceType, imageUrl, latitude, longitude, deviceTimestamp, mobileNumber, deviceId, livenessChallenge } = body;
-    if (!runInstanceId || !attendanceType || !imageUrl || !deviceTimestamp) {
-      throw new ValidationError('runInstanceId, attendanceType, imageUrl, and deviceTimestamp are required.');
+    if (!attendanceType || !deviceTimestamp) {
+      throw new ValidationError('attendanceType and deviceTimestamp are required.');
     }
+    const effectiveRunId = runInstanceId || `self_${userData.uid}_${new Date().toISOString().split('T')[0]}`;
     if (!['start', 'mid', 'end'].includes(attendanceType)) {
       throw new ValidationError("attendanceType must be 'start', 'mid', or 'end'");
     }
@@ -21,10 +23,11 @@ class StationCleaningAttendanceService {
     let lateByMinutes = 0;
     let firstAttendanceTime = null;
 
+    // Liveness (biometric) verification — mirrors OBHS attendance flow
     if (livenessChallenge) {
       const { verifyFaceLiveness } = await import('./rekognitionService.js');
       const livenessResult = await verifyFaceLiveness(imageUrl, livenessChallenge);
-      if (!livenessResult.matched) {
+      if (!livenessResult.matched && !livenessResult.error) {
         throw new ValidationError(`Liveness Verification Failed: ${livenessResult.reason}`);
       }
     }
@@ -54,6 +57,39 @@ class StationCleaningAttendanceService {
     };
     const todayIST = getISTDateString(new Date());
 
+    const getTaskCompletion = async () => {
+      try {
+        const taskSnap = await db.collection('cleaningTasks')
+          .where('workerId', '==', workerId)
+          .where('date', '==', todayIST)
+          .get();
+        const tasks = [];
+        taskSnap.forEach(doc => tasks.push(doc.data()));
+        const doneStatuses = ['completed', 'approved'];
+        const completedCount = tasks.filter(t => doneStatuses.includes(t.status)).length;
+        const total = tasks.length;
+        return { total, completedCount };
+      } catch (e) {
+        logger.error('StationCleaning', '(Attendance Task Completion) Error:', e);
+        return { total: 0, completedCount: 0 };
+      }
+    };
+
+    if (attendanceType !== 'start') {
+      const { total, completedCount } = await getTaskCompletion();
+      if (total === 0) {
+        throw new ValidationError(`You have no cleaning tasks scheduled today. Mark 'start' attendance only.`);
+      }
+      if (attendanceType === 'mid' && completedCount < Math.ceil(total / 2)) {
+        throw new ValidationError(
+          `MID attendance requires at least half your tasks (${Math.ceil(total / 2)} of ${total}) completed. Currently ${completedCount} completed.`
+        );
+      }
+      if (attendanceType === 'end' && completedCount < total) {
+        throw new ValidationError(`END attendance requires all ${total} tasks completed. Currently ${completedCount} completed.`);
+      }
+    }
+
     const snapshot = await db.collection('station_cleaning_attendance').where('workerId', '==', workerId).get();
     let latestDoc = null;
     let latestTime = 0;
@@ -66,14 +102,18 @@ class StationCleaningAttendanceService {
       }
     });
 
-    let attendanceDocId = `${runInstanceId}_${workerId}`;
+    let attendanceDocId = `${effectiveRunId}_${workerId}`;
     let attendanceRef = db.collection('station_cleaning_attendance').doc(attendanceDocId);
     let attendanceDoc = await attendanceRef.get();
-    
+
     if (latestDoc && getISTDateString(new Date(latestDoc.data().createdAt)) === todayIST) {
         attendanceDoc = latestDoc;
         attendanceDocId = latestDoc.id;
         attendanceRef = db.collection('station_cleaning_attendance').doc(attendanceDocId);
+    } else if (attendanceDoc.exists && attendanceDoc.data().date !== todayIST) {
+        attendanceDocId = `${effectiveRunId}_${workerId}_${todayIST}`;
+        attendanceRef = db.collection('station_cleaning_attendance').doc(attendanceDocId);
+        attendanceDoc = await attendanceRef.get();
     }
     const attendanceEntry = {
       photoUrl: imageUrl, deviceTimestamp, serverTimestamp: new Date().toISOString(),
@@ -87,7 +127,8 @@ class StationCleaningAttendanceService {
     if (!attendanceDoc.exists) {
       if (attendanceType !== 'start') throw new ValidationError("You must submit 'start' attendance first.");
       await attendanceRef.set({
-        uid: attendanceDocId, runInstanceId, stationId: stationId || null, workerId, workerName: finalWorkerName,
+        uid: attendanceDocId, runInstanceId: effectiveRunId, stationId: stationId || null, workerId, workerName: finalWorkerName,
+        date: todayIST,
         mobileNumber: mobileNumber || null, deviceId: deviceId || null,
         isStartMarked: true, isMidMarked: false, isEndMarked: false,
         attendanceStatus: isLateAttendance ? 'LATE' : 'PRESENT',
@@ -105,8 +146,9 @@ class StationCleaningAttendanceService {
 
       const { compareFaces } = await import('./rekognitionService.js');
       const faceVerification = await compareFaces(baseStartPhoto, imageUrl);
+      const isInfraError = faceVerification.error === true;
 
-      if (!faceVerification.matched) {
+      if (!faceVerification.matched && !isInfraError) {
         await attendanceRef.update({
           identityAuditStatus: 'MISMATCH_ALERT',
           lastMismatchReason: faceVerification.reason,
@@ -123,15 +165,19 @@ class StationCleaningAttendanceService {
         if (currentData.midAttendance) throw new ValidationError('Mid attendance already submitted.');
         updateData.midAttendance = attendanceEntry;
         updateData.isMidMarked = true;
-        updateData.identityAuditStatus = 'MID_VERIFIED';
+        updateData.identityAuditStatus = isInfraError ? 'MID_UNVERIFIED_REVIEW' : 'MID_VERIFIED';
       }
       if (attendanceType === 'end') {
         if (currentData.endAttendance) throw new ValidationError('End attendance already submitted.');
         updateData.endAttendance = attendanceEntry;
         updateData.isEndMarked = true;
-        updateData.identityAuditStatus = 'VERIFIED_SUCCESS';
+        updateData.identityAuditStatus = isInfraError ? 'UNVERIFIED_REVIEW' : 'VERIFIED_SUCCESS';
       }
       updateData.attendanceStatus = isLateAttendance ? 'LATE' : 'PRESENT';
+      if (isInfraError) {
+        updateData.identityVerification = { status: 'PENDING_REVIEW', reason: faceVerification.reason };
+        updateData.updatedAt = new Date().toISOString();
+      }
       updateData.timingSnapshot = {
         isLate: isLateAttendance, lateByMinutes,
         firstAttendanceReference: firstAttendanceTime,
@@ -139,6 +185,17 @@ class StationCleaningAttendanceService {
       };
       await attendanceRef.update(updateData);
     }
+
+    // Send shift summary reminder notification when end attendance is marked
+    if (attendanceType === 'end') {
+      try {
+        const title = 'Shift Ended — Submit Photos';
+        const body = 'You must photograph at least 5 critical areas and submit your shift summary to complete your shift.';
+        const data = { type: 'shift_summary_reminder', stationId: stationId || '', shift: '' };
+        fcmService.sendPush(workerId, title, body, data).catch(() => {});
+      } catch (_) { /* notification failure should not block attendance */ }
+    }
+
     return { success: true, message: `${attendanceType.toUpperCase()} attendance processed successfully.`, uid: attendanceDocId, isLate: isLateAttendance };
   }
 
@@ -187,16 +244,29 @@ class StationCleaningAttendanceService {
     };
   }
 
-  async listAttendance(filters = {}) {
+  async listAttendance(filters = {}, user) {
     const { runInstanceId, stationId, callerId, role } = filters;
     let query = db.collection('station_cleaning_attendance');
     if (runInstanceId) query = query.where('runInstanceId', '==', runInstanceId);
-    if (stationId) query = query.where('stationId', '==', stationId);
+    const roleUpper = (role || '').toUpperCase();
+    const isWorker = roleUpper === 'WORKER' || roleUpper === 'RAILWAY WORKER';
+    if (!isWorker && user) {
+      const userStations = user.stations || (user.stationId ? [user.stationId] : []);
+      if (stationId) {
+        if (userStations.length > 0 && !userStations.includes(stationId)) {
+          throw new ForbiddenError('You can only access attendance for your assigned stations');
+        }
+        query = query.where('stationId', '==', stationId);
+      } else if (userStations.length > 0) {
+        query = query.where('stationId', 'in', userStations);
+      }
+    } else if (stationId) {
+      query = query.where('stationId', '==', stationId);
+    }
     const snapshot = await query.limit(200).get();
     let records = [];
     snapshot.forEach(doc => records.push(doc.data()));
-    const roleUpper = (role || '').toUpperCase();
-    if (roleUpper === 'WORKER' || roleUpper === 'RAILWAY WORKER') records = records.filter(r => r.workerId === callerId);
+    if (isWorker) records = records.filter(r => r.workerId === callerId);
     records.sort((a, b) => ((b.updatedAt || '') > (a.updatedAt || '') ? 1 : -1));
     return { count: records.length, records };
   }

@@ -870,7 +870,7 @@ class _EntityRegisterFormState extends State<EntityRegisterForm> {
           Text(label),
           const SizedBox(height: 6),
           DropdownButtonFormField<String>(
-            value: selectedType,
+            value: selectedType != null && items.contains(selectedType) ? selectedType : null,
             decoration: _inputDecoration(hint),
             isExpanded: true,
             items: items

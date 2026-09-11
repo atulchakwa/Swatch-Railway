@@ -43,7 +43,7 @@ class StationRunRepository {
         final decoded = jsonDecode(response.body);
         if (decoded['success'] == true) {
           return (decoded['data'] as List)
-              .map((item) => StationCleaningRunModel.fromJson(item))
+              .map<StationCleaningRunModel>((item) => StationCleaningRunModel.fromJson(item))
               .toList();
         } else {
           throw Exception(decoded['error'] ?? 'Failed to load station runs');

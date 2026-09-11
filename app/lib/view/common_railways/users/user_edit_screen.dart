@@ -59,6 +59,9 @@ class _UserEditScreenState extends State<UserEditScreen> {
     _division = widget.user.division;
     _depot = widget.user.depot;
     _selectedCompany = widget.user.entityId;
+    _selectedStationId = widget.user.stationId;
+    _selectedAreaId = widget.user.areaId;
+    _selectedPlatformId = widget.user.platformId;
 
     zones = DepotDatabase.zoneData.keys.toList();
     if (_zone != null) {
@@ -160,7 +163,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
 
 
               DropdownButtonFormField<String>(
-                value: _selectedRole,
+                value: (_selectedRole != null && _getRolesForUserType(_selectedUserType).contains(_selectedRole)) ? _selectedRole : null,
                 decoration: const InputDecoration(
                   labelText: 'Role *',
                   border: OutlineInputBorder(),
@@ -191,7 +194,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
                   },
                 ),
 
-              if (_selectedRole == 'Station Master' || _selectedRole == 'Area Master' || _selectedRole == 'Platform Master')
+              if (_selectedRole?.toLowerCase().contains('worker') == true)
                 FutureBuilder<List<Station>>(
                   future: ApiService.getStations(),
                   builder: (ctx, snap) {
@@ -203,14 +206,27 @@ class _UserEditScreenState extends State<UserEditScreen> {
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Text('Error loading stations', style: TextStyle(color: Colors.red)),
                     );
-                    final stations = snap.data ?? [];
+                    final rawStations = snap.data ?? [];
+                    // Deduplicate by uid to prevent Flutter dropdown assertion error
+                    final seenStationIds = <String>{};
+                    final stations = rawStations.where((s) {
+                      if (s.uid == null || s.uid!.isEmpty) return false;
+                      return seenStationIds.add(s.uid!);
+                    }).toList();
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: DropdownButtonFormField<String>(
-                        value: _selectedStationId,
-                        decoration: const InputDecoration(labelText: 'Station *', border: OutlineInputBorder()),
+                        value: (_selectedStationId != null && stations.any((s) => s.uid == _selectedStationId)) ? _selectedStationId : null,
+                        decoration: InputDecoration(
+                          labelText: _selectedRole?.toLowerCase().contains('worker') == true
+                              ? 'Station (Required for Station Worker)'
+                              : 'Station *',
+                          border: const OutlineInputBorder(),
+                        ),
                         items: stations.map((s) => DropdownMenuItem(value: s.uid, child: Text(s.stationName))).toList(),
-                        validator: (v) => v == null ? 'Select station' : null,
+                        validator: (v) {
+                          return null;
+                        },
                         onChanged: (v) => setState(() {
                           _selectedStationId = v;
                           _selectedAreaId = null;
@@ -258,60 +274,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
                   },
                 ),
 
-              if ((_selectedRole == 'Area Master' || _selectedRole == 'Platform Master') && _selectedStationId != null)
-                FutureBuilder<List<StationArea>>(
-                  future: ApiService.getStationAreas(_selectedStationId!),
-                  builder: (ctx, snap) {
-                    if (snap.connectionState != ConnectionState.done) return const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                    if (snap.hasError) return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text('Error loading areas', style: TextStyle(color: Colors.red)),
-                    );
-                    final areas = snap.data ?? [];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedAreaId,
-                        decoration: const InputDecoration(labelText: 'Area *', border: OutlineInputBorder()),
-                        items: areas.map((a) => DropdownMenuItem(value: a.uid, child: Text(a.name))).toList(),
-                        validator: (v) => v == null ? 'Select area' : null,
-                        onChanged: (v) => setState(() {
-                          _selectedAreaId = v;
-                          _selectedPlatformId = null;
-                        }),
-                      ),
-                    );
-                  },
-                ),
 
-              if (_selectedRole == 'Platform Master' && _selectedStationId != null && _selectedAreaId != null)
-                FutureBuilder<List<Platform>>(
-                  future: PlatformRepository.getByStation(_selectedStationId!),
-                  builder: (ctx, snap) {
-                    if (snap.connectionState != ConnectionState.done) return const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                    if (snap.hasError) return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text('Error loading platforms', style: TextStyle(color: Colors.red)),
-                    );
-                    final platforms = snap.data ?? [];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedPlatformId,
-                        decoration: const InputDecoration(labelText: 'Platform *', border: OutlineInputBorder()),
-                        items: platforms.map((p) => DropdownMenuItem(value: p.uid ?? p.platformNumber, child: Text(p.displayName))).toList(),
-                        validator: (v) => v == null ? 'Select platform' : null,
-                        onChanged: (v) => setState(() => _selectedPlatformId = v),
-                      ),
-                    );
-                  },
-                ),
 
               const SizedBox(height: 12),
 
@@ -382,7 +345,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
                 Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _zone,
+                      value: (_zone != null && zones.contains(_zone)) ? _zone : null,
                       decoration: InputDecoration(
                         labelText: 'Zone *',
                         border: const OutlineInputBorder(),
@@ -417,7 +380,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
                 Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _division,
+                      value: (_division != null && divisions.contains(_division)) ? _division : null,
                       decoration: InputDecoration(
                         labelText: 'Division *',
                         border: const OutlineInputBorder(),
@@ -447,7 +410,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
                 Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _depot,
+                      value: (_depot != null && depots.contains(_depot)) ? _depot : null,
                       decoration: const InputDecoration(
                         labelText: 'Depot',
                         border: OutlineInputBorder(),
@@ -492,7 +455,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
 
   List<String> _getRolesForUserType(String userType) {
     if (userType == 'railway') {
-      return ['Railway Master', 'Railway Admin', 'Railway Supervisor', 'Railway Worker', 'Station Master', 'Area Master', 'Platform Master'];
+      return ['Railway Master', 'Railway Admin', 'Railway Inspector', 'Railway Supervisor', 'Railway Worker'];
     } else {
       return ['Contractor Master', 'Contractor Admin', 'Contractor Supervisor', 'Contractor Worker'];
     }

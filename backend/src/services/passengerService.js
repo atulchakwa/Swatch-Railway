@@ -1,447 +1,244 @@
-import { db, admin } from '../database/index.js';
-import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
-import { paginate } from '../utils/paginate.js';
+import jwt from 'jsonwebtoken';
+import { db } from '../database/index.js';
+import { NotFoundError, ValidationError, FirestoreError } from '../errors/index.js';
+import config from '../config/index.js';
+import otpStore from '../utils/otpStore.js';
 
-class PassengerRequestService {
-  constructor() {
-    this.collection = 'passenger_service_requests';
+class PassengerService {
+  async submitTaskFeedback(userData, body) {
+    const { taskId, passengerScore, passengerPhone, feedbackText } = body;
+    if (!taskId) throw new ValidationError('taskId is required');
+    const taskRef = db.collection('task_instances').doc(taskId);
+    const doc = await taskRef.get();
+    if (!doc.exists) throw new NotFoundError('Task not found');
+    const taskData = doc.data();
+    const supScore = taskData.supervisorScore || 0;
+    const pScore = Number(passengerScore);
+    if (isNaN(pScore)) throw new ValidationError('passengerScore must be a valid number');
+    const consolidatedScore = (pScore * 0.7) + (supScore * 0.3);
+    await taskRef.update({
+      passengerScore: pScore,
+      passengerPhone: passengerPhone || '',
+      passengerFeedback: feedbackText || '',
+      consolidatedScore,
+      feedbackReceivedAt: new Date().toISOString()
+    });
+    return { success: true, message: 'Feedback submitted', consolidatedScore };
   }
 
-  async createFromTransmitter(data) {
-    const { trainNumber, coachNumber, cabinNumber, requestType, source, buttonPressed, requestTime } = data;
+  async submitPublicFeedback(body) {
+    const { passengerName, mobileNumber, coachNo, ratings, remarks, runInstanceId } = body;
 
-    if (!trainNumber || !coachNumber || cabinNumber === undefined || !requestType) {
-      throw new ValidationError('trainNumber, coachNumber, cabinNumber, requestType are required');
+    if (!runInstanceId || !coachNo || !ratings) {
+      throw new ValidationError('Run Instance ID, Coach No, and Ratings are required.');
     }
 
-    const trainQuery = await db.collection('trains')
-      .where('trainNo', '==', trainNumber)
-      .limit(1)
-      .get();
-
-    if (trainQuery.empty) {
-      throw new NotFoundError(`Train ${trainNumber} not found`);
+    const { cleanliness, toiletHygiene, linenQuality, security, staffBehaviour } = ratings;
+    if (
+      cleanliness === undefined ||
+      toiletHygiene === undefined ||
+      linenQuality === undefined ||
+      security === undefined ||
+      staffBehaviour === undefined
+    ) {
+      throw new ValidationError('All 5 rating parameters must be provided.');
     }
 
-    const trainDoc = trainQuery.docs[0];
-    const trainId = trainDoc.id;
-
-    const cabinQuery = await db.collection('cabin_transmitters')
-      .where('trainId', '==', trainId)
-      .where('coachNumber', '==', coachNumber)
-      .where('cabinNumber', '==', parseInt(cabinNumber))
-      .where('isActive', '==', true)
-      .limit(1)
-      .get();
-
-    if (cabinQuery.empty) {
-      throw new NotFoundError(`No active transmitter mapping for train ${trainNumber}, coach ${coachNumber}, cabin ${cabinNumber}`);
-    }
-
-    const cabinDoc = cabinQuery.docs[0];
-    const cabinData = cabinDoc.data();
-    const transmitterId = cabinDoc.id;
-
-    const isAC = ['AC', 'A1', 'A2', 'A3', 'B1', 'CC', '1AC', '2AC', '3AC'].some(
-      t => cabinData.coachType?.toUpperCase().includes(t)
-    );
-
-    let assignedWorkerId, assignedWorkerRole;
-
-    if (data.requestType === 'ATTENDANT' || data.requestType === 'LINEN') {
-      if (!isAC) {
-        throw new ValidationError('Attendant/Linen requests only available for AC coaches');
+    const runDoc = await db.collection('obhsRunInstances').doc(runInstanceId).get();
+    if (!runDoc.exists) {
+      // Try fallback to legacy RunInstance collection just in case
+      const legacyRunDoc = await db.collection('RunInstance').doc(runInstanceId).get();
+      if (!legacyRunDoc.exists) {
+        throw new NotFoundError('Journey not found.');
       }
-      if (!cabinData.assignedAttendantId) {
-        throw new ValidationError('No attendant assigned to this cabin');
-      }
-      assignedWorkerId = cabinData.assignedAttendantId;
-      assignedWorkerRole = 'ATTENDANT';
-    } else {
-      if (!cabinData.assignedJanitorId) {
-        throw new ValidationError('No janitor assigned to this cabin');
-      }
-      assignedWorkerId = cabinData.assignedJanitorId;
-      assignedWorkerRole = 'JANITOR';
     }
+    const runData = runDoc.exists ? runDoc.data() : (await db.collection('RunInstance').doc(runInstanceId).get()).data();
 
-    const workerDoc = await db.collection('users').doc(assignedWorkerId).get();
-    if (!workerDoc.exists) {
-      throw new NotFoundError('Assigned worker not found');
-    }
-    const workerData = workerDoc.data();
+    const totalStars =
+      Number(cleanliness) +
+      Number(toiletHygiene) +
+      Number(linenQuality) +
+      Number(security) +
+      Number(staffBehaviour);
 
-    const requestRef = db.collection(this.collection).doc();
-    const requestData = {
-      requestId: requestRef.id,
-      transmitterId,
-      trainId,
-      trainNumber,
-      coachNumber,
-      cabinNumber: parseInt(cabinNumber),
-      coachType: cabinData.coachType,
-      requestType: data.requestType,
-      status: 'PENDING',
-      passengerPressedAt: new Date().toISOString(),
-      source: data.source || 'TRANSMITTER',
-      buttonPressed: 'PASSENGER_BUTTON',
-      assignedWorkerId,
-      assignedWorkerRole,
-      assignedWorkerName: workerData.fullName,
-      statusHistory: [{
-        status: 'PENDING',
-        timestamp: new Date().toISOString(),
-        actor: 'PASSENGER'
-      }],
-      timing: {
-        passengerPressedAt: new Date().toISOString()
+    const overallRating = parseFloat((totalStars / 5).toFixed(2));
+
+    const feedbackRef = db.collection('obhs_feedbacks').doc();
+
+    const feedbackData = {
+      feedbackId: feedbackRef.id,
+      feedbackType: 'QR_PASSENGER',
+      runInstanceId: runInstanceId,
+      trainNo: runData.trainNo || 'UNKNOWN',
+      trainName: runData.trainName || '',
+      coachNo: coachNo,
+      passengerName: passengerName || 'Anonymous',
+      mobileNumber: mobileNumber || 'N/A',
+      remarks: remarks || '',
+      ratings: {
+        cleanliness: Number(cleanliness),
+        toiletHygiene: Number(toiletHygiene),
+        linenQuality: Number(linenQuality),
+        security: Number(security),
+        staffBehaviour: Number(staffBehaviour)
       },
+      overallRating: overallRating,
+      source: 'QR_CODE',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now()
+    };
+
+    await feedbackRef.set(feedbackData);
+
+    return {
+      success: true,
+      message: 'Thank you for your valuable feedback!',
+      overallRating: overallRating
+    };
+  }
+
+  async getFeedbackList(filters = {}) {
+    const { taskId, trainNo, coachNo } = filters;
+    if (taskId) {
+      const doc = await db.collection('task_instances').doc(taskId).get();
+      if (!doc.exists) throw new NotFoundError('Task not found');
+      return { feedback: doc.data() };
+    }
+    let query = db.collection('task_instances');
+    if (trainNo) query = query.where('trainNo', '==', trainNo);
+    if (coachNo) query = query.where('coachNo', '==', coachNo);
+    const snapshot = await query.limit(200).get();
+    const feedbacks = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.passengerScore !== undefined || data.passengerFeedback) {
+        feedbacks.push({ id: doc.id, ...data });
+      }
+    });
+    return { count: feedbacks.length, feedbacks };
+  }
+
+  async sendOtp(phone) {
+    if (!phone) throw new ValidationError('Phone number is required');
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await otpStore.set(phone, otp);
+
+    const TWO_FACTOR_API_KEY = config.sms.twoFactorApiKey;
+    if (!TWO_FACTOR_API_KEY) {
+      throw new Error('2Factor API key not configured');
+    }
+
+    const url = `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/91${phone}/${otp}`;
+    const axios = (await import('axios')).default;
+    const response = await axios.get(url);
+
+    if (response.data.Status === "Success") {
+      return { success: true, message: "OTP has been sent to passenger mobile number." };
+    }
+    throw new Error(response.data.Details || "Failed to send SMS via 2Factor");
+  }
+
+  async verifyOtp(phone, otp) {
+    if (!phone || !otp) {
+      throw new ValidationError("Phone number and OTP are required.");
+    }
+
+    const storedOtp = await otpStore.get(phone);
+    if (!storedOtp) {
+      throw new ValidationError("OTP expired or not requested. Please try again.");
+    }
+
+    const attemptKey = `ATTEMPT_${phone}`;
+    const attempts = (await otpStore.get(attemptKey)) || 0;
+    if (attempts >= 5) {
+      throw new ValidationError("Too many attempts. Please request a new OTP.");
+    }
+
+    if (storedOtp !== otp) {
+      await otpStore.set(attemptKey, attempts + 1);
+      throw new ValidationError("Invalid OTP. Please check and try again.");
+    }
+
+    await Promise.all([
+      otpStore.delete(phone),
+      otpStore.delete(attemptKey)
+    ]);
+
+    const token = jwt.sign({ phone, purpose: 'passenger' }, config.jwtSecret, { expiresIn: '1h' });
+    return { success: true, message: "Passenger mobile number verified successfully.", token };
+  }
+
+  async createPassengerTask(body) {
+    const { trainNo, coachNo, seatNo, taskType, description } = body;
+
+    if (!trainNo || !coachNo || !taskType) {
+      throw new ValidationError("Train No, Coach No, and Task Type are required.");
+    }
+
+    const taskId = `pass_${Date.now()}`;
+    const taskData = {
+      taskId, trainNo, coachNo,
+      seatNo: seatNo || 'N/A',
+      taskType, description: description || '',
+      status: 'OPEN', source: 'PASSENGER',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    await requestRef.set(requestData);
-
-    try {
-      const { fcmService } = await import('./fcmService.js');
-      await fcmService.sendToWorker(assignedWorkerId, {
-        title: `${data.requestType === 'ATTENDANT' ? 'New Attendant Request' : 'New Cleaning Request'}`,
-        body: `Train ${trainNumber} • Coach ${coachNumber} • Cabin ${cabinNumber}`,
-        data: { requestId: requestRef.id, requestType: data.requestType, type: 'PASSENGER_REQUEST' }
-      });
-    } catch (e) {
-      console.error('Push notification failed:', e);
-    }
-
-    return {
-      success: true,
-      requestId: requestRef.id,
-      status: 'PENDING',
-      assignedWorker: {
-        workerId: assignedWorkerId,
-        name: workerData.fullName,
-        role: assignedWorkerRole,
-        phone: workerData.mobile
-      },
-      message: `Request assigned to ${assignedWorkerRole} ${workerData.fullName} (Coach ${coachNumber}, Cabin ${cabinNumber})`
-    };
+    await db.collection('passenger_tasks').doc(taskId).set(taskData);
+    return { success: true, message: "Task created successfully.", taskId };
   }
 
-  async acceptRequest(requestId, workerId) {
-    const requestRef = db.collection(this.collection).doc(requestId);
-    const requestDoc = await requestRef.get();
-
-    if (!requestDoc.exists) {
-      throw new NotFoundError('Request not found');
-    }
-
-    const requestData = requestDoc.data();
-
-    if (requestData.status !== 'PENDING') {
-      throw new ValidationError(`Cannot accept request with status: ${requestData.status}`);
-    }
-
-    if (requestData.assignedWorkerId !== workerId) {
-      throw new ValidationError('Not authorized to accept this request');
-    }
-
-    const now = new Date();
-    const passengerPressedAt = new Date(requestDoc.data().passengerPressedAt);
-    const reactionTimeMs = now.getTime() - passengerPressedAt.getTime();
-
-    await requestRef.update({
-      status: 'ACCEPTED',
-      acceptedAt: new Date().toISOString(),
-      acceptedBy: workerId,
-      reactionTimeMs,
-      statusHistory: admin.firestore.FieldValue.arrayUnion({
-        status: 'ACCEPTED',
-        timestamp: new Date().toISOString(),
-        actor: 'WORKER'
-      }),
-      updatedAt: new Date().toISOString()
+  async getPassengerTasks(query = {}) {
+    const { trainNo } = query;
+    let firestoreQuery = db.collection('passenger_tasks');
+    if (trainNo) firestoreQuery = firestoreQuery.where('trainNo', '==', trainNo);
+    const snapshot = await firestoreQuery.limit(200).get();
+    const tasks = [];
+    snapshot.forEach(doc => tasks.push({ uid: doc.id, ...doc.data() }));
+    tasks.sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
+      const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
+      return dateB - dateA;
     });
-
-    return {
-      success: true,
-      status: 'ACCEPTED',
-      acceptedAt: new Date().toISOString(),
-      reactionTimeMs,
-      message: 'Request accepted successfully'
-    };
+    return { success: true, count: tasks.length, tasks };
   }
 
-  async rejectRequest(requestId, workerId, reason) {
-    const requestRef = db.collection(this.collection).doc(requestId);
-    const requestDoc = await requestRef.get();
+  async getTrainCoaches(trainNo) {
+    const runsSnap = await db.collection('RunInstance')
+      .where('trainNo', '==', trainNo)
+      .limit(200).get();
 
-    if (!requestDoc.exists) {
-      throw new NotFoundError('Request not found');
+    if (runsSnap.empty) {
+      return { success: true, coaches: [] };
     }
 
-    const requestData = requestDoc.data();
+    const coachSet = new Set();
+    runsSnap.forEach(doc => {
+      const runData = doc.data();
+      const status = (runData.status || '').toUpperCase();
+      
+      // Skip completed or inactive runs
+      if (['COMPLETED', 'FINISHED', 'CLOSED', 'INACTIVE'].includes(status)) {
+        return;
+      }
 
-    if (requestData.status !== 'PENDING') {
-      throw new ValidationError(`Cannot reject request with status: ${requestData.status}`);
-    }
-
-    if (requestData.assignedWorkerId !== workerId) {
-      throw new ForbiddenError('Not authorized to reject this request');
-    }
-
-    if (!reason) {
-      throw new ValidationError('Rejection reason required');
-    }
-
-    await requestRef.update({
-      status: 'REJECTED',
-      rejectedAt: new Date().toISOString(),
-      rejectedBy: workerId,
-      rejectionReason: reason,
-      statusHistory: admin.firestore.FieldValue.arrayUnion({
-        status: 'REJECTED',
-        timestamp: new Date().toISOString(),
-        actor: 'WORKER',
-        reason
-      }),
-      updatedAt: new Date().toISOString()
-    });
-
-    await this.autoReassign(requestDoc.id);
-
-    return { success: true, status: 'REJECTED', message: 'Request rejected and reassigned' };
-  }
-
-  async handleDeviceEvent(requestId, eventData) {
-    const { transmitterId, buttonPressed, pressedBy, pressedAt } = eventData;
-
-    const requestRef = db.collection(this.collection).doc(requestId);
-    const requestDoc = await requestRef.get();
-
-    if (!requestDoc.exists) {
-      throw new NotFoundError('Request not found');
-    }
-
-    const requestData = requestDoc.data();
-
-    if (requestData.transmitterId !== transmitterId) {
-      throw new ValidationError('Transmitter mismatch');
-    }
-
-    if (requestData.assignedWorkerId !== pressedBy) {
-      throw new ForbiddenError('Worker not assigned to this request');
-    }
-
-    const isAC = ['AC', 'A1', 'A2', 'A3', 'B1', 'CC', '1AC', '2AC', '3AC'].some(
-      t => requestData.coachType?.toUpperCase().includes(t)
-    );
-
-    if (buttonPressed === 'CLEANER_RESET' && requestData.assignedWorkerRole !== 'JANITOR') {
-      throw new ValidationError('Only janitor can press cleaner reset');
-    }
-    if (buttonPressed === 'ATTENDANT_RESET' && requestData.assignedWorkerRole !== 'ATTENDANT') {
-      throw new ValidationError('Only attendant can press attendant reset');
-    }
-
-    if (buttonPressed === 'CLEANER_RESET' || buttonPressed === 'ATTENDANT_RESET') {
-      if (requestData.status === 'PENDING' || requestData.status === 'ACCEPTED') {
-        await requestRef.update({
-          status: 'IN_PROGRESS',
-          startedAt: new Date().toISOString(),
-          startedBy: pressedBy,
-          deviceButtonPressed: buttonPressed,
-          statusHistory: admin.firestore.FieldValue.arrayUnion({
-            status: 'IN_PROGRESS',
-            timestamp: new Date().toISOString(),
-            actor: 'DEVICE',
-            buttonPressed
-          }),
-          updatedAt: new Date().toISOString()
+      if (runData.coaches && Array.isArray(runData.coaches)) {
+        runData.coaches.forEach(c => {
+          const val = c.coachNumber || c.coachPosition || c.coachNo;
+          if (val !== undefined && val !== null && val !== '') {
+            coachSet.add(String(val).trim());
+          }
         });
-        return { status: 'IN_PROGRESS', message: `Task started via ${buttonPressed} button` };
-      } else if (requestDoc.data().status === 'IN_PROGRESS') {
-        const completedAt = new Date().toISOString();
-        const durationSec = Math.floor((Date.now() - new Date(requestDoc.data().startedAt).getTime()) / 1000);
-
-        await requestRef.update({
-          status: 'COMPLETED',
-          completedAt: new Date().toISOString(),
-          completedBy: pressedBy,
-          deviceButtonPressed: buttonPressed,
-          durationSec,
-          totalReactionTimeSec: Math.floor((Date.now() - new Date(requestDoc.data().passengerPressedAt).getTime()) / 1000),
-          statusHistory: admin.firestore.FieldValue.arrayUnion({
-            status: 'COMPLETED',
-            timestamp: new Date().toISOString(),
-            actor: 'DEVICE',
-            buttonPressed,
-            durationSec
-          }),
-          updatedAt: new Date().toISOString()
-        });
-        return { status: 'COMPLETED', durationSec, message: `Task completed via ${buttonPressed} button` };
       }
-    }
-
-    throw new ValidationError(`Invalid button press for current status`);
-  }
-
-  async acceptRequestManual(requestId, workerId) {
-    return this.acceptRequest(requestId, workerId);
-  }
-
-  async getWorkerRequests(userId, query = {}) {
-    const { status, limit = 50, cursor } = query;
-
-    let firestoreQuery = db.collection(this.collection)
-      .where('assignedWorkerId', '==', userId)
-      .orderBy('passengerPressedAt', 'desc');
-
-    if (status) {
-      firestoreQuery = firestoreQuery.where('status', '==', status);
-    }
-
-    const result = await paginate(firestoreQuery, { limit: parseInt(limit), cursor });
-    return { requests: result.items, pagination: result.pagination };
-  }
-
-  async getAllRequests(query = {}) {
-    const { status, trainNumber, requestType, startDate, endDate, limit = 100, cursor } = query;
-
-    let firestoreQuery = db.collection(this.collection).orderBy('passengerPressedAt', 'desc');
-
-    if (status) firestoreQuery = firestoreQuery.where('status', '==', status);
-    if (trainNumber) firestoreQuery = firestoreQuery.where('trainNumber', '==', trainNumber);
-    if (requestType) firestoreQuery = firestoreQuery.where('requestType', '==', requestType);
-    if (startDate) firestoreQuery = firestoreQuery.where('passengerPressedAt', '>=', new Date(startDate));
-    if (endDate) firestoreQuery = firestoreQuery.where('passengerPressedAt', '<=', new Date(endDate));
-
-    const result = await paginate(firestoreQuery, { limit: parseInt(limit), cursor });
-    return { requests: result.items, pagination: result.pagination };
-  }
-
-  async getTimingAnalytics(query = {}) {
-    const { trainNumber, startDate, endDate } = query;
-
-    let firestoreQuery = db.collection(this.collection)
-      .where('status', 'in', ['COMPLETED', 'REJECTED']);
-
-    if (trainNumber) firestoreQuery = firestoreQuery.where('trainNumber', '==', trainNumber);
-    if (startDate) firestoreQuery = firestoreQuery.where('passengerPressedAt', '>=', new Date(startDate));
-    if (endDate) firestoreQuery = firestoreQuery.where('passengerPressedAt', '<=', new Date(endDate));
-
-    const snapshot = await firestoreQuery.get();
-    const requests = snapshot.docs.map(doc => doc.data());
-
-    let totalReactionTime = 0;
-    let totalArrivalTime = 0;
-    let totalDuration = 0;
-    let totalResolutionTime = 0;
-    let completedCount = 0;
-    let rejectedCount = 0;
-
-    for (const req of requests) {
-      const pressedAt = new Date(req.passengerPressedAt);
-      
-      if (req.acceptedAt) {
-        totalReactionTime += new Date(req.acceptedAt).getTime() - pressedAt.getTime();
-      }
-      
-      if (req.startedAt) {
-        totalArrivalTime += new Date(req.startedAt).getTime() - new Date(req.acceptedAt || req.passengerPressedAt).getTime();
-      }
-      
-      if (req.completedAt && req.startedAt) {
-        totalDuration += new Date(req.completedAt).getTime() - new Date(req.startedAt).getTime();
-        completedCount++;
-      }
-      
-      if (req.status === 'COMPLETED') {
-        totalResolutionTime += new Date(req.completedAt).getTime() - new Date(req.passengerPressedAt).getTime();
-        completedCount++;
-      }
-      
-      if (req.status === 'REJECTED') {
-        rejectedCount++;
-      }
-    }
-
-    const count = requests.length;
-    return {
-      period: { startDate: query.startDate, endDate: query.endDate },
-      totalRequests: requests.length,
-      completed: completedCount,
-      rejected: rejectedCount,
-      pending: requests.filter(r => r.status === 'PENDING').length,
-      inProgress: requests.filter(r => r.status === 'IN_PROGRESS').length,
-      avgReactionTimeMs: requests.length > 0 ? Math.round(totalReactionTime / requests.length) : 0,
-      avgArrivalTimeMs: requests.length > 0 ? Math.round(totalArrivalTime / requests.length) : 0,
-      avgTaskDurationSec: completedCount > 0 ? Math.round(totalDuration / completedCount) : 0,
-      avgResolutionTimeSec: completedCount > 0 ? Math.round(totalResolutionTime / completedCount / 1000) : 0,
-      byRequestType: this.groupBy(requests, 'requestType'),
-      byTrain: this.groupBy(requests, 'trainNumber'),
-      byWorker: this.groupBy(requests, 'assignedWorkerId')
-    };
-  }
-
-  async getById(requestId) {
-    const doc = await db.collection(this.collection).doc(requestId).get();
-    if (!doc.exists) throw new NotFoundError('Request not found');
-    return { id: doc.id, ...doc.data() };
-  }
-
-  async autoReassign(requestId) {
-    const requestDoc = await db.collection(this.collection).doc(requestId).get();
-    if (!requestDoc.exists) return;
-
-    const req = requestDoc.data();
-    const isAC = ['AC', 'A1', 'A2', 'A3', 'B1', 'CC'].some(t => req.coachType?.toUpperCase().includes(t));
-    const isAttendant = req.requestType === 'ATTENDANT' || req.requestType === 'LINEN';
-    const field = isAttendant ? 'assignedAttendantId' : 'assignedJanitorId';
-
-    const cabinDoc = await db.collection('cabin_transmitters').doc(req.transmitterId).get();
-    if (!cabinDoc.exists) return;
-
-    await db.collection(this.collection).doc(req.requestId).update({
-      status: 'PENDING_REASSIGNMENT',
-      reassignedFrom: req.assignedWorkerId,
-      reassignedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
     });
-  }
 
-  async sendPushNotification(workerId, payload) {
-    try {
-      const workerDoc = await db.collection('users').doc(workerId).get();
-      if (!workerDoc.exists) return;
-      
-      const workerData = workerDoc.data();
-      if (!workerData.fcmToken) return;
-
-      await admin.messaging().send({
-        token: workerData.fcmToken,
-        notification: {
-          title: payload.requestType === 'ATTENDANT' ? 'New Attendant Request' : 'New Cleaning Request',
-          body: `Train ${payload.trainNumber} • Coach ${payload.coachNumber} • Cabin ${payload.cabinNumber}`
-        },
-        data: {
-          requestId: payload.requestId,
-          type: 'PASSENGER_REQUEST',
-          requestType: payload.requestType
-        }
-      });
-    } catch (e) {
-      console.error('Push notification failed:', e);
-    }
-  }
-
-  groupBy(array, key) {
-    return array.reduce((acc, item) => {
-      const k = item[key] || 'Unknown';
-      acc[k] = (acc[k] || 0) + 1;
-      return acc;
-    }, {});
+    const sortedCoaches = Array.from(coachSet).sort((a, b) => {
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    });
+    return { success: true, coaches: sortedCoaches };
   }
 }
 
-export const PassengerRequestService = new PassengerRequestService();
+export const passengerService = new PassengerService();

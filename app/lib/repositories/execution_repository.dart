@@ -21,7 +21,7 @@ class ExecutionRepository {
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
       final list = jsonDecode(res.body)['plans'] as List;
-      return list.map((e) => ExecutionPlan.fromJson(e)).toList();
+      return list.map<ExecutionPlan>((e) => ExecutionPlan.fromJson(e)).toList();
     }
     throw Exception('Failed to load plans');
   }
@@ -62,7 +62,7 @@ class ExecutionRepository {
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
       final list = jsonDecode(res.body)['logs'] as List;
-      return list.map((e) => ExecutionLog.fromJson(e)).toList();
+      return list.map<ExecutionLog>((e) => ExecutionLog.fromJson(e)).toList();
     }
     throw Exception('Failed to load logs');
   }

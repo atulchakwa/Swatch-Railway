@@ -38,6 +38,7 @@ import analyticsRoutes from './routes/analytics.js';
 import complaintRoutes from './routes/complaint.js';
 import deploymentRoutes from './routes/deployment.js';
 import executionRoutes from './routes/execution.js';
+import executionSheetRoutes from './routes/executionSheet.js';
 import inspectionRoutes from './routes/inspection.js';
 import scorecardRoutes from './routes/scorecard.js';
 import shiftRoutes from './routes/shift.js';
@@ -58,6 +59,7 @@ import zoneRoutes from './routes/zone.js';
 import taskTypeRoutes from './routes/taskType.js';
 import geofenceRoutes from './routes/geofence.js';
 import idleAlertRoutes from './routes/idleAlert.js';
+import pettyIssueRoutes from './routes/pettyIssue.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { metricsMiddleware, metricsHandler } from './middleware/metrics.js';
@@ -127,6 +129,7 @@ app.use(tasksV2Routes);                           // /api/tasks/* (v2 task manag
 app.use(complaintRoutes);                         // /api/complaints/*
 app.use(deploymentRoutes);                        // /api/deployments/*
 app.use(executionRoutes);                         // /api/execution-plans/*
+app.use(executionSheetRoutes);                    // /api/execution-sheet/*
 app.use(inspectionRoutes);                        // /api/inspections/*
 app.use(scorecardRoutes);                         // /api/scorecards/*
 app.use(shiftRoutes);                             // /api/shifts/*
@@ -147,6 +150,7 @@ app.use(zoneRoutes);                                // /api/zones/*
 app.use(taskTypeRoutes);                            // /api/task-types/*
 app.use(geofenceRoutes);                            // /api/geofences/* /api/geofence-alerts/*
 app.use(idleAlertRoutes);                           // /api/idle-alerts/*
+app.use(pettyIssueRoutes);                          // /api/petty-issues/*
 
 // Relative-path routes mounted with base prefixes
 app.use('/api/passenger', passengerRoutes);       // /api/passenger/*

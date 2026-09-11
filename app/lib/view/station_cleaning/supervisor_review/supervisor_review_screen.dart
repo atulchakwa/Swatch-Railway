@@ -154,6 +154,7 @@ class _SupervisorReviewScreenState extends State<SupervisorReviewScreen>
 
   Widget _buildTaskCard(Map<String, dynamic> task) {
     final areaName = task['areaName'] ?? '';
+    final activityName = task['activityType'] ?? task['taskTypeName'] ?? 'Cleaning';
     final workerName = task['workerName'] ?? 'Unknown';
     final time = task['scheduledTime'] ?? '--:--';
     final status = task['status'] ?? '';
@@ -169,9 +170,9 @@ class _SupervisorReviewScreenState extends State<SupervisorReviewScreen>
           color: status == 'resubmitted' ? Colors.purple : Colors.green,
           size: 28,
         ),
-        title: Text('$time - ${areaName.isNotEmpty ? areaName : 'Area'}',
+        title: Text('$time - $activityName',
             style: const TextStyle(fontWeight: FontWeight.w500)),
-        subtitle: Text('Worker: $workerName | ${status.replaceAll('_', ' ')}'),
+        subtitle: Text('${areaName.isNotEmpty ? areaName : 'Area'} | Worker: $workerName | ${status.replaceAll('_', ' ')}'),
         children: [
           if (beforePhoto != null)
             Padding(

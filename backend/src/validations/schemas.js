@@ -74,8 +74,8 @@ export const createPlatformSchema = z.object({
   platformNumber: z.string().min(1, 'Platform number is required').max(50),
   platformName: z.string().max(200).optional().nullable(),
   surfaceType: z.string().max(100).optional().nullable(),
-  length: z.number().positive().max(10000).optional().nullable(),
-  width: z.number().positive().max(1000).optional().nullable()
+  length: z.coerce.number().positive().max(1000000).optional().nullable(),
+  width: z.coerce.number().positive().max(100000).optional().nullable()
 });
 
 export const createAreaSchema = z.object({
@@ -85,7 +85,7 @@ export const createAreaSchema = z.object({
   areaType: z.string().max(100).optional().nullable(),
   areaCode: z.string().max(50).optional().nullable(),
   cleaningFrequency: z.enum(['hourly', '2hrs', '4hrs', 'daily']).optional(),
-  frequencyTimes: z.array(z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM')).optional(),
+  frequencyTimes: z.union([z.array(z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM')), z.number()]).optional(),
   priority: z.number().min(1).max(5).optional(),
   supervisorId: z.string().max(100).optional().nullable(),
   defaultWorkers: z.array(z.string()).optional(),
@@ -94,8 +94,13 @@ export const createAreaSchema = z.object({
   areaSqft: z.number().positive().max(1000000).optional().nullable(),
   surfaceType: z.string().max(100).optional().nullable(),
   section: z.string().max(50).optional().nullable(),
-  sectionName: z.string().max(200).optional().nullable()
-});
+  sectionName: z.string().max(200).optional().nullable(),
+  mainArea: z.string().max(200).optional().nullable(),
+  basicAreaSqFt: z.number().nonnegative().max(10000000).optional().nullable(),
+  frequencyType: z.enum(['daily', 'monthly', 'weekly']).optional().nullable(),
+  boqTimesPerPeriod: z.number().int().positive().optional().nullable(),
+  tenderedAreaPerDay: z.number().nonnegative().optional().nullable()
+}).passthrough();
 
 export const createShiftSchema = z.object({
   stationId: z.string().min(1, 'Station ID is required').max(100),

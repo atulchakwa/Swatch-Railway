@@ -25,6 +25,7 @@ class RailwayWorkerModel {
   final String status;
   final String? workerType; // 'Janitor' or 'Attendant'
   final List<String>? trainIds;
+  final String? stationId;
 
   RailwayWorkerModel({
     required this.uid,
@@ -53,6 +54,7 @@ class RailwayWorkerModel {
     this.status = 'PENDING',
     this.workerType,
     this.trainIds,
+    this.stationId,
   });
 
   factory RailwayWorkerModel.fromJson(Map<String, dynamic> json) {
@@ -93,6 +95,7 @@ class RailwayWorkerModel {
       trainIds: (json['trainIds'] ?? json['train_ids']) != null
           ? List<String>.from((json['trainIds'] ?? json['train_ids']) as List)
           : null,
+      stationId: json['stationId'] as String?,
     );
   }
 
@@ -124,6 +127,7 @@ class RailwayWorkerModel {
       'status': status,
       if (workerType != null) 'workerType': workerType,
       if (trainIds != null) 'trainIds': trainIds,
+      if (stationId != null) 'stationId': stationId,
     };
   }
 
@@ -154,6 +158,7 @@ class RailwayWorkerModel {
     String? status,
     String? workerType,
     List<String>? trainIds,
+    String? stationId,
   }) {
     return RailwayWorkerModel(
       uid: uid ?? this.uid,
@@ -182,6 +187,7 @@ class RailwayWorkerModel {
       status: status ?? this.status,
       workerType: workerType ?? this.workerType,
       trainIds: trainIds ?? this.trainIds,
+      stationId: stationId ?? this.stationId,
     );
   }
 

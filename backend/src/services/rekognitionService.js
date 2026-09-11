@@ -42,7 +42,7 @@ async function downloadImage(url) {
 export async function compareFaces(image1Url, image2Url) {
   try {
     if (!image1Url || !image2Url || image1Url.includes('undefined') || image2Url.includes('undefined')) {
-      return { matched: false, similarity: 0, reason: 'One or both image URLs are missing or invalid.' };
+      return { matched: false, similarity: 0, reason: 'One or both image URLs are missing or invalid.', error: true };
     }
 
     const rekognition = getRekognitionClient();
@@ -76,14 +76,14 @@ export async function compareFaces(image1Url, image2Url) {
     } else if (awsException.name === 'ImageTooLargeException') {
       errorMsg = 'The uploaded file size exceeds the allowed processing dimensions.';
     }
-    return { matched: false, similarity: 0, reason: errorMsg };
+    return { matched: false, similarity: 0, reason: errorMsg, error: true };
   }
 }
 
 export async function verifyFaceLiveness(imageUrl, expectedChallenge) {
   try {
     if (!imageUrl || imageUrl.includes('undefined')) {
-      return { matched: false, reason: 'Invalid image URL.' };
+      return { matched: false, reason: 'Invalid image URL.', error: true };
     }
 
     const rekognition = getRekognitionClient();
@@ -103,7 +103,7 @@ export async function verifyFaceLiveness(imageUrl, expectedChallenge) {
       if (expectedChallenge === 'FIST' && (labels.includes('FIST') || labels.includes('HAND') || labels.includes('FINGERS'))) isMatch = true;
 
       if (!isMatch) {
-        return { matched: false, reason: `Could not detect ${expectedChallenge} gesture in the photo.` };
+        return { matched: false, reason: `Could not detect ${expectedChallenge} gesture in the photo.`, error: true };
       }
       return { matched: true };
     }
@@ -127,6 +127,6 @@ export async function verifyFaceLiveness(imageUrl, expectedChallenge) {
     return { matched: true };
   } catch (err) {
     console.error('[Rekognition Liveness] Error:', err.message);
-    return { matched: false, reason: 'Liveness verification failed due to internal error.' };
+    return { matched: false, reason: 'Liveness verification failed due to internal error.', error: true };
   }
 }

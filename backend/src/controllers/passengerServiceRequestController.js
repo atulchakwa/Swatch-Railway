@@ -1,4 +1,4 @@
-import { PassengerService } from '../services/passengerService.js';
+import { passengerRequestService } from '../services/passengerRequestService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { verifyToken } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/authorization.js';
@@ -26,12 +26,12 @@ export const createFromTransmitter = asyncHandler(async (req, res) => {
   req.transmitter = transmitterDoc.docs[0].data();
   req.transmitterId = transmitterDoc.docs[0].id;
 
-  const result = await PassengerRequestService.createFromTransmitter(req.body);
+  const result = await passengerRequestService.createFromTransmitter(req.body);
   res.status(201).json({ success: true, ...result });
 });
 
 export const acceptRequest = asyncHandler(async (req, res) => {
-  const result = await PassengerRequestService.acceptRequest(req.params.requestId, req.user.uid);
+  const result = await passengerRequestService.acceptRequest(req.params.requestId, req.user.uid);
   res.json({ success: true, ...result });
 });
 
@@ -40,7 +40,7 @@ export const rejectRequest = asyncHandler(async (req, res) => {
   if (!reason) {
     return res.status(400).json({ success: false, message: 'Rejection reason required' });
   }
-  const result = await PassengerRequestService.rejectRequest(req.params.requestId, req.user.uid, reason);
+  const result = await passengerRequestService.rejectRequest(req.params.requestId, req.user.uid, reason);
   res.json({ success: true, ...result });
 });
 
@@ -55,7 +55,7 @@ export const handleDeviceEvent = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'requestId, buttonPressed, pressedBy required' });
   }
   
-  const result = await PassengerRequestService.handleDeviceEvent(req.params.requestId, {
+  const result = await passengerRequestService.handleDeviceEvent(req.params.requestId, {
     transmitterId: req.headers['x-transmitter-id'],
     buttonPressed: req.body.buttonPressed,
     pressedBy: req.body.pressedBy,
@@ -66,24 +66,24 @@ export const handleDeviceEvent = asyncHandler(async (req, res) => {
 
 export const getWorkerRequests = asyncHandler(async (req, res) => {
   const { status, limit = 50, cursor } = req.query;
-  const result = await PassengerRequestService.getWorkerRequests(req.user.uid, { status, limit, cursor });
+  const result = await passengerRequestService.getWorkerRequests(req.user.uid, { status, limit, cursor });
   res.json({ success: true, ...result });
 });
 
 export const getAllRequests = asyncHandler(async (req, res) => {
   const { status, trainNumber, startDate, endDate, limit = 50, cursor } = req.query;
-  const result = await PassengerRequestService.getAllRequests({ status, trainNumber, startDate, endDate, limit, cursor });
+  const result = await passengerRequestService.getAllRequests({ status, trainNumber, startDate, endDate, limit, cursor });
   res.json({ success: true, ...result });
 });
 
 export const getTimingAnalytics = asyncHandler(async (req, res) => {
   const { trainNumber, startDate, endDate } = req.query;
-  const result = await PassengerRequestService.getTimingAnalytics({ trainNumber, startDate, endDate });
+  const result = await passengerRequestService.getTimingAnalytics({ trainNumber, startDate, endDate });
   res.json({ success: true, ...result });
 });
 
 export const getRequestById = asyncHandler(async (req, res) => {
-  const result = await PassengerRequestService.getById(req.params.requestId);
+  const result = await passengerRequestService.getById(req.params.requestId);
   res.json({ success: true, ...result });
 });
 

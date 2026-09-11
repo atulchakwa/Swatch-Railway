@@ -96,9 +96,9 @@ class StationAttendanceService {
     let plannedCount = 0;
     if (!planQuery.empty) { const plan = planQuery.docs[0].data(); plannedCount = (plan.manpowerPlan || {})[shift.toLowerCase()] || 0; }
     const attendanceSnap = await db.collection('station_attendance').where('stationId', '==', stationId).where('date', '==', date).where('shift', '==', shift.toLowerCase()).get();
-    let actualPresent = 0;
-    attendanceSnap.forEach(doc => { const s = doc.data().status; if (s === 'present' || s === 'late') actualPresent++; });
-    return { stationId, date, shift, planned: plannedCount, actual: actualPresent, variance: actualPresent - plannedCount, shortfall: Math.max(0, plannedCount - actualPresent), status: actualPresent >= plannedCount ? 'ADEQUATE' : 'SHORTFALL' };
+    const workers = []; let actualPresent = 0;
+    attendanceSnap.forEach(doc => { const d = doc.data(); workers.push(d); if (d.status === 'present' || d.status === 'late') actualPresent++; });
+    return { stationId, date, shift, planned: plannedCount, actual: actualPresent, variance: actualPresent - plannedCount, shortfall: Math.max(0, plannedCount - actualPresent), status: actualPresent >= plannedCount ? 'ADEQUATE' : 'SHORTFALL', workers };
   }
 
   async getMonthlySummary(stationId, month, year) {

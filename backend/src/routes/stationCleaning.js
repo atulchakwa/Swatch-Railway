@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { verifyToken } from '../middleware/auth.js';
-import { requirePermission, requireEntityAccess, requireStationAccess, requirePlatformAccess, requireAreaAccess } from '../middleware/authorization.js';
+import { requirePermission, requireEntityAccess, requireStationAccess, requirePlatformAccess, requireAreaAccess, requireContractType } from '../middleware/authorization.js';
 import { PERMISSIONS } from '../permissions/roles.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { stationCleaningService } from '../services/stationCleaningService.js';
@@ -9,10 +9,13 @@ import * as stationCleaningAttendance from '../controllers/stationCleaningAttend
 
 const router = Router();
 
+router.all('*', verifyToken, requireContractType('station_cleaning'));
+
 // ─── Station Areas ────────────────────────────────────────────────────────────
 router.post('/api/station-area/create', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREAS), requireStationAccess, requireAreaAccess, stationCleaning.createStationArea);
 router.get('/api/station-area/list/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), requireStationAccess, requireAreaAccess, stationCleaning.listStationAreas);
 router.get('/api/station-area/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), requireStationAccess, requireAreaAccess, stationCleaning.getStationArea);
+router.get('/api/station-area/summary/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), requireStationAccess, requireAreaAccess, stationCleaning.getStationAreaSummary);
 router.put('/api/station-area/update/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREAS), requireStationAccess, requireAreaAccess, stationCleaning.updateStationArea);
 router.delete('/api/station-area/delete/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREAS), requireStationAccess, requireAreaAccess, stationCleaning.deleteStationArea);
 
@@ -36,6 +39,7 @@ router.get('/api/station-schedule/list/:stationId', verifyToken, requirePermissi
 router.get('/api/station-schedule/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_SCHEDULES), requireStationAccess, requirePlatformAccess, requireAreaAccess, stationCleaning.getSchedule);
 router.put('/api/station-schedule/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_SCHEDULES), requireStationAccess, requirePlatformAccess, requireAreaAccess, stationCleaning.updateSchedule);
 router.delete('/api/station-schedule/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_SCHEDULES), requireStationAccess, requirePlatformAccess, requireAreaAccess, stationCleaning.deleteSchedule);
+router.post('/api/station-schedule/generate-tasks', verifyToken, requirePermission(PERMISSIONS.MANAGE_SCHEDULES), requireStationAccess, requirePlatformAccess, requireAreaAccess, stationCleaning.generateTasksFromSchedule);
 
 // ─── Station Runs ─────────────────────────────────────────────────────────────
 router.post('/api/station-runs', verifyToken, requirePermission(PERMISSIONS.MANAGE_RUNS), requireStationAccess, requirePlatformAccess, stationCleaning.createStationRun);
@@ -44,6 +48,7 @@ router.get('/api/station-runs/my-runs', verifyToken, requirePermission(PERMISSIO
 router.get('/api/station-runs/worker/:workerId', verifyToken, requirePermission(PERMISSIONS.VIEW_RUNS), stationCleaning.getWorkerStationRuns);
 router.get('/api/station-runs/supervisor/:supervisorId', verifyToken, requirePermission(PERMISSIONS.VIEW_RUNS), stationCleaning.getSupervisorStationRuns);
 router.put('/api/station-runs/:runId', verifyToken, requirePermission(PERMISSIONS.MANAGE_RUNS), requireStationAccess, requirePlatformAccess, stationCleaning.updateStationRun);
+router.post('/api/station-runs/:runId/complete-platform', verifyToken, requirePermission(PERMISSIONS.SUBMIT_TASKS), stationCleaning.completePlatform);
 router.delete('/api/station-runs/:runId', verifyToken, requirePermission(PERMISSIONS.MANAGE_RUNS), requireStationAccess, requirePlatformAccess, stationCleaning.deleteStationRun);
 
 // ─── Station Tasks ────────────────────────────────────────────────────────────
@@ -71,10 +76,10 @@ router.post('/api/station-pest-control/record', verifyToken, requirePermission(P
 router.get('/api/station-pest-control/list/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_PEST_CONTROL), requireStationAccess, requirePlatformAccess, stationCleaning.listPestControl);
 router.get('/api/station-pest-control/all', verifyToken, requirePermission(PERMISSIONS.VIEW_PEST_CONTROL), requireStationAccess, requirePlatformAccess, stationCleaning.listAllPestControl);
 router.get('/api/station-pest-control/records', verifyToken, requirePermission(PERMISSIONS.VIEW_PEST_CONTROL), requireStationAccess, requirePlatformAccess, asyncHandler(async (req, res) => {
-  const records = await stationCleaningService.listAllPestControl(req.query);
+  const records = await stationCleaningService.listAllPestControl(req.query, req.user);
   res.json({ data: records || [] });
 }));
-router.put('/api/station-pest-control/:uid/review', verifyToken, requirePermission(PERMISSIONS.MANAGE_PEST_CONTROL), requireStationAccess, requirePlatformAccess, stationCleaning.reviewPestControl);
+router.post('/api/station-pest-control/:uid/review', verifyToken, requirePermission(PERMISSIONS.MANAGE_PEST_CONTROL), requireStationAccess, requirePlatformAccess, stationCleaning.reviewPestControl);
 router.get('/api/station-pest-control/report', verifyToken, requirePermission(PERMISSIONS.VIEW_PEST_CONTROL), requireStationAccess, requirePlatformAccess, stationCleaning.pestControlReport);
 
 // ─── Machine / Material Deployment ──────────────────────────────────────────
@@ -93,6 +98,8 @@ router.get('/api/station-area-task-frequency', verifyToken, requirePermission(PE
 // ─── Garbage Disposal ───────────────────────────────────────────────────────
 router.post('/api/station-garbage/record', verifyToken, requirePermission(PERMISSIONS.MANAGE_GARBAGE), requireEntityAccess, requireStationAccess, requirePlatformAccess, stationCleaning.recordGarbageDisposal);
 router.get('/api/station-garbage/records', verifyToken, requirePermission(PERMISSIONS.VIEW_GARBAGE), requireStationAccess, requirePlatformAccess, stationCleaning.listGarbageRecords);
+router.post('/api/station-garbage/:uid/approve', verifyToken, requirePermission(PERMISSIONS.MANAGE_GARBAGE), requireStationAccess, requirePlatformAccess, stationCleaning.approveGarbageRecord);
+router.post('/api/station-garbage/:uid/reject', verifyToken, requirePermission(PERMISSIONS.MANAGE_GARBAGE), requireStationAccess, requirePlatformAccess, stationCleaning.rejectGarbageRecord);
 router.get('/api/station-garbage/report', verifyToken, requirePermission(PERMISSIONS.VIEW_GARBAGE), requireStationAccess, requirePlatformAccess, stationCleaning.garbageReport);
 
 // ─── Worker Dashboard ─────────────────────────────────────────────────────
@@ -114,5 +121,28 @@ router.get('/api/station-cleaning/attendance/list', verifyToken, stationCleaning
 router.post('/api/station-cleaning/attendance/report-issue', verifyToken, stationCleaningAttendance.reportAttendanceIssue);
 router.get('/api/station-cleaning/attendance/exceptions', verifyToken, stationCleaningAttendance.getAttendanceExceptions);
 router.post('/api/station-cleaning/attendance/exceptions/action', verifyToken, stationCleaningAttendance.takeAttendanceExceptionAction);
+
+// ─── Daily Log ──────────────────────────────────────────────────────────────
+router.post('/api/station-cleaning/daily-logs', verifyToken, stationCleaning.submitDailyLog);
+
+// ─── Supervisor Workers ─────────────────────────────────────────────────────
+router.post('/api/station-cleaning/workers/create', verifyToken, requirePermission(PERMISSIONS.MANAGE_WORKFORCE), stationCleaning.createWorker);
+router.get('/api/station-cleaning/workers/list', verifyToken, requirePermission(PERMISSIONS.VIEW_WORKFORCE), stationCleaning.listWorkers);
+router.get('/api/station-cleaning/workers/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_WORKFORCE), stationCleaning.getWorker);
+router.put('/api/station-cleaning/workers/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_WORKFORCE), stationCleaning.updateWorker);
+router.delete('/api/station-cleaning/workers/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_WORKFORCE), stationCleaning.deleteWorker);
+
+// ─── Cleaning Submissions (proof of work) ──────────────────────────────────
+router.post('/api/station-cleaning/submissions', verifyToken, requirePermission(PERMISSIONS.SUBMIT_TASKS), stationCleaning.createSubmission);
+router.get('/api/station-cleaning/submissions/my', verifyToken, requirePermission(PERMISSIONS.VIEW_SUBMISSIONS), stationCleaning.listMySubmissions);
+router.get('/api/station-cleaning/submissions/list', verifyToken, requirePermission(PERMISSIONS.VIEW_SUBMISSIONS), stationCleaning.listAllSubmissions);
+router.put('/api/station-cleaning/submissions/:uid/review', verifyToken, requirePermission(PERMISSIONS.APPROVE_TASK), stationCleaning.reviewSubmission);
+
+// ─── Shift Summary (end-of-shift photo evidence / work history) ────────────
+router.post('/api/station-cleaning/shift-summary', verifyToken, requirePermission(PERMISSIONS.SUBMIT_TASKS), stationCleaning.submitShiftSummary);
+router.get('/api/station-cleaning/shift-summaries', verifyToken, requirePermission(PERMISSIONS.VIEW_SHIFT_SUMMARIES), stationCleaning.listShiftSummaries);
+router.get('/api/station-cleaning/shift-summaries/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_SHIFT_SUMMARIES), stationCleaning.getShiftSummary);
+router.post('/api/station-cleaning/shift-summaries/:uid/approve', verifyToken, requirePermission(PERMISSIONS.APPROVE_SHIFT_SUMMARY), stationCleaning.approveShiftSummary);
+router.post('/api/station-cleaning/shift-summaries/:uid/reject', verifyToken, requirePermission(PERMISSIONS.REJECT_SHIFT_SUMMARY), stationCleaning.rejectShiftSummary);
 
 export default router;

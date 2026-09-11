@@ -24,7 +24,9 @@ class ObhsService {
     if (livenessChallenge) {
       const { verifyFaceLiveness } = await import('./rekognitionService.js');
       const livenessResult = await verifyFaceLiveness(imageUrl, livenessChallenge);
-      if (!livenessResult.matched) {
+      if (!livenessResult.matched && !livenessResult.error) {
+        throw new ValidationError(`Liveness Verification Failed: ${livenessResult.reason}`);
+      } else if (livenessResult.error) {
         throw new ValidationError(`Liveness Verification Failed: ${livenessResult.reason}`);
       }
     }
@@ -40,15 +42,24 @@ class ObhsService {
             firstAttendanceTime = currentTimestamp.toISOString();
             await db.collection('RunInstance').doc(runInstanceId).update({ first_attendance_time: firstAttendanceTime, updatedAt: new Date().toISOString() });
           } else {
-            const diffMs = currentTimestamp.getTime() - new Date(firstAttendanceTime).getTime();
-            const diffMins = Math.floor(diffMs / 60000);
-            if (diffMins > 15) { isLateAttendance = true; lateByMinutes = diffMins - 15; }
+            let firstTimeMs = 0;
+            if (firstAttendanceTime && typeof firstAttendanceTime.toDate === 'function') {
+              firstTimeMs = firstAttendanceTime.toDate().getTime();
+            } else {
+              firstTimeMs = new Date(firstAttendanceTime).getTime();
+            }
+            if (!isNaN(firstTimeMs)) {
+              const diffMs = currentTimestamp.getTime() - firstTimeMs;
+              const diffMins = Math.floor(diffMs / 60000);
+              if (diffMins > 15) { isLateAttendance = true; lateByMinutes = diffMins - 15; }
+            }
           }
         }
       }
     } catch (winErr) { logger.error('OBHS', '(Attendance Timing Engine) Error:', winErr); }
 
     const getISTDateString = (date) => {
+      if (!date || isNaN(date.getTime())) return null;
       const ist = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
       return ist.toISOString().split('T')[0];
     };
@@ -59,8 +70,15 @@ class ObhsService {
     let latestTime = 0;
     snapshot.forEach(doc => {
       const data = doc.data();
-      const time = new Date(data.createdAt).getTime();
-      if (time > latestTime) {
+      let time = 0;
+      if (data.createdAt) {
+        if (typeof data.createdAt.toDate === 'function') {
+          time = data.createdAt.toDate().getTime();
+        } else {
+          time = new Date(data.createdAt).getTime();
+        }
+      }
+      if (!isNaN(time) && time > latestTime) {
         latestTime = time;
         latestDoc = doc;
       }
@@ -70,7 +88,14 @@ class ObhsService {
     let attendanceRef = db.collection('obhs_attendance').doc(attendanceDocId);
     let attendanceDoc = await attendanceRef.get();
     
-    if (latestDoc && getISTDateString(new Date(latestDoc.data().createdAt)) === todayIST) {
+    let latestCreatedAtDate = latestDoc ? latestDoc.data().createdAt : null;
+    if (latestCreatedAtDate && typeof latestCreatedAtDate.toDate === 'function') {
+      latestCreatedAtDate = latestCreatedAtDate.toDate();
+    } else if (latestCreatedAtDate) {
+      latestCreatedAtDate = new Date(latestCreatedAtDate);
+    }
+    
+    if (latestDoc && getISTDateString(latestCreatedAtDate) === todayIST) {
         attendanceDoc = latestDoc;
         attendanceDocId = latestDoc.id;
         attendanceRef = db.collection('obhs_attendance').doc(attendanceDocId);
@@ -310,19 +335,21 @@ class ObhsService {
     const feedbackRef = db.collection('obhs_feedbacks').doc();
     const totalStars = Object.values(ratings).reduce((a, b) => a + Number(b), 0);
     const overallRating = parseFloat((totalStars / 5).toFixed(2));
+    const fType = (feedbackType || 'PASSENGER').toUpperCase();
     const feedbackData = {
       feedbackId: feedbackRef.id,
-      feedbackType: feedbackType || 'PASSENGER',
+      feedbackType: fType,
       runInstanceId, coachNo, ratings, overallRating,
       remarks: remarks || '', createdAt: new Date().toISOString()
     };
-    if (feedbackType === 'OFFICIAL') {
+    if (fType === 'OFFICIAL') {
       feedbackData.inspectorName = inspectorName || userData.fullName;
     } else {
       feedbackData.passengerName = passengerName || 'Anonymous';
       feedbackData.mobileNumber = mobileNumber || '';
     }
     await feedbackRef.set(feedbackData);
+
     return { success: true, message: 'Feedback submitted.', overallRating };
   }
 

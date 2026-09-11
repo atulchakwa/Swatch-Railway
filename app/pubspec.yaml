@@ -36,7 +36,7 @@ dependencies:
   firebase_auth: ^6.1.1
   cloud_firestore: ^6.0.3
   geolocator: ^13.0.2
-  image_picker: ^1.1.2
+  image_picker: ^1.2.3
   printing: ^5.14.3
   share_plus: ^12.0.2
   cross_file: ^0.3.5+2

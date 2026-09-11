@@ -32,7 +32,8 @@ class _AreaHistoryScreenState extends State<AreaHistoryScreen> {
           ? '/api/station-reports/audit/user-activity'
           : '/api/station-reports/audit/inspection-history';
       final params = <String, String>{};
-      if (widget.areaId != null) params['areaId'] = widget.areaId!;
+      if (widget.stationId != null) params['stationId'] = widget.stationId!;
+      if (widget.areaId != null) params['userId'] = widget.areaId!;
       if (_filter != 'all') params['type'] = _filter;
 
       final result = await BaseRepository.apiCall(
@@ -41,7 +42,9 @@ class _AreaHistoryScreenState extends State<AreaHistoryScreen> {
         queryParams: params.isNotEmpty ? params : null,
         parser: (d) => d,
       );
-      _events = (result['events'] as List? ?? []).map((e) => e as Map<String, dynamic>).toList();
+      _events = (result['summary']?['records'] as List? ??
+                result['summary']?['inspections'] as List? ?? [])
+          .map((e) => e as Map<String, dynamic>).toList();
     } catch (e) {
       _error = e.toString();
     } finally {

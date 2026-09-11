@@ -2,7 +2,7 @@ import { stationService } from '../services/stationService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const list = asyncHandler(async (req, res) => {
-  const result = await stationService.getStations(req.query);
+  const result = await stationService.getStations(req.query, req.user);
   res.status(200).json(result);
 });
 

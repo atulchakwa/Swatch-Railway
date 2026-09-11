@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { verifyToken } from '../middleware/auth.js';
-import { requirePermission, requireAreaMasterAccess, requirePlatformMasterAccess, requireMasterAccess } from '../middleware/authorization.js';
+import { requirePermission, requireMasterAccess } from '../middleware/authorization.js';
 import { PERMISSIONS } from '../permissions/roles.js';
 import * as areaController from '../controllers/areaController.js';
 
@@ -14,22 +14,22 @@ router.get('/api/areas/:uid', verifyToken, requirePermission(PERMISSIONS.VIEW_AR
 router.put('/api/areas/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREAS), areaController.update);
 router.delete('/api/areas/:uid', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREAS), areaController.remove);
 
-// Area Master specific endpoints
-router.get('/api/areas/master/dashboard', verifyToken, requireAreaMasterAccess, areaController.getMasterDashboard);
-router.get('/api/areas/master/workers', verifyToken, requireAreaMasterAccess, areaController.getAreaWorkers);
-router.get('/api/areas/master/tasks', verifyToken, requireAreaMasterAccess, areaController.getAreaTasks);
-router.get('/api/areas/master/reports', verifyToken, requireAreaMasterAccess, areaController.getAreaReports);
-router.post('/api/areas/master/assign-worker', verifyToken, requireAreaMasterAccess, areaController.assignWorkerToArea);
-router.delete('/api/areas/master/unassign-worker/:workerId', verifyToken, requireAreaMasterAccess, areaController.unassignWorkerFromArea);
-router.post('/api/areas/master/assign-platform', verifyToken, requireAreaMasterAccess, areaController.assignPlatformToArea);
-router.delete('/api/areas/master/unassign-platform/:platformId', verifyToken, requireAreaMasterAccess, areaController.unassignPlatformFromArea);
-router.post('/api/areas/master/generate-tasks-from-frequency', verifyToken, requireAreaMasterAccess, areaController.generateTasksFromFrequency);
+// Admin level area management endpoints
+router.get('/api/areas/master/dashboard', verifyToken, requirePermission(PERMISSIONS.VIEW_DASHBOARD), areaController.getMasterDashboard);
+router.get('/api/areas/master/workers', verifyToken, requirePermission(PERMISSIONS.VIEW_AREA_ASSIGNMENTS), areaController.getAreaWorkers);
+router.get('/api/areas/master/tasks', verifyToken, requirePermission(PERMISSIONS.VIEW_TASKS), areaController.getAreaTasks);
+router.get('/api/areas/master/reports', verifyToken, requirePermission(PERMISSIONS.VIEW_REPORTS), areaController.getAreaReports);
+router.post('/api/areas/master/assign-worker', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREA_ASSIGNMENTS), areaController.assignWorkerToArea);
+router.delete('/api/areas/master/unassign-worker/:workerId', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREA_ASSIGNMENTS), areaController.unassignWorkerFromArea);
+router.post('/api/areas/master/assign-platform', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREA_ASSIGNMENTS), areaController.assignPlatformToArea);
+router.delete('/api/areas/master/unassign-platform/:platformId', verifyToken, requirePermission(PERMISSIONS.MANAGE_AREA_ASSIGNMENTS), areaController.unassignPlatformFromArea);
+router.post('/api/areas/master/generate-tasks-from-frequency', verifyToken, requirePermission(PERMISSIONS.GENERATE_TASKS), areaController.generateTasksFromFrequency);
 
-// Platform Master can also access area endpoints within their platform
-router.get('/api/areas/platform/:platformId/areas', verifyToken, requirePlatformMasterAccess, areaController.getAreasByPlatform);
+// Areas within a platform
+router.get('/api/areas/platform/:platformId/areas', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), areaController.getAreasByPlatform);
 
 // Master access endpoints
-router.get('/api/areas/station/:stationId/areas', verifyToken, requireMasterAccess('STATION_MASTER'), areaController.getAreasByStation);
+router.get('/api/areas/station/:stationId/areas', verifyToken, requirePermission(PERMISSIONS.VIEW_AREAS), areaController.getAreasByStation);
 router.get('/api/areas/company/:companyId/areas', verifyToken, requireMasterAccess('COMPANY_MASTER'), areaController.getAreasByCompany);
 
 export default router;

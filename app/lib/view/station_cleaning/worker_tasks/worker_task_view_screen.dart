@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/repositories/worker_repo.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
@@ -29,11 +31,12 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
   List<Map<String, dynamic>> _tasks = [];
   String? _error;
   String _selectedDate = DateTime.now().toIso8601String().split('T')[0];
-  bool _startInProgress = false;
 
   bool _startAttendanceMarked = false;
   bool _midAttendanceMarked = false;
   bool _endAttendanceMarked = false;
+
+  bool _startInProgress = false;
 
   final List<String> _statusChips = ['all', 'pending', 'in_progress', 'completed', 'approved', 'rejected'];
   String _statusFilter = 'all';
@@ -107,17 +110,52 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
     return list;
   }
 
+  int get _completedTaskCount => _tasks.where((t) => t['status'] == 'approved' || t['status'] == 'completed').length;
+  int get _totalTaskCount => _tasks.length;
+
+  Future<Map<String, double>?> _captureGps() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      return {'lat': pos.latitude, 'lng': pos.longitude};
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _startTask(String taskId) async {
+    if (!_startAttendanceMarked) {
+      _showAttendanceRequiredBanner();
+      return;
+    }
     setState(() => _startInProgress = true);
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
       if (token == null) throw Exception('AUTH_ERROR');
 
+      final gps = await _captureGps();
+      final body = <String, dynamic>{};
+      if (gps != null) {
+        body['gpsLat'] = gps['lat']!;
+        body['gpsLng'] = gps['lng']!;
+      }
+
       final response = await http.post(
         Uri.parse('${ApiService.baseUrl}/api/tasks-v2/$taskId/start'),
         headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-        body: jsonEncode({}),
+        body: jsonEncode(body),
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
@@ -133,247 +171,86 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
     }
   }
 
-  Future<String?> _captureAndUploadPhoto() async {
-    final source = await showDialog<ImageSource>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Select Photo Source'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Camera'),
-              onTap: () => Navigator.pop(ctx, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Gallery'),
-              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-            ),
-          ],
-        ),
+  void _showAttendanceRequiredBanner() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please mark Start Attendance first from the Attendance tab.'),
+        backgroundColor: kWarningOrange,
+        duration: Duration(seconds: 4),
       ),
     );
-    if (source == null) return null;
+  }
 
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: source, imageQuality: 70, maxWidth: 1920);
-    if (picked == null) return null;
-
-    try {
-      return await WorkerRepository.uploadMedia(picked.path);
-    } catch (_) {
-      return 'captured';
+  void _openTaskExecutionSheet(Map<String, dynamic> task) {
+    final taskId = task['uid'] ?? task['id'];
+    final status = task['status'] ?? 'pending';
+    if (!_startAttendanceMarked) {
+      _showAttendanceRequiredBanner();
+      return;
+    }
+    if (status == 'in_progress') {
+      _showCompleteSheet(taskId);
+    } else if (status == 'rejected') {
+      _showResubmitSheet(taskId);
     }
   }
 
-  Future<void> _completeTask(String taskId) async {
-    final remarksCtrl = TextEditingController();
-    String? afterPhotoUrl;
-
-    final result = await showDialog<bool>(
+  void _showCompleteSheet(String taskId) {
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Complete Task'),
-        content: StatefulBuilder(
-          builder: (context, setDialogState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (afterPhotoUrl == null && afterPhotoUrl != 'captured')
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final url = await _captureAndUploadPhoto();
-                    if (url != null) {
-                      setDialogState(() => afterPhotoUrl = url);
-                    }
-                  },
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Capture After Photo'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kRailwayBlue, foregroundColor: Colors.white,
-                  ),
-                )
-              else
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.check_circle, color: kSuccessGreen),
-                    const SizedBox(width: 8),
-                    const Text('Photo captured', style: TextStyle(color: kSuccessGreen)),
-                    TextButton(
-                      onPressed: () => setDialogState(() => afterPhotoUrl = null),
-                      child: const Text('Retake'),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 12),
-              TextField(controller: remarksCtrl, decoration: const InputDecoration(labelText: 'Remarks (optional)')),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (afterPhotoUrl == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('After photo is required'), backgroundColor: kWarningOrange),
-                );
-                return;
-              }
-              try {
-                final prefs = await SharedPreferences.getInstance();
-                final token = prefs.getString('token');
-                if (token == null) throw Exception('AUTH_ERROR');
-
-                final response = await http.post(
-                  Uri.parse('${ApiService.baseUrl}/api/tasks-v2/$taskId/complete'),
-                  headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-                  body: jsonEncode({'afterPhoto': afterPhotoUrl, 'remarks': remarksCtrl.text}),
-                ).timeout(const Duration(seconds: 30));
-
-                if (response.statusCode == 200) {
-                  Navigator.pop(ctx, true);
-                } else {
-                  throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
-                }
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-              }
-            },
-            child: const Text('Submit'),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _TaskExecutionSheet(
+        taskId: taskId,
+        mode: 'complete',
+        onDone: () { _loadTasks(); Navigator.pop(context); },
       ),
     );
-
-    if (result == true) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task completed')));
-      }
-      _loadTasks();
-    }
   }
 
-  Future<void> _resubmitTask(String taskId) async {
-    final remarksCtrl = TextEditingController();
-    String? afterPhotoUrl;
-
-    final result = await showDialog<bool>(
+  void _showResubmitSheet(String taskId) {
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Resubmit Task'),
-        content: StatefulBuilder(
-          builder: (context, setDialogState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (afterPhotoUrl == null)
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final url = await _captureAndUploadPhoto();
-                    if (url != null) {
-                      setDialogState(() => afterPhotoUrl = url);
-                    }
-                  },
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Capture Updated Photo'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kRailwayBlue, foregroundColor: Colors.white,
-                  ),
-                )
-              else
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.check_circle, color: kSuccessGreen),
-                    const SizedBox(width: 8),
-                    const Text('Photo captured', style: TextStyle(color: kSuccessGreen)),
-                    TextButton(
-                      onPressed: () => setDialogState(() => afterPhotoUrl = null),
-                      child: const Text('Retake'),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 12),
-              TextField(controller: remarksCtrl, decoration: const InputDecoration(labelText: 'Remarks')),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (afterPhotoUrl == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('After photo is required'), backgroundColor: kWarningOrange),
-                );
-                return;
-              }
-              try {
-                final prefs = await SharedPreferences.getInstance();
-                final token = prefs.getString('token');
-                if (token == null) throw Exception('AUTH_ERROR');
-
-                final response = await http.post(
-                  Uri.parse('${ApiService.baseUrl}/api/tasks-v2/$taskId/resubmit'),
-                  headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-                  body: jsonEncode({'afterPhoto': afterPhotoUrl, 'remarks': remarksCtrl.text}),
-                ).timeout(const Duration(seconds: 30));
-
-                if (response.statusCode == 200) {
-                  Navigator.pop(ctx, true);
-                } else {
-                  throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
-                }
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-              }
-            },
-            child: const Text('Resubmit'),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _TaskExecutionSheet(
+        taskId: taskId,
+        mode: 'resubmit',
+        onDone: () { _loadTasks(); Navigator.pop(context); },
       ),
     );
-
-    if (result == true) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task resubmitted for review')));
-      }
-      _loadTasks();
-    }
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'pending': return Colors.orange;
-      case 'assigned': return Colors.blue;
-      case 'in_progress': return Colors.amber.shade700;
-      case 'completed': return Colors.green;
-      case 'approved': return Colors.teal;
-      case 'rejected': return Colors.red;
-      case 'resubmitted': return Colors.purple;
-      default: return Colors.grey;
-    }
-  }
-
-  IconData _statusIcon(String status) {
-    switch (status) {
-      case 'pending': return Icons.schedule;
-      case 'in_progress': return Icons.cleaning_services;
-      case 'completed': return Icons.check_circle_outline;
-      case 'approved': return Icons.verified;
-      case 'rejected': return Icons.cancel;
-      case 'resubmitted': return Icons.replay;
-      default: return Icons.circle;
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Tasks - ${widget.workerName}')),
-      body: Column(
+      appBar: AppBar(
+        title: Text('Tasks - ${widget.workerName}'),
+        backgroundColor: kRailwayBlue,
+        foregroundColor: Colors.white,
+      ),
+      body: !_startAttendanceMarked
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_outline, size: 80, color: kWarningOrange.withOpacity(0.5)),
+                    const SizedBox(height: 24),
+                    const Text('Start Attendance Required',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kWarningOrange)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Please mark your Start Attendance from the Attendance tab before viewing tasks.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(8.0),
@@ -404,29 +281,20 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
               ],
             ),
           ),
-          if (!_startAttendanceMarked)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: kWarningOrange.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: kWarningOrange),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.access_time, color: kWarningOrange, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Start attendance not marked. Mark attendance from the hub screen.',
-                      style: TextStyle(color: kWarningOrange, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              children: [
+                Text('Completed: $_completedTaskCount/$_totalTaskCount',
+                    style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                const Spacer(),
+                if (_startAttendanceMarked && !_midAttendanceMarked && _completedTaskCount >= (_totalTaskCount > 0 ? (_totalTaskCount ~/ 3) : 1))
+                  Text('Mid attendance available', style: TextStyle(color: Colors.orange[700], fontSize: 11)),
+                if (_midAttendanceMarked && !_endAttendanceMarked && _completedTaskCount >= _totalTaskCount && _totalTaskCount > 0)
+                  Text('End attendance available', style: TextStyle(color: Colors.green[700], fontSize: 11)),
+              ],
             ),
+          ),
           SizedBox(
             height: 40,
             child: ListView(
@@ -457,6 +325,7 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
                                 final t = _filteredTasks[i];
                                 final status = t['status'] ?? 'pending';
                                 final areaName = t['areaName'] ?? '';
+                                final activityName = t['activityType'] ?? t['taskTypeName'] ?? 'Cleaning';
                                 final time = t['scheduledTime'] ?? '--:--';
                                 final rejectionReason = t['rejectionReason'];
 
@@ -464,9 +333,9 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
                                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                                   child: ExpansionTile(
                                     leading: Icon(_statusIcon(status), color: _statusColor(status), size: 28),
-                                    title: Text('$time - ${areaName.isNotEmpty ? areaName : 'Area'}',
+                                    title: Text('$time - $activityName',
                                         style: const TextStyle(fontWeight: FontWeight.w500)),
-                                    subtitle: Text('Status: $status'),
+                                    subtitle: Text('${areaName.isNotEmpty ? areaName : 'Area'} | Status: ${status.replaceAll('_', ' ')}'),
                                     children: [
                                       if (rejectionReason != null)
                                         Padding(
@@ -489,13 +358,13 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
                                               ElevatedButton.icon(
                                                 icon: const Icon(Icons.check, size: 16),
                                                 label: const Text('Complete'),
-                                                onPressed: () => _completeTask(t['uid'] ?? t['id']),
+                                                onPressed: () => _openTaskExecutionSheet(t),
                                               ),
                                             if (status == 'rejected')
                                               ElevatedButton.icon(
                                                 icon: const Icon(Icons.replay, size: 16),
                                                 label: const Text('Resubmit'),
-                                                onPressed: () => _resubmitTask(t['uid'] ?? t['id']),
+                                                onPressed: () => _openTaskExecutionSheet(t),
                                               ),
                                           ],
                                         ),
@@ -510,5 +379,409 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
         ],
       ),
     );
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'pending': return Colors.orange;
+      case 'assigned': return Colors.blue;
+      case 'in_progress': return Colors.amber.shade700;
+      case 'completed': return Colors.green;
+      case 'approved': return Colors.teal;
+      case 'rejected': return Colors.red;
+      case 'resubmitted': return Colors.purple;
+      default: return Colors.grey;
+    }
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status) {
+      case 'pending': return Icons.schedule;
+      case 'in_progress': return Icons.cleaning_services;
+      case 'completed': return Icons.check_circle_outline;
+      case 'approved': return Icons.verified;
+      case 'rejected': return Icons.cancel;
+      case 'resubmitted': return Icons.replay;
+      default: return Icons.circle;
+    }
+  }
+}
+
+// ─── OBHS-style 4-step Task Execution Bottom Sheet ─────────────────────────
+
+class _TaskExecutionSheet extends StatefulWidget {
+  final String taskId;
+  final String mode;
+  final VoidCallback onDone;
+
+  const _TaskExecutionSheet({
+    required this.taskId,
+    required this.mode,
+    required this.onDone,
+  });
+
+  @override
+  State<_TaskExecutionSheet> createState() => _TaskExecutionSheetState();
+}
+
+class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
+  int currentStep = 0;
+  XFile? beforePhoto;
+  XFile? afterPhoto;
+  final TextEditingController commentController = TextEditingController();
+  bool isSubmitting = false;
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _commentFocusNode = FocusNode();
+  final picker = ImagePicker();
+
+  @override
+  void dispose() {
+    commentController.dispose();
+    _scrollController.dispose();
+    _commentFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.mode == 'complete' ? 'Complete Task' : 'Resubmit Task',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Colors.black87),
+                    ),
+                  ),
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text('Step ${currentStep + 1} of 4', style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w500)),
+              const SizedBox(height: 8),
+              Row(
+                children: List.generate(4, (index) => Expanded(
+                  child: Container(
+                    height: 4,
+                    margin: EdgeInsets.only(right: index < 3 ? 8 : 0),
+                    decoration: BoxDecoration(
+                      color: index <= currentStep ? kRailwayBlue : Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                )),
+              ),
+              const SizedBox(height: 20),
+              if (currentStep == 0) _buildBeforePhotoStep()
+              else if (currentStep == 1) _buildCommentStep()
+              else if (currentStep == 2) _buildAfterPhotoStep()
+              else _buildSummaryStep(),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  if (currentStep > 0)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => setState(() => currentStep--),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: const BorderSide(color: Colors.grey),
+                        ),
+                        child: const Text('Back'),
+                      ),
+                    ),
+                  if (currentStep > 0) const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _canProceed() && !isSubmitting
+                          ? () {
+                              FocusScope.of(context).unfocus();
+                              if (currentStep < 3) {
+                                setState(() => currentStep++);
+                              } else {
+                                _submit();
+                              }
+                            }
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kRailwayBlue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text(
+                        isSubmitting ? 'Submitting...' : currentStep == 3 ? 'Submit' : 'Next',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBeforePhotoStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Capture Before Photo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
+        const SizedBox(height: 12),
+        if (beforePhoto != null)
+          Container(
+            width: double.infinity,
+            height: 200,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(12),
+              image: DecorationImage(image: FileImage(File(beforePhoto!.path)), fit: BoxFit.cover),
+            ),
+          )
+        else
+          GestureDetector(
+            onTap: () => _capturePhoto(isBefore: true),
+            child: Container(
+              width: double.infinity,
+              height: 200,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!, width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.camera_alt, size: 48, color: Colors.grey[600]),
+                  const SizedBox(height: 12),
+                  Text('Tap to take photo', style: TextStyle(fontSize: 14, color: Colors.grey[600], fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCommentStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Add Comments', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
+        const SizedBox(height: 12),
+        TextField(
+          controller: commentController,
+          focusNode: _commentFocusNode,
+          minLines: 3,
+          maxLines: 3,
+          decoration: InputDecoration(
+            hintText: 'Enter your comments here (Hinglish allowed)...',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.all(12),
+          ),
+          onTap: () => WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                _scrollController.position.maxScrollExtent,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          }),
+        ),
+        const SizedBox(height: 12),
+        Text('Character count: ${commentController.text.length}', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  Widget _buildAfterPhotoStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Capture After Photo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
+        const SizedBox(height: 12),
+        if (afterPhoto != null)
+          Container(
+            width: double.infinity,
+            height: 200,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(12),
+              image: DecorationImage(image: FileImage(File(afterPhoto!.path)), fit: BoxFit.cover),
+            ),
+          )
+        else
+          GestureDetector(
+            onTap: () => _capturePhoto(isBefore: false),
+            child: Container(
+              width: double.infinity,
+              height: 200,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!, width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.camera_alt, size: 48, color: Colors.grey[600]),
+                  const SizedBox(height: 12),
+                  Text('Tap to take photo', style: TextStyle(fontSize: 14, color: Colors.grey[600], fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Review & Submit', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.green[50],
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.green[200]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.check_circle, color: kSuccessGreen, size: 20),
+                  SizedBox(width: 8),
+                  Text('Task Summary', style: TextStyle(fontWeight: FontWeight.w600, color: kSuccessGreen)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _summaryItem('Before Photo', beforePhoto != null ? 'Captured ✓' : 'Optional / not captured'),
+              _summaryItem('Comments', commentController.text.isEmpty ? 'None' : commentController.text),
+              _summaryItem('After Photo', afterPhoto != null ? 'Captured ✓' : 'Optional / not captured'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryItem(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.black87)),
+          Expanded(
+            child: Text(value, style: TextStyle(fontSize: 12, color: Colors.grey[600]), maxLines: 2, overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _canProceed() {
+    if (currentStep == 0) return true;
+    if (currentStep == 1) return commentController.text.isNotEmpty;
+    if (currentStep == 2) return true;
+    return true;
+  }
+
+  Future<void> _capturePhoto({required bool isBefore}) async {
+    FocusScope.of(context).unfocus();
+    final photo = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 80,
+      maxWidth: 1280,
+    );
+    if (photo == null) return;
+    setState(() {
+      if (isBefore) {
+        beforePhoto = photo;
+      } else {
+        afterPhoto = photo;
+      }
+    });
+  }
+
+  Future<void> _submit() async {
+    try {
+      setState(() => isSubmitting = true);
+
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) throw Exception('AUTH_ERROR');
+
+      String? beforeUrl;
+      String? afterUrl;
+      if (beforePhoto != null) {
+        beforeUrl = await WorkerRepository.uploadMedia(beforePhoto!.path);
+      }
+      if (afterPhoto != null) {
+        afterUrl = await WorkerRepository.uploadMedia(afterPhoto!.path);
+      }
+
+      double? lat;
+      double? lng;
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+      } catch (_) {}
+
+      final body = <String, dynamic>{
+        'remarks': commentController.text.trim(),
+      };
+      if (beforeUrl != null) { body['beforePhoto'] = beforeUrl; }
+      if (afterUrl != null) { body['afterPhoto'] = afterUrl; }
+      if (lat != null) { body['gpsLat'] = lat; body['gpsLng'] = lng; }
+
+      final endpoint = widget.mode == 'complete' ? 'complete' : 'resubmit';
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/api/tasks-v2/${widget.taskId}/$endpoint'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.mode == 'complete' ? 'Task submitted successfully!' : 'Task resubmitted for review'),
+            backgroundColor: kSuccessGreen,
+          ),
+        );
+        widget.onDone();
+      } else {
+        throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: kErrorRed),
+      );
+    } finally {
+      if (mounted) setState(() => isSubmitting = false);
+    }
   }
 }

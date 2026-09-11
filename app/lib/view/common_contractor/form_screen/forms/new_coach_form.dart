@@ -11,6 +11,7 @@ import '../../../../model/train_model.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../services/api_services.dart';
 import '../../../../services/draft_storage_service.dart';
+import '../../../../data/zone_database.dart';
 
 
 class NewCoachFormScreen extends StatefulWidget {
@@ -41,6 +42,9 @@ class _NewCoachFormScreenState extends State<NewCoachFormScreen> {
   String contractUidString = "";
   late final List<FocusNode> _chemicalFocusNodes;
   String? _currentDraftId;
+  String? _userRole;
+  String? _selectedZone;
+  String? _selectedDivision;
 
 
 
@@ -66,14 +70,17 @@ class _NewCoachFormScreenState extends State<NewCoachFormScreen> {
     final provider = Provider.of<AuthProvider>(context, listen: false);
     final user = provider.currentUser;
 
-    if (user?.entityId == null) {
+    if (user?.entityId == null && user?.role != 'SUPER_ADMIN') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("User entity information not found")),
       );
       return;
     }
 
-    setState(() => isLoadingContracts = true);
+    setState(() {
+      _userRole = user?.role;
+      isLoadingContracts = true;
+    });
 
     try {
       final contractsList = await ApiService.getContractsByStatus(
@@ -252,7 +259,7 @@ class _NewCoachFormScreenState extends State<NewCoachFormScreen> {
     });
   }
 
-  Future<void> _fetchSupervisors() async {
+  Future<void> _fetchSupervisors({String? zone, String? division}) async {
     setState(() => _isLoading = true);
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -262,8 +269,15 @@ class _NewCoachFormScreenState extends State<NewCoachFormScreen> {
         throw Exception('No token found — please log in again.');
       }
 
-      final url = Uri.parse(
-          '${ApiService.baseUrl}/api/users/railway-supervisors');
+      String urlStr = '${ApiService.baseUrl}/api/users/railway-supervisors';
+      if (zone != null || division != null) {
+        final queryParams = <String>[];
+        if (zone != null) queryParams.add('zone=$zone');
+        if (division != null) queryParams.add('division=$division');
+        urlStr += '?${queryParams.join('&')}';
+      }
+
+      final url = Uri.parse(urlStr);
       final response = await http.get(
         url,
         headers: {
@@ -278,6 +292,10 @@ class _NewCoachFormScreenState extends State<NewCoachFormScreen> {
         setState(() {
           _supervisors =
               supervisors.map((e) => RailwaySupervisor.fromJson(e)).toList();
+          // Reset selected supervisor if it's no longer in the list
+          if (_selectedSupervisor != null && !_supervisors.any((s) => s.uid == _selectedSupervisor!.uid)) {
+            _selectedSupervisor = null;
+          }
         });
       } else {
         throw Exception('Failed to load supervisors: ${response.statusCode}');
@@ -1606,46 +1624,130 @@ class _NewCoachFormScreenState extends State<NewCoachFormScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            DropdownButtonFormField<RailwaySupervisor>(
-              decoration: InputDecoration(
-                hintText: 'Select Railway Employee',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
+            if (_userRole == 'SUPER_ADMIN') ...[
+              const Text('Select Zone (Super Admin)',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              DropdownButtonFormField<String>(
+                decoration: InputDecoration(
+                  hintText: 'Select Zone',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
-                contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                value: _selectedZone,
+                onChanged: (v) {
+                  setState(() {
+                    _selectedZone = v;
+                    _selectedDivision = null;
+                    _selectedSupervisor = null;
+                    _supervisors.clear();
+                  });
+                },
+                items: DepotDatabase.zoneData.keys
+                    .map((z) => DropdownMenuItem(value: z, child: Text(z)))
+                    .toList(),
               ),
-              value: _selectedSupervisor,
-              onChanged: (v) {
-                setState(() => _selectedSupervisor = v);
-              },
-              items: _supervisors
-                  .map(
-                    (sup) => DropdownMenuItem(
-                  value: sup,
-                  child: Text(sup.fullName),
+              const SizedBox(height: 20),
+              const Text('Select Division (Super Admin)',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              DropdownButtonFormField<String>(
+                decoration: InputDecoration(
+                  hintText: 'Select Division',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                value: _selectedDivision,
+                onChanged: _selectedZone == null
+                    ? null
+                    : (v) {
+                  setState(() {
+                    _selectedDivision = v;
+                    _selectedSupervisor = null;
+                    _supervisors.clear();
+                  });
+                  if (v != null) {
+                    _fetchSupervisors(zone: _selectedZone, division: v);
+                  }
+                },
+                items: _selectedZone == null
+                    ? []
+                    : DepotDatabase.zoneData[_selectedZone]!.keys
+                    .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                    .toList(),
+              ),
+              const SizedBox(height: 20),
+            ],
+
+            if (_supervisors.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'No Railway Employee found for your Division. Please ensure supervisors exist for your division before submitting.',
+                        style: TextStyle(color: Colors.orange, fontSize: 12),
+                      ),
+                    ),
+                  ],
                 ),
               )
-                  .toList(),
-            ),
+            else
+              DropdownButtonFormField<RailwaySupervisor>(
+                decoration: InputDecoration(
+                  hintText: 'Select Railway Employee',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                value: _selectedSupervisor,
+                onChanged: (v) {
+                  setState(() => _selectedSupervisor = v);
+                },
+                items: _supervisors
+                    .map(
+                      (sup) => DropdownMenuItem(
+                    value: sup,
+                    child: Text(sup.fullName),
+                  ),
+                )
+                    .toList(),
+              ),
 
             const SizedBox(height: 20),
-
-
-            const Text('Division *',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            TextFormField(
-              readOnly: true,
-              decoration: InputDecoration(
-                hintText: 'Auto populated Division',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
+            if (_userRole != 'SUPER_ADMIN') ...[
+              const Text('Division *',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              TextFormField(
+                readOnly: true,
+                decoration: InputDecoration(
+                  hintText: 'Auto populated Division',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
+                controller: TextEditingController(
+                    text: _selectedSupervisor?.division ?? ''),
               ),
-              controller: TextEditingController(
-                  text: _selectedSupervisor?.division ?? ''),
-            ),
+            ],
+
             const SizedBox(height: 5),
             const Text(
               'Auto-populated from your assignment',

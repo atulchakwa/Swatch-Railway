@@ -370,7 +370,7 @@ class _WorkerCheckinScreenState extends State<WorkerCheckinScreen> {
         method: 'POST',
         path: '/api/station-attendance/mark',
         body: {
-          'stationId': _scannedQrData,
+          'stationId': widget.stationId ?? user.stationId ?? _scannedQrData,
           'workerId': user.uid,
           'date': now.toIso8601String().substring(0, 10),
           'shift': shift,

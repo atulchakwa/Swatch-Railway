@@ -306,6 +306,7 @@ class FirebaseCountService {
     String? division,
     String? depot,
     String? entityId,
+    String? contractId,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
@@ -338,6 +339,10 @@ class FirebaseCountService {
         if (entityId != null && entityId.isNotEmpty) {
           query = query.where('submittedByEntityId', isEqualTo: entityId);
         }
+      }
+
+      if (contractId != null && contractId.isNotEmpty) {
+        query = query.where('contractId', isEqualTo: contractId);
       }
 
       if (startDate != null) {
@@ -447,6 +452,7 @@ class FirebaseCountService {
     String? division,
     String? depot,
     String? entityId,
+    String? contractId,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
@@ -476,6 +482,10 @@ class FirebaseCountService {
         if (entityId != null && entityId.isNotEmpty) {
           query = query.where('submittedByEntityId', isEqualTo: entityId);
         }
+      }
+
+      if (contractId != null && contractId.isNotEmpty) {
+        query = query.where('contractId', isEqualTo: contractId);
       }
 
       final snapshot = await query.get().timeout(const Duration(seconds: 4));
@@ -644,6 +654,7 @@ class FirebaseCountService {
     String? zone,
     String? division,
     String? entityId,
+    String? contractId,
     int? days,
   }) async {
     try {
@@ -670,6 +681,9 @@ class FirebaseCountService {
       }
       if (entityId != null && entityId.isNotEmpty) {
         query = query.where('submittedByEntityId', isEqualTo: entityId);
+      }
+      if (contractId != null && contractId.isNotEmpty) {
+        query = query.where('contractId', isEqualTo: contractId);
       }
 
       final snapshot = await query.get();

@@ -118,8 +118,8 @@ class GarbageRepository {
     final uri = Uri.parse('$baseUrl/api/garbage/collections').replace(queryParameters: query);
     final res = await http.get(uri, headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'});
     if (res.statusCode == 200) {
-      final list = jsonDecode(res.body)['collections'] ?? [];
-      return list.map((e) => GarbageCollection.fromJson(e)).toList();
+      final raw = jsonDecode(res.body)['collections'] as List? ?? [];
+      return raw.map<GarbageCollection>((e) => GarbageCollection.fromJson(e)).toList();
     }
     throw Exception('Failed to load garbage collections');
   }

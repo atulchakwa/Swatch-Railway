@@ -20,6 +20,10 @@ class CTSFormController extends GetxController {
   bool isResubmit = false;
   String? formId;
   String? contractorRemarks;
+  
+  final userRole = Rx<String?>(null);
+  final selectedZone = Rx<String?>(null);
+  final selectedDivision = Rx<String?>(null);
 
   final contractUidString = ''.obs;
   final activeTrains = <TrainModel>[].obs;
@@ -164,6 +168,8 @@ class CTSFormController extends GetxController {
       final entityId = user['entityId'];
       final zone = user['zone'] ?? '';
       final division = user['division'] ?? '';
+      
+      userRole.value = user['role'];
 
       depotName.value = user['depot'] ?? 'N/A';
       contractorName.value = user['fullName'] ?? user['name'] ?? 'N/A';
@@ -207,7 +213,7 @@ class CTSFormController extends GetxController {
   }
 
 
-  Future<void> fetchSupervisors() async {
+  Future<void> fetchSupervisors({String? zone, String? division}) async {
     try {
       isLoadingSupervisors.value = true;
       final prefs = await SharedPreferences.getInstance();
@@ -217,9 +223,15 @@ class CTSFormController extends GetxController {
         throw Exception('No token found — please log in again.');
       }
 
-      final url = Uri.parse(
-        '${ApiService.baseUrl}/api/users/railway-supervisors',
-      );
+      String urlStr = '${ApiService.baseUrl}/api/users/railway-supervisors';
+      if (zone != null || division != null) {
+        final queryParams = <String>[];
+        if (zone != null) queryParams.add('zone=$zone');
+        if (division != null) queryParams.add('division=$division');
+        urlStr += '?${queryParams.join('&')}';
+      }
+
+      final url = Uri.parse(urlStr);
       final response = await http.get(
         url,
         headers: {
@@ -234,6 +246,9 @@ class CTSFormController extends GetxController {
         supervisors.value = supervisorsList
             .map((e) => RailwaySupervisor.fromJson(e))
             .toList();
+        if (selectedSupervisor.value != null && !supervisors.any((s) => s.uid == selectedSupervisor.value!.uid)) {
+          selectedSupervisor.value = null;
+        }
       } else {
         throw Exception('Failed to load supervisors: ${response.statusCode}');
       }
@@ -646,7 +661,7 @@ class CTSFormController extends GetxController {
           trainId: selectedTrain.value!.uid ?? '',
           trainNumber: selectedTrain.value!.trainNo ?? '',
           trainName: selectedTrain.value!.trainName ?? '',
-          jobDate: jobDateTime.value.toIso8601String(),
+          formDateTime: jobDateTime.value.toIso8601String(),
           actArrival: actualArrivalDateTime.value?.toIso8601String() ?? '',
           actDeparture: actualDepartureDateTime.value?.toIso8601String() ?? '',
           workStart: workStartDateTime.value?.toIso8601String() ?? '',

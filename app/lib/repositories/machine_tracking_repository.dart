@@ -15,7 +15,7 @@ class MachineTrackingRepository {
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
       final list = jsonDecode(res.body)['deployments'] ?? [];
-      return list.map((e) => MachineDeployment.fromJson(e)).toList();
+      return list.map<MachineDeployment>((e) => MachineDeployment.fromJson(e)).toList();
     }
     throw Exception('Failed to load deployments');
   }
@@ -35,7 +35,7 @@ class MachineTrackingRepository {
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
       final list = jsonDecode(res.body)['downtimeRecords'] ?? jsonDecode(res.body)['records'] ?? [];
-      return list.map((e) => MachineDowntime.fromJson(e)).toList();
+      return list.map<MachineDowntime>((e) => MachineDowntime.fromJson(e)).toList();
     }
     throw Exception('Failed to load downtime');
   }
@@ -55,7 +55,7 @@ class MachineTrackingRepository {
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
       final list = jsonDecode(res.body)['schedules'] ?? [];
-      return list.map((e) => MachineMaintenance.fromJson(e)).toList();
+      return list.map<MachineMaintenance>((e) => MachineMaintenance.fromJson(e)).toList();
     }
     throw Exception('Failed to load maintenance');
   }

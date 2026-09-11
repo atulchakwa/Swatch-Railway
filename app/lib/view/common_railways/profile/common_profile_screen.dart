@@ -128,6 +128,18 @@ class _CommonProfileScreenState extends State<CommonProfileScreen> {
                   _infoTile('Division', user.division ?? 'N/A', Colors.blue[50]!),
                   const SizedBox(height: 8),
                   _infoTile('Depot', user.depot ?? 'N/A', Colors.green[50]!),
+                  if (user.contractType != null) ...[
+                    const SizedBox(height: 8),
+                    _infoTile('Contract Type', _formatContractType(user.contractType!), Colors.orange[50]!),
+                  ],
+                  if (user.contractId != null) ...[
+                    const SizedBox(height: 8),
+                    _infoTile('Contract ID', user.contractId!, Colors.teal[50]!),
+                  ],
+                  if (user.entityId != null) ...[
+                    const SizedBox(height: 8),
+                    _infoTile('Company ID', user.entityId!, Colors.indigo[50]!),
+                  ],
                 ],
               ),
             ),
@@ -345,6 +357,23 @@ class _CommonProfileScreenState extends State<CommonProfileScreen> {
         ],
       ),
     );
+  }
+
+  static String _formatContractType(String type) {
+    switch (type) {
+      case 'station_cleaning':
+        return 'Station Cleaning';
+      case 'coach_cleaning':
+        return 'Coach Cleaning';
+      case 'premises_cleaning':
+        return 'Premises Cleaning';
+      case 'cts':
+        return 'CTS';
+      case 'obhs':
+        return 'OBHS';
+      default:
+        return type;
+    }
   }
 
   static Widget _actionTile(

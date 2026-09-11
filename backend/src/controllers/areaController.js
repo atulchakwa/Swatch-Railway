@@ -16,6 +16,11 @@ export const list = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+export const getSummary = asyncHandler(async (req, res) => {
+  const result = await areaService.getAreaSummary(req.params.stationId);
+  res.status(200).json(result);
+});
+
 export const getById = asyncHandler(async (req, res) => {
   const result = await areaService.getAreaById(req.params.uid);
   res.status(200).json(result);
@@ -46,7 +51,7 @@ export const getByHierarchy = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
-// Area Master specific endpoints
+// Area-specific endpoints
 export const getMasterDashboard = asyncHandler(async (req, res) => {
   const result = await areaService.getMasterDashboard(req.user);
   res.status(200).json(result);
@@ -88,11 +93,11 @@ export const unassignPlatformFromArea = asyncHandler(async (req, res) => {
 });
 
 export const generateTasksFromFrequency = asyncHandler(async (req, res) => {
-  const result = await areaService.generateTasksFromFrequency(req.params.uid, req.body);
+  const result = await areaService.generateTasksFromFrequency(req.params.uid, req.body, req.user);
   res.status(200).json(result);
 });
 
-// Platform Master can access area endpoints within their platform
+// Platform-based area access
 export const getAreasByPlatform = asyncHandler(async (req, res) => {
   const result = await areaService.getAreasByPlatform(req.params.platformId);
   res.status(200).json(result);

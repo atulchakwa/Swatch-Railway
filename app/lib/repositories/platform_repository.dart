@@ -3,12 +3,19 @@ import '../model/platform_model.dart';
 
 class PlatformRepository {
   static Future<List<Platform>> getByStation(String stationId) async {
-    return BaseRepository.apiCallList<Platform>(
+    final all = await BaseRepository.apiCallList<Platform>(
       method: 'GET',
       path: '/api/platforms/by-station/$stationId',
       parser: (json) => Platform.fromJson(json),
       dataKey: 'platforms',
     );
+    // Deduplicate by uid/platformNumber to prevent Flutter dropdown assertion errors
+    final seenIds = <String>{};
+    return all.where((p) {
+      final id = p.uid ?? p.platformNumber;
+      if (id.isEmpty) return false;
+      return seenIds.add(id);
+    }).toList();
   }
 
   static Future<List<Platform>> getAll({String? stationId, String? status}) async {

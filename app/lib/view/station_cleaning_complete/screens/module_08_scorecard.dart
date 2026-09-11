@@ -153,7 +153,7 @@ class _MonthlyScorecard extends StatelessWidget {
         Card(elevation: 2, child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('CERTIFICATION', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
           const SizedBox(height: 8),
-          DropdownButtonFormField(value: 'Select Authority', decoration: const InputDecoration(labelText: 'Certified By', isDense: true), items: ['Select Authority', 'Station Master', 'Railway Supervisor'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (_) {}),
+          DropdownButtonFormField(value: 'Select Authority', decoration: const InputDecoration(labelText: 'Certified By', isDense: true), items: ['Select Authority', 'Railway Supervisor'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (_) {}),
           const SizedBox(height: 8),
           TextFormField(decoration: const InputDecoration(labelText: 'Date', isDense: true), initialValue: '31-01-2024'),
           const SizedBox(height: 8),

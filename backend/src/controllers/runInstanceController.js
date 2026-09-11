@@ -31,7 +31,7 @@ export const list = asyncHandler(async (req, res) => {
   // Super admins see ALL instances; regular users are scoped to their division
   let division = isSuperAdmin ? (queryDivision || null) : (queryDivision || req.user?.division);
 
-  // Derive division from assigned station if user has no direct division (e.g. Station/Area/Platform Master)
+  // Derive division from assigned station if user has no direct division
   if (!division && !isSuperAdmin && req.user?.stationId) {
     const stationDoc = await db.collection('stations').doc(req.user.stationId).get();
     if (stationDoc.exists) {

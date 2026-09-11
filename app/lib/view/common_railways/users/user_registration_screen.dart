@@ -12,6 +12,7 @@ import '../../../model/station_models.dart';
 import '../../../model/platform_model.dart';
 import '../../../repositories/platform_repository.dart';
 import '../widgets/approve_entity_dropdown.dart';
+import '../widgets/contract_dropdown.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:signature/signature.dart';
 import 'dart:convert';
@@ -38,6 +39,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     penColor: Colors.black,
     exportBackgroundColor: Colors.transparent,
   );
+  final TextEditingController _stationNameController = TextEditingController();
 
   String _selectedUserType = 'railway';
   String? _selectedRole;
@@ -63,6 +65,13 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   Map<String, String> pickedDocs = {};
 
   bool _isLoading = false;
+  List<Station> _entityStations = [];
+
+  String? _selectedContractId;
+  Map<String, dynamic>? _selectedContractData;
+  List<String> _selectedContractStationIds = [];
+  String? _contractDivision;
+  bool _isContractAutoAssigned = false;
 
   @override
   void initState() {
@@ -85,6 +94,93 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     }
   }
 
+  Future<void> _loadEntityStations(String entityId) async {
+    try {
+      final stations = await ApiService.getStations(entityId: entityId);
+      final uniqueZones = <String>{};
+      for (final s in stations) {
+        if (s.zone.isNotEmpty) {
+          for (final z in DepotDatabase.zoneData.keys) {
+            if (z.toLowerCase().contains(s.zone.toLowerCase()) || s.zone.toLowerCase().contains(z.toLowerCase())) {
+              uniqueZones.add(z);
+              break;
+            }
+          }
+        }
+      }
+      setState(() {
+        final sortedUnique = uniqueZones.toList()..sort();
+        zones = uniqueZones.isNotEmpty ? sortedUnique : (DepotDatabase.zoneData.keys.toList()..sort());
+        _zone = null;
+        _division = null;
+        _depot = null;
+        divisions = [];
+        depots = [];
+        _entityStations = [];
+        _selectedStationId = null;
+      });
+    } catch (e) {
+      print('Error loading entity stations: $e');
+    }
+  }
+
+  Future<void> _loadDivisionStations(String division) async {
+    try {
+      final stations = await ApiService.getStations(division: division, active: true);
+      setState(() => _entityStations = stations);
+    } catch (e) {
+      print('Error loading division stations: $e');
+    }
+  }
+
+  Future<void> _autoAssignFromCurrentUser() async {
+    final currentUser = Provider.of<AuthProvider>(context, listen: false).currentUser;
+    if (currentUser?.role != 'Contractor Admin') return;
+    if (currentUser?.entityId == null || currentUser!.entityId!.isEmpty) return;
+    try {
+      final contracts = await ApiService.getContractsForDropdown(entityId: currentUser.entityId);
+      Map<String, dynamic>? match;
+      if (currentUser.contractId != null && currentUser.contractId!.isNotEmpty) {
+        match = contracts.where((c) => c['uid'] == currentUser.contractId).firstOrNull;
+      }
+      match ??= contracts.where((c) => c['contractType'] == 'station_cleaning').firstOrNull;
+      if (match != null) {
+        final contractData = match;
+        final rawZone = contractData['zone'] as String?;
+        final rawDivision = contractData['division'] as String?;
+        final normZone = _normalizeZoneFromContract(rawZone);
+        final normDivision = _normalizeDivisionFromContract(normZone, rawDivision);
+        final zoneDivisions = normZone.isNotEmpty
+            ? (DepotDatabase.zoneData[normZone]?.keys.toList() ?? <String>[])
+            : <String>[];
+        final contractStationIds = (contractData['stationIds'] as List?)?.cast<String>() ?? [];
+        setState(() {
+          _isContractAutoAssigned = true;
+          _selectedCompany = currentUser.entityId;
+          _selectedContractId = contractData['uid'] as String? ?? currentUser.contractId;
+          _selectedContractData = contractData;
+          _selectedContractStationIds = contractStationIds;
+          _selectedStationId = null;
+          _zone = normZone;
+          _division = normDivision;
+          divisions = zoneDivisions;
+          if (normZone.isNotEmpty && !zones.contains(normZone)) {
+            zones = [...zones, normZone];
+          }
+        });
+        return;
+      }
+      setState(() {
+        _selectedCompany = currentUser.entityId;
+        _zone = _normalizeZoneFromContract(currentUser.zone);
+        _division = _normalizeDivisionFromContract(_zone, currentUser.division);
+        if (_zone != null && _zone!.isNotEmpty) {
+          divisions = DepotDatabase.zoneData[_zone]?.keys.toList() ?? [];
+        }
+      });
+    } catch (_) {}
+  }
+
   void _loadDraftData(Map<String, dynamic> draft) {
     setState(() {
       _fullName.text = draft['fullName'] ?? '';
@@ -95,6 +191,11 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       _selectedUserType = draft['userType'] ?? 'railway';
       _selectedRole = draft['role'];
       _selectedCompany = draft['entityId'];
+      _selectedContractId = draft['contractId'];
+      _selectedContractStationIds = List<String>.from(draft['stations'] ?? []);
+      if (_selectedContractStationIds.isNotEmpty) {
+        _stationNameController.text = _selectedContractStationIds.first;
+      }
       _zone = draft['zone'];
       _division = draft['division'];
       _depot = draft['depot'];
@@ -124,8 +225,32 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   }
 
   void _loadDivisions(String zone) {
+    final allDivs = DepotDatabase.zoneData[zone]?.keys.toList() ?? [];
+    List<String> filtered = allDivs;
+    if (_entityStations.isNotEmpty && _selectedCompany != null) {
+      final entityDivs = _entityStations
+          .where((s) => s.zone.isNotEmpty && (zone.toLowerCase().contains(s.zone.toLowerCase()) || s.zone.toLowerCase().contains(zone.toLowerCase())))
+          .map((s) => s.division)
+          .where((d) => d != null && d.isNotEmpty)
+          .map((d) => d!)
+          .toSet()
+          .toList();
+      if (entityDivs.isNotEmpty) {
+        final matched = <String>{};
+        for (final ed in entityDivs) {
+          for (final dd in allDivs) {
+            if (dd.toLowerCase().contains(ed.toLowerCase()) || ed.toLowerCase().contains(dd.toLowerCase())) {
+              matched.add(dd);
+              break;
+            }
+          }
+        }
+        final sortedMatched = matched.toList()..sort();
+        filtered = matched.isNotEmpty ? sortedMatched : allDivs;
+      }
+    }
     setState(() {
-      divisions = DepotDatabase.zoneData[zone]?.keys.toList() ?? [];
+      divisions = filtered;
       _division = null;
       depots = [];
       _depot = null;
@@ -153,12 +278,14 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
   bool _shouldShowDivision() {
     if (_selectedRole == null || _zone == null) return false;
-    return _selectedRole!.contains('Admin') || _selectedRole!.contains('Supervisor') || _selectedRole!.contains('Worker');
+    return _selectedRole!.contains('Admin') || _selectedRole!.contains('Supervisor') || _selectedRole!.contains('Worker') || _selectedRole!.contains('Inspector');
   }
 
   bool _shouldShowDepot() {
     if (_selectedRole == null || _division == null) return false;
-    return _selectedRole!.contains('Supervisor') || _selectedRole!.contains('Worker');
+    if (_selectedRole!.toLowerCase().contains('contractor supervisor')) return false;
+    if (_selectedRole!.toLowerCase().contains('railway supervisor')) return true;
+    return _selectedRole!.contains('Worker');
   }
 
   bool _shouldShowWorkerType() {
@@ -169,7 +296,142 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   bool _shouldShowTrainSelection() {
     if (_selectedRole == null) return false;
     final r = _selectedRole!.toUpperCase();
-    return r.contains('SUPERVISOR') || r.contains('CTS');
+    if (!(r.contains('SUPERVISOR') || r.contains('CTS'))) return false;
+    if (_selectedContractData != null) {
+      final ct = _selectedContractData!['contractType'] as String?;
+      if (ct == 'station_cleaning') return false;
+    }
+    return true;
+  }
+
+  bool _isContractorAdminOrSupervisor() {
+    if (_selectedRole == null) return false;
+    final r = _selectedRole!.toUpperCase().replaceAll(' ', '_');
+    return r == 'CONTRACTOR_ADMIN' || r == 'CONTRACTOR_SUPERVISOR';
+  }
+
+  bool _shouldShowStationSelection() {
+    if (_selectedRole == null) return false;
+    if (_selectedRole!.toLowerCase().contains('worker')) return true;
+    if (_selectedRole!.toLowerCase().contains('inspector')) return true;
+    if (_selectedUserType == 'contractor' && _selectedCompany != null) return true;
+    return false;
+  }
+
+  List<Station> _getFilteredStations() {
+    return _entityStations;
+  }
+
+  Widget _buildStationDropdown() {
+    if (_selectedUserType == 'contractor') {
+      if (_division == null) {
+        return const Padding(
+          padding: EdgeInsets.only(bottom: 12),
+          child: Text('Select division first to see available stations', style: TextStyle(color: Colors.grey)),
+        );
+      }
+      if (_entityStations.isEmpty) {
+        return const Padding(
+          padding: EdgeInsets.only(bottom: 12),
+          child: Text('No stations available in this division', style: TextStyle(color: Colors.grey)),
+        );
+      }
+      final stations = _getFilteredStations();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: DropdownButtonFormField<String>(
+          value: (_selectedStationId != null && stations.any((s) => s.uid == _selectedStationId)) ? _selectedStationId : null,
+          decoration: const InputDecoration(labelText: 'Station *', border: OutlineInputBorder()),
+          items: stations.map((s) => DropdownMenuItem(value: s.uid, child: Text(s.stationName))).toList(),
+          validator: (v) => v == null ? 'Select station' : null,
+          onChanged: (v) => setState(() => _selectedStationId = v),
+        ),
+      );
+    }
+    // Non-contractor: load all stations via FutureBuilder
+    return FutureBuilder<List<Station>>(
+      future: ApiService.getStations(),
+      builder: (ctx, snap) {
+        if (snap.connectionState != ConnectionState.done) return const Padding(
+          padding: EdgeInsets.only(bottom: 12),
+          child: Center(child: CircularProgressIndicator()),
+        );
+        if (snap.hasError) return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text('Error loading stations', style: TextStyle(color: Colors.red)),
+        );
+        final rawStations = snap.data ?? [];
+        final seenStationIds = <String>{};
+        final stations = rawStations.where((s) {
+          if (s.uid == null || s.uid!.isEmpty) return false;
+          return seenStationIds.add(s.uid!);
+        }).toList();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: DropdownButtonFormField<String>(
+            value: (_selectedStationId != null && stations.any((s) => s.uid == _selectedStationId)) ? _selectedStationId : null,
+            decoration: InputDecoration(
+              labelText: _selectedRole?.toLowerCase().contains('worker') == true
+                  ? 'Station (Required for Station Worker)'
+                  : 'Station *',
+              border: const OutlineInputBorder(),
+            ),
+            items: stations.map((s) => DropdownMenuItem(value: s.uid, child: Text(s.stationName))).toList(),
+            validator: (v) {
+              return null;
+            },
+            onChanged: (v) => setState(() {
+              _selectedStationId = v;
+              _selectedAreaId = null;
+              _selectedPlatformId = null;
+            }),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildContractStationDropdown() {
+    // If contract has stationIds, auto-assign and show read-only
+    if (_selectedContractData != null) {
+      final contractStationIds = (_selectedContractData!['stationIds'] as List?)?.cast<String>() ?? [];
+      final contractStationNames = (_selectedContractData!['stationNames'] as List?)?.cast<String>() ?? [];
+      if (contractStationIds.isNotEmpty) {
+        _selectedContractStationIds = contractStationIds;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Assigned Station', style: TextStyle(fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Chip(
+                avatar: const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                label: Text(contractStationNames.isNotEmpty ? contractStationNames.first : contractStationIds.first),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+    // Fall back to manual text field
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: _stationNameController,
+        decoration: const InputDecoration(
+          labelText: 'Assigned Station *',
+          hintText: 'Type station name',
+          border: OutlineInputBorder(),
+        ),
+        validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+        onChanged: (v) {
+          setState(() {
+            _selectedContractStationIds = v.trim().isEmpty ? [] : [v.trim()];
+          });
+        },
+      ),
+    );
   }
 
   bool _isMultiTrainExport() {
@@ -189,6 +451,45 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     final currentUser = Provider.of<AuthProvider>(context, listen: false).currentUser;
     return currentUser?.role == 'Railway Admin' ||
         currentUser?.role == 'Contractor Admin';
+  }
+
+  bool _isContractAreaLocked() {
+    return _isContractorAdminOrSupervisor() && _selectedContractId != null;
+  }
+
+  String _normalizeZoneFromContract(String? contractZone) {
+    if (contractZone == null || contractZone.isEmpty) return '';
+    if (DepotDatabase.zoneData.containsKey(contractZone)) return contractZone;
+    final lower = contractZone.toLowerCase();
+    for (final key in DepotDatabase.zoneData.keys) {
+      if (key.toLowerCase() == lower) return key;
+    }
+    final codeMatch = RegExp(r'\((\w+)\)$').firstMatch(contractZone);
+    if (codeMatch != null) {
+      final code = codeMatch.group(1)!.toLowerCase();
+      for (final key in DepotDatabase.zoneData.keys) {
+        if (key.toLowerCase().contains('($code)')) return key;
+      }
+    }
+    for (final key in DepotDatabase.zoneData.keys) {
+      if (key.toLowerCase().contains(contractZone.toLowerCase()) ||
+          contractZone.toLowerCase().contains(key.toLowerCase())) return key;
+    }
+    return contractZone;
+  }
+
+  String? _normalizeDivisionFromContract(String? zoneKey, String? contractDivision) {
+    if (zoneKey == null || zoneKey.isEmpty || contractDivision == null || contractDivision.isEmpty) {
+      return contractDivision;
+    }
+    final divisionsMap = DepotDatabase.zoneData[zoneKey]?.keys ?? {};
+    if (divisionsMap.isEmpty) return contractDivision;
+    if (divisionsMap.contains(contractDivision)) return contractDivision;
+    final lower = contractDivision.toLowerCase();
+    for (final div in divisionsMap) {
+      if (div.toLowerCase() == lower) return div;
+    }
+    return contractDivision;
   }
 
   @override
@@ -239,13 +540,15 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                   _zone = null;
                   _division = null;
                   _depot = null;
+                  _entityStations = [];
+                  zones = DepotDatabase.zoneData.keys.toList();
                 }),
               ),
               const SizedBox(height: 12),
 
 
               DropdownButtonFormField<String>(
-                value: _selectedRole,
+                value: (_selectedRole != null && _getRolesForUserType(_selectedUserType).contains(_selectedRole)) ? _selectedRole : null,
                 decoration: const InputDecoration(
                   labelText: 'Role *',
                   border: OutlineInputBorder(),
@@ -257,6 +560,12 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                 onChanged: (v) {
                   setState(() {
                     _selectedRole = v;
+                    _selectedCompany = null;
+                    _selectedContractId = null;
+                    _selectedContractData = null;
+                    _selectedContractStationIds = [];
+                    _selectedStationId = null;
+                    _isContractAutoAssigned = false;
                     final currentUser = Provider.of<AuthProvider>(context, listen: false).currentUser;
 
 
@@ -312,115 +621,130 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                       depots = [];
                     }
                   });
+                  _autoAssignFromCurrentUser();
                 },
               ),
               const SizedBox(height: 12),
 
 
-              if (_selectedUserType == 'contractor')
-                ApprovedEntityDropdown(
-                  onSelected: (name) {
-                    setState(() {
-                      _selectedCompany = name;
-                    });
-                  },
-                ),
-
-              if (_selectedRole == 'Station Master' || _selectedRole == 'Area Master' || _selectedRole == 'Platform Master')
-                FutureBuilder<List<Station>>(
-                  future: ApiService.getStations(),
-                  builder: (ctx, snap) {
-                    if (snap.connectionState != ConnectionState.done) return const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                    if (snap.hasError) return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text('Error loading stations', style: TextStyle(color: Colors.red)),
-                    );
-                    final stations = snap.data ?? [];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedStationId,
-                        decoration: const InputDecoration(labelText: 'Station *', border: OutlineInputBorder()),
-                        items: stations.map((s) => DropdownMenuItem(value: s.uid, child: Text(s.stationName))).toList(),
-                        validator: (v) => v == null ? 'Select station' : null,
-                        onChanged: (v) => setState(() {
-                          _selectedStationId = v;
-                          _selectedAreaId = null;
-                          _selectedPlatformId = null;
-                          if (v != null) {
-                            final selectedStn = stations.firstWhere(
-                              (s) => s.uid == v,
-                              orElse: () => Station(stationCode: '', stationName: '', zone: '', division: ''),
-                            );
-                            if (selectedStn.zone.isNotEmpty) {
-                              String? matchedZone;
-                              for (final zKey in zones) {
-                                if (zKey.toLowerCase() == selectedStn.zone.toLowerCase() ||
-                                    zKey.toLowerCase().contains(selectedStn.zone.toLowerCase()) ||
-                                    selectedStn.zone.toLowerCase().contains(zKey.toLowerCase())) {
-                                  matchedZone = zKey;
-                                  break;
-                                }
-                              }
-                              if (matchedZone != null) {
-                                _zone = matchedZone;
-                                divisions = DepotDatabase.zoneData[_zone]?.keys.toList() ?? [];
-                                String? matchedDiv;
-                                for (final dKey in divisions) {
-                                  if (dKey.toLowerCase() == selectedStn.division.toLowerCase() ||
-                                      dKey.toLowerCase().contains(selectedStn.division.toLowerCase()) ||
-                                      selectedStn.division.toLowerCase().contains(dKey.toLowerCase())) {
-                                    matchedDiv = dKey;
-                                    break;
-                                  }
-                                }
-                                if (matchedDiv != null) {
-                                  _division = matchedDiv;
-                                  depots = DepotDatabase.zoneData[_zone]?[_division] ?? [];
-                                } else {
-                                  _division = null;
-                                  depots = [];
-                                }
-                              }
-                            }
+              if (_selectedUserType == 'contractor') ...[
+                if (_isContractAutoAssigned && _selectedContractData != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Entity', style: TextStyle(fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 4),
+                        Chip(avatar: const Icon(Icons.business, size: 18), label: Text(_selectedCompany ?? 'Auto-assigned')),
+                        const SizedBox(height: 8),
+                        const Text('Contract', style: TextStyle(fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 4),
+                        Chip(
+                          avatar: const Icon(Icons.assignment, size: 18),
+                          label: Text('${_selectedContractData!['contractNumber'] ?? ''} - ${_selectedContractData!['contractName'] ?? ''}'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildContractStationDropdown(),
+                ] else if (_selectedCompany != null && !_isContractAutoAssigned && _selectedRole != null && _selectedRole!.contains('Supervisor')) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Entity', style: TextStyle(fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 4),
+                        Chip(avatar: const Icon(Icons.business, size: 18), label: Text(_selectedCompany ?? 'Auto-assigned')),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ContractDropdown(
+                    entityId: _selectedCompany,
+                    onSelected: (contractId, contractData) {
+                      _stationNameController.clear();
+                      final rawZone = contractData['zone'] as String?;
+                      final rawDivision = contractData['division'] as String?;
+                      final normZone = _normalizeZoneFromContract(rawZone);
+                      final normDivision = _normalizeDivisionFromContract(normZone, rawDivision);
+                      final zoneDivisions = normZone.isNotEmpty
+                          ? (DepotDatabase.zoneData[normZone]?.keys.toList() ?? <String>[])
+                          : <String>[];
+                      setState(() {
+                        _selectedContractId = contractId;
+                        _selectedContractData = contractData;
+                        _selectedContractStationIds = [];
+                        _selectedStationId = null;
+                        _zone = normZone;
+                        _division = normDivision;
+                        divisions = zoneDivisions;
+                        if (normZone.isNotEmpty && !zones.contains(normZone)) {
+                          zones = [...zones, normZone];
+                        }
+                      });
+                    },
+                  ),
+                  if (_selectedContractData != null) ...[
+                    const SizedBox(height: 12),
+                    _buildContractStationDropdown(),
+                  ],
+                ] else ...[
+                  ApprovedEntityDropdown(
+                    onSelected: (name) {
+                      setState(() {
+                        _selectedCompany = name;
+                        _selectedContractId = null;
+                        _selectedContractData = null;
+                        _selectedContractStationIds = [];
+                        _selectedStationId = null;
+                        _zone = null;
+                        _division = null;
+                      });
+                      _loadEntityStations(name);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (_selectedCompany != null)
+                    ContractDropdown(
+                      entityId: _selectedCompany,
+                      onSelected: (contractId, contractData) {
+                        _stationNameController.clear();
+                        final rawZone = contractData['zone'] as String?;
+                        final rawDivision = contractData['division'] as String?;
+                        final normZone = _normalizeZoneFromContract(rawZone);
+                        final normDivision = _normalizeDivisionFromContract(normZone, rawDivision);
+                        final zoneDivisions = normZone.isNotEmpty
+                            ? (DepotDatabase.zoneData[normZone]?.keys.toList() ?? <String>[])
+                            : <String>[];
+                        setState(() {
+                          _selectedContractId = contractId;
+                          _selectedContractData = contractData;
+                          _selectedContractStationIds = [];
+                          _selectedStationId = null;
+                          _zone = normZone;
+                          _division = normDivision;
+                          divisions = zoneDivisions;
+                          if (normZone.isNotEmpty && !zones.contains(normZone)) {
+                            zones = [...zones, normZone];
                           }
-                        }),
-                      ),
-                    );
-                  },
-                ),
+                        });
+                      },
+                    ),
+                  if (_selectedContractData != null) ...[
+                    const SizedBox(height: 12),
+                    _buildContractStationDropdown(),
+                  ],
+                ],
+              ],
 
-              if ((_selectedRole == 'Platform Master' || _selectedRole == 'Area Master') && _selectedStationId != null)
-                FutureBuilder<List<Platform>>(
-                  future: PlatformRepository.getByStation(_selectedStationId!),
-                  builder: (ctx, snap) {
-                    if (snap.connectionState != ConnectionState.done) return const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                    if (snap.hasError) return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text('Error loading platforms', style: TextStyle(color: Colors.red)),
-                    );
-                    final platforms = snap.data ?? [];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedPlatformId,
-                        decoration: const InputDecoration(labelText: 'Platform *', border: OutlineInputBorder()),
-                        items: platforms.map((p) => DropdownMenuItem(value: p.uid, child: Text(p.displayName))).toList(),
-                        validator: (v) => v == null ? 'Select platform' : null,
-                        onChanged: (v) => setState(() {
-                          _selectedPlatformId = v;
-                          _selectedAreaId = v; // Stored in areaId for DB consistency
-                        }),
-                      ),
-                    );
-                  },
-                ),
+
+
+              if (_shouldShowStationSelection() && !_isContractorAdminOrSupervisor())
+                _buildStationDropdown(),
+
+
 
               const SizedBox(height: 12),
 
@@ -577,7 +901,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                 Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _zone,
+                      value: (_zone != null && zones.contains(_zone)) ? _zone : null,
                       decoration: InputDecoration(
                         labelText: 'Zone *',
                         border: const OutlineInputBorder(),
@@ -589,7 +913,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                           .map((z) => DropdownMenuItem(value: z, child: Text(z)))
                           .toList(),
                       validator: (v) => v == null ? 'Required' : null,
-                      onChanged: _isZoneReadOnly() ? null : (v) {
+                      onChanged: (_isZoneReadOnly() || _isContractAreaLocked()) ? null : (v) {
                         setState(() {
                           _zone = v;
                           if (_selectedRole?.contains('Master') == true) {
@@ -611,7 +935,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                 Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _division,
+                      value: (_division != null && divisions.contains(_division)) ? _division : null,
                       decoration: InputDecoration(
                         labelText: 'Division *',
                         border: const OutlineInputBorder(),
@@ -623,11 +947,15 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                           .map((d) => DropdownMenuItem(value: d, child: Text(d)))
                           .toList(),
                       validator: (v) => v == null ? 'Required' : null,
-                      onChanged: _isDivisionReadOnly() ? null : (v) {
+                      onChanged: (_isDivisionReadOnly() || _isContractAreaLocked()) ? null : (v) {
                         setState(() {
                           _division = v;
+                          _selectedStationId = null;
                           if (v != null && _zone != null) {
                             _loadDepots(_zone!, v);
+                            if (_selectedUserType == 'contractor') {
+                              _loadDivisionStations(v);
+                            }
                           }
                         });
                       },
@@ -640,7 +968,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                 Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _depot,
+                      value: (_depot != null && depots.contains(_depot)) ? _depot : null,
                       decoration: const InputDecoration(
                         labelText: 'Depot',
                         border: OutlineInputBorder(),
@@ -659,7 +987,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                 Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _workerType,
+                      value: (_workerType != null && ['Janitor', 'Attendant'].contains(_workerType)) ? _workerType : null,
                       decoration: const InputDecoration(
                         labelText: 'Worker Type *',
                         border: OutlineInputBorder(),
@@ -681,7 +1009,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                   children: [
                     if (!_isMultiTrainExport())
                       DropdownButtonFormField<String>(
-                        value: _trainId,
+                        value: (_trainId != null && allTrains.any((t) => t.uid == _trainId)) ? _trainId : null,
                         decoration: const InputDecoration(
                           labelText: 'Assigned Train *',
                           border: OutlineInputBorder(),
@@ -967,20 +1295,18 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
     if (userType == 'railway') {
       if (currentUser?.role == 'Railway Admin') {
-        return ['Railway Supervisor', 'Railway Worker', 'Station Master', 'Area Master', 'Platform Master'];
+        return ['Railway Inspector', 'Railway Supervisor', 'Railway Worker'];
       }
       else if (currentUser?.role == 'Railway Master') {
         return [
           'Railway Admin',
+          'Railway Inspector',
           'Railway Supervisor',
           'Railway Worker',
-          'Station Master',
-          'Area Master',
-          'Platform Master',
         ];
       }
       else {
-        return ['Railway Admin', 'Railway Supervisor', 'Railway Worker', 'Station Master', 'Area Master', 'Platform Master'];
+        return ['Railway Master', 'Railway Admin', 'Railway Inspector', 'Railway Supervisor', 'Railway Worker'];
       }
     } else {
       if (currentUser?.role == 'Contractor Admin') {
@@ -993,7 +1319,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
         return ['Contractor Supervisor', 'Contractor Worker'];
       }
       else {
-        return ['Contractor Admin', 'Contractor Supervisor', 'Contractor Worker'];
+        return ['Contractor Master', 'Contractor Admin', 'Contractor Supervisor', 'Contractor Worker'];
       }
     }
   }
@@ -1016,6 +1342,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       'userType': _selectedUserType,
       'role': _selectedRole,
       'entityId': _selectedCompany,
+      'contractId': _selectedContractId,
+      'stations': _selectedContractStationIds,
       'zone': _zone,
       'division': _division,
       'depot': _depot,
@@ -1044,6 +1372,15 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (_selectedUserType == 'contractor' && _isContractorAdminOrSupervisor() && _selectedContractId == null) {
+      _showError('Please select a contract for Contractor Admin/Supervisor.');
+      return;
+    }
+
+    if (_selectedRole != null && _selectedRole!.toLowerCase().contains('inspector') && _selectedStationId == null) {
+      _showError('Please select a station for the Railway Inspector.');
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -1069,7 +1406,9 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
         zone: _zone?.trim().isEmpty ?? true ? null : _zone?.trim(),
         division: _division?.trim().isEmpty ?? true ? null : _division?.trim(),
         depot: _depot?.trim().isEmpty ?? true ? null : _depot?.trim(),
-        entityId: _selectedCompany?.trim().isEmpty ?? true ? null : _selectedCompany?.trim(),
+        entityId: (_selectedCompany?.trim().isEmpty ?? true) ? null : _selectedCompany?.trim(),
+        contractId: _selectedUserType == 'contractor' ? _selectedContractId : null,
+        stations: _selectedUserType == 'contractor' ? _selectedContractStationIds : null,
         createdById: currentUser?.uid,
         worker_type: _workerType,
         trainId: _trainId,
@@ -1119,6 +1458,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     _mobile.dispose();
     _password.dispose();
     _signatureController.dispose();
+    _stationNameController.dispose();
     super.dispose();
   }
 }

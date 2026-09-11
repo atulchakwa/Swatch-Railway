@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:crm_train/model/station_cleaning_models.dart';
 class PDFReportService {
   static const PdfColor primaryColor = PdfColor.fromInt(0xff1f4e78);
   static const PdfColor successColor = PdfColor.fromInt(0xff28a745);
@@ -51,7 +52,7 @@ class PDFReportService {
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text(title, style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: primaryColor)),
-                  pw.Text('Indian Railways - OBHS Enterprise Monitoring System', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                  pw.Text('Indian Railways - Station Cleaning Enterprise Monitoring System', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
                 ],
               ),
             ],
@@ -160,7 +161,7 @@ class PDFReportService {
                 pw.Container(width: 100, height: 1, color: PdfColors.grey),
                 pw.SizedBox(height: 5),
                 pw.Text('Audit Verified By', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                pw.Text('OBHS Monitoring System', style: const pw.TextStyle(fontSize: 8)),
+                pw.Text('Station Cleaning Monitoring System', style: const pw.TextStyle(fontSize: 8)),
               ]),
               pw.Column(children: [
                 if (officialImg != null)
@@ -1333,4 +1334,338 @@ class PDFReportService {
     return pdf.save();
   }
 
+  static Future<Uint8List> generateStationBillingPdf(StationBillingPack pack) async {
+    final pdf = pw.Document();
+    final railway = await _getRailwayLogo();
+    final mirtha = await _getMirthaLogo();
+    final timestamp = DateFormat('dd-MMM-yyyy | hh:mm a').format(DateTime.now());
+
+    final a = pack.attendanceSummary;
+    final act = pack.activitySummary;
+    final sc = pack.scorecardSummary;
+    final insp = pack.inspectionSummary;
+    final fb = pack.feedbackSummary;
+    final pi = pack.pettyIssueSummary;
+    final ev = pack.evidenceSummary;
+    final mach = pack.machineSummary;
+    final pen = pack.penalties;
+    final deductions = (pen['deductions'] as List?) ?? [];
+
+    pw.Widget _section(pw.Context ctx, String title, List<List<String>> rows, {PdfColor? headerColor}) {
+      final hasData = rows.isNotEmpty && rows.any((r) => r.any((c) => c != 'N/A' && c != '0'));
+      if (!hasData) return pw.SizedBox.shrink();
+      final colCount = rows.first.length;
+      final colWidths = <int, pw.TableColumnWidth>{};
+      for (var i = 0; i < colCount; i++) {
+        colWidths[i] = pw.FlexColumnWidth(1);
+      }
+      return pw.Column(children: [
+        pw.Container(
+          width: double.infinity,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          margin: const pw.EdgeInsets.only(top: 12, bottom: 4),
+          decoration: pw.BoxDecoration(color: headerColor ?? primaryColor, borderRadius: pw.BorderRadius.circular(4)),
+          child: pw.Text(title, style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 11)),
+        ),
+        pw.TableHelper.fromTextArray(
+          context: ctx,
+          headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8),
+          headerDecoration: pw.BoxDecoration(color: PdfColors.grey700),
+          cellStyle: pw.TextStyle(fontSize: 8),
+          cellAlignment: pw.Alignment.center,
+          data: rows,
+          columnWidths: colWidths,
+        ),
+      ]);
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(25),
+        build: (pw.Context ctx) {
+          return [
+            _buildHeader(railway, mirtha, 'Billing Support Pack', '${pack.month}/${pack.year}'),
+            pw.Divider(thickness: 1, color: borderColor),
+            _buildInfoRow('Contractor', pack.contractorName, 'Contract', pack.contractNumber),
+            _buildInfoRow('Station', pack.stationName, 'Period', '${pack.month}/${pack.year}'),
+            _buildInfoRow('Status', pack.status, 'Generated', timestamp),
+            pw.SizedBox(height: 8),
+
+            _section(ctx, 'Attendance Summary', [
+              ['Days Recorded', 'Total Entries', 'Present', 'Absent', 'Avg/Day', 'Attendance %'],
+              [
+                '${a['totalDaysRecorded'] ?? 0}',
+                '${a['totalAttendanceEntries'] ?? 0}',
+                '${a['totalPresent'] ?? 0}',
+                '${a['totalAbsent'] ?? 0}',
+                '${a['averageDailyManpower'] ?? 0}',
+                '${a['attendancePercentage'] ?? 0}%',
+              ],
+            ]),
+
+            _section(ctx, 'Task Completion', [
+              ['Total', 'Approved', 'Completed', 'In Progress', 'Pending', 'Rejected', 'Completion %'],
+              [
+                '${act['total'] ?? 0}',
+                '${act['APPROVED'] ?? 0}',
+                '${act['COMPLETED'] ?? 0}',
+                '${act['IN_PROGRESS'] ?? 0}',
+                '${act['PENDING'] ?? 0}',
+                '${act['REJECTED'] ?? 0}',
+                '${act['completionRate'] ?? 0}%',
+              ],
+            ]),
+
+            _section(ctx, 'Scorecard Summary', [
+              ['Days Scored', 'Avg Score', 'Grade A', 'Grade B', 'Grade C', 'Grade D'],
+              [
+                '${sc['daysWithScorecard'] ?? 0}',
+                '${sc['averageScore'] ?? 0}',
+                '${(sc['gradeDistribution'] as Map?)?['A'] ?? 0}',
+                '${(sc['gradeDistribution'] as Map?)?['B'] ?? 0}',
+                '${(sc['gradeDistribution'] as Map?)?['C'] ?? 0}',
+                '${(sc['gradeDistribution'] as Map?)?['D'] ?? 0}',
+              ],
+            ]),
+
+            _section(ctx, 'Inspection Summary', [
+              ['Total', 'Avg Score', 'Deficiencies', 'Closed', 'Open'],
+              [
+                '${insp['totalInspections'] ?? 0}',
+                '${insp['averageScore'] ?? 0}',
+                '${insp['totalDeficiencies'] ?? 0}',
+                '${insp['closedDeficiencies'] ?? 0}',
+                '${insp['openDeficiencies'] ?? 0}',
+              ],
+            ]),
+
+            _section(ctx, 'Feedback Summary', [
+              ['Total Feedbacks', 'Avg Rating', '% Negative'],
+              [
+                '${fb['totalFeedbacks'] ?? 0}',
+                '${fb['averageRating'] ?? 'N/A'}',
+                '${fb['negativeFeedbacks'] ?? 0}',
+              ],
+            ]),
+
+            _section(ctx, 'Petty Issues', [
+              ['Total', 'Resolved', 'Open'],
+              ['${pi['total'] ?? 0}', '${pi['resolved'] ?? 0}', '${pi['open'] ?? 0}'],
+            ]),
+
+            _section(ctx, 'Photo Evidence', [
+              ['Total Forms', 'With Photos', 'Photos Uploaded', 'Compliance %'],
+              [
+                '${ev['totalForms'] ?? 0}',
+                '${ev['formsWithPhotos'] ?? 0}',
+                '${ev['totalPhotos'] ?? 0}',
+                '${ev['evidenceComplianceRate'] ?? 0}%',
+              ],
+            ]),
+
+            _section(ctx, 'Machine Summary', [
+              ['Total', 'Deployed', 'In Maintenance', 'Downtime Incidents', 'Downtime Hours', 'Penalty'],
+              [
+                '${mach['total'] ?? 0}',
+                '${mach['deployed'] ?? 0}',
+                '${mach['inMaintenance'] ?? 0}',
+                '${mach['downtime']?['incidents'] ?? 0}',
+                '${mach['downtime']?['totalHours'] ?? 0}',
+                '₹${mach['downtime']?['totalPenalty'] ?? 0}',
+              ],
+            ]),
+
+            if (deductions.isNotEmpty)
+              _section(ctx, 'Penalties & Deductions', [
+                ['Reason', 'Amount'],
+                ...deductions.map((d) => [
+                  '${d['reason'] ?? ''}${d['percentage'] != null ? ' (${d['percentage']}%)' : ''}',
+                  '₹${d['amount'] ?? 0}',
+                ] as List<String>),
+              ]),
+
+            pw.SizedBox(height: 12),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                border: pw.Border.all(color: primaryColor, width: 1.5),
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              child: pw.Column(children: [
+                pw.Text('FINANCIAL SUMMARY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13, color: primaryColor)),
+                pw.SizedBox(height: 8),
+                _buildInfoRow('Monthly Contract Value', '₹${pack.monthlyContractValue}', '', ''),
+                _buildInfoRow('Total Deductions', '₹${pen['totalPenaltyAmount'] ?? 0}', '', ''),
+                pw.Divider(thickness: 1, color: borderColor),
+                _buildInfoRow('Net Billable', '₹${pack.billableAmount}', '', ''),
+                _buildInfoRow('GST (${pack.gstRate}%)', '₹${pack.gstAmount}', '', ''),
+                pw.Divider(thickness: 1.5, color: primaryColor),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 6),
+                  child: pw.Row(children: [
+                    pw.Expanded(child: pw.Text('TOTAL PAYABLE (incl. GST)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14, color: primaryColor))),
+                    pw.Text('₹${pack.totalPayableWithGst}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14, color: primaryColor)),
+                  ]),
+                ),
+              ]),
+            ),
+
+            pw.SizedBox(height: 20),
+            _buildSignatures(),
+            _buildDigitalFooter(timestamp),
+          ];
+        },
+      ),
+    );
+    return pdf.save();
+  }
+
+  static Future<Uint8List> generateStationReportPdf(StationReport report) async {
+    final pdf = pw.Document();
+    final railway = await _getRailwayLogo();
+    final mirtha = await _getMirthaLogo();
+    final timestamp = DateFormat('dd-MMM-yyyy | hh:mm a').format(DateTime.now());
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(25),
+        build: (pw.Context context) {
+          final summary = report.summary;
+          final kpiEntries = <MapEntry<String, dynamic>>[];
+          final arrayEntries = <MapEntry<String, List<dynamic>>>[];
+
+          summary.forEach((key, value) {
+            if (value is List) {
+              arrayEntries.add(MapEntry(key, value));
+            } else {
+              kpiEntries.add(MapEntry(key, value));
+            }
+          });
+
+          final widgets = <pw.Widget>[
+            _buildHeader(railway, mirtha, 'Station Cleaning Report', report.reportType.replaceAll('_', ' ').toUpperCase()),
+            pw.Divider(thickness: 1, color: borderColor),
+            _buildInfoRow('Station', report.stationName, 'Report Type', report.reportType.replaceAll('_', ' ')),
+            _buildInfoRow('Date', report.date, 'Month/Year', '${report.month}/${report.year}'),
+            _buildInfoRow('Generated By', report.generatedByName, 'Generated At', timestamp),
+            pw.SizedBox(height: 10),
+          ];
+
+          if (kpiEntries.isNotEmpty) {
+            widgets.add(_buildSectionHeader('Key Metrics'));
+            final rows = <pw.TableRow>[];
+            final headerCells = <String>[];
+            final valueRows = <List<String>>[];
+            for (var i = 0; i < kpiEntries.length; i += 2) {
+              final left = kpiEntries[i];
+              final right = i + 1 < kpiEntries.length ? kpiEntries[i + 1] : null;
+              headerCells.add(_formatLabel(left.key));
+              if (right != null) headerCells.add(_formatLabel(right.key));
+              valueRows.add([
+                _formatValue(left.value),
+                right != null ? _formatValue(right.value) : '',
+              ]);
+            }
+            final uniqueHeaders = headerCells.toSet().toList();
+            if (uniqueHeaders.length <= 4) {
+              widgets.add(
+                pw.Table(
+                  border: pw.TableBorder.all(color: borderColor, width: 0.5),
+                  columnWidths: uniqueHeaders.length <= 2
+                      ? <int, pw.TableColumnWidth>{0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1)}
+                      : <int, pw.TableColumnWidth>{0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1), 2: pw.FlexColumnWidth(1), 3: pw.FlexColumnWidth(1)},
+                  children: [
+                    pw.TableRow(
+                      decoration: pw.BoxDecoration(color: primaryColor),
+                      children: uniqueHeaders.map((h) => pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text(h, style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.center),
+                      )).toList(),
+                    ),
+                    ...valueRows.map((row) => pw.TableRow(
+                      children: row.map((v) => pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text(v, style: const pw.TextStyle(fontSize: 8), textAlign: pw.TextAlign.center),
+                      )).toList(),
+                    )),
+                  ],
+                ),
+              );
+            } else {
+              widgets.add(
+                pw.TableHelper.fromTextArray(
+                  context: context,
+                  headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8),
+                  headerDecoration: pw.BoxDecoration(color: primaryColor),
+                  cellStyle: pw.TextStyle(fontSize: 8),
+                  cellAlignment: pw.Alignment.center,
+                  data: [
+                    kpiEntries.map((e) => _formatLabel(e.key)).toList(),
+                    kpiEntries.map((e) => _formatValue(e.value)).toList(),
+                  ],
+                ),
+              );
+            }
+            widgets.add(pw.SizedBox(height: 10));
+          }
+
+          for (final entry in arrayEntries) {
+            if (entry.value.isEmpty) continue;
+            widgets.add(_buildSectionHeader(_formatLabel(entry.key)));
+            final records = entry.value;
+            final allKeys = <String>{};
+            for (final record in records) {
+              if (record is Map) allKeys.addAll(record.keys.cast<String>());
+            }
+            final keys = allKeys.take(6).toList();
+            if (keys.isEmpty) continue;
+            final dataRows = records.map((record) {
+              if (record is Map) {
+                return keys.map((k) => _formatValue(record[k])).toList();
+              }
+              return [_formatValue(record)];
+            }).toList();
+            widgets.add(
+              pw.TableHelper.fromTextArray(
+                context: context,
+                headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 7),
+                headerDecoration: pw.BoxDecoration(color: PdfColors.teal),
+                cellStyle: pw.TextStyle(fontSize: 7),
+                cellAlignment: pw.Alignment.center,
+                data: [
+                  keys.map((k) => _formatLabel(k)).toList(),
+                  ...dataRows,
+                ],
+              ),
+            );
+            widgets.add(pw.SizedBox(height: 8));
+          }
+
+          widgets.add(pw.SizedBox(height: 20));
+          widgets.add(_buildSignatures());
+          widgets.add(_buildDigitalFooter(timestamp));
+          return widgets;
+        },
+      ),
+    );
+    return pdf.save();
+  }
+
+  static String _formatLabel(String key) {
+    return key
+        .replaceAllMapped(RegExp(r'[A-Z]'), (m) => ' ${m.group(0)}')
+        .replaceAll('_', ' ')
+        .trim()
+        .toUpperCase();
+  }
+
+  static String _formatValue(dynamic value) {
+    if (value == null) return 'N/A';
+    if (value is double) return value.toStringAsFixed(1);
+    return value.toString();
+  }
 }

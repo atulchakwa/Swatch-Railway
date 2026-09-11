@@ -26,6 +26,11 @@ export const getStationArea = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+export const getStationAreaSummary = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.getStationAreaSummary(req.params.stationId);
+  res.status(200).json(result);
+});
+
 export const createStationZone = asyncHandler(async (req, res) => {
   const result = await stationCleaningService.createStationZone(req.body);
   res.status(201).json(result);
@@ -101,9 +106,14 @@ export const deleteSchedule = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+export const generateTasksFromSchedule = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.generateTasksFromSchedule(req.body);
+  res.status(201).json({ success: true, ...result });
+});
+
 export const createStationRun = asyncHandler(async (req, res) => {
   const result = await stationCleaningService.createStationRun(req.body, req.user);
-  res.status(201).json({ success: true, data: result.data || result, message: result.message });
+  res.status(201).json({ success: true, data: result.data || result, message: result.message, tasksCreated: result.tasksCreated || 0 });
 });
 
 export const listStationRuns = asyncHandler(async (req, res) => {
@@ -129,6 +139,11 @@ export const deleteStationRun = asyncHandler(async (req, res) => {
 export const getWorkerStationRuns = asyncHandler(async (req, res) => {
   const result = await stationCleaningService.getWorkerStationRuns(req.params.workerId, req.user);
   res.status(200).json({ success: true, data: result.runs || result.data || [], count: result.count });
+});
+
+export const completePlatform = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.completePlatform(req.params.runId, req.body, req.user);
+  res.status(200).json({ success: true, ...result });
 });
 
 export const getSupervisorStationRuns = asyncHandler(async (req, res) => {
@@ -270,6 +285,16 @@ export const listGarbageRecords = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, count: result.length, data: result });
 });
 
+export const approveGarbageRecord = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.approveGarbageRecord(req.params.uid, req.user);
+  res.status(200).json({ success: true, message: 'Garbage record approved' });
+});
+
+export const rejectGarbageRecord = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.rejectGarbageRecord(req.params.uid, req.body, req.user);
+  res.status(200).json({ success: true, message: 'Garbage record rejected' });
+});
+
 export const garbageReport = asyncHandler(async (req, res) => {
   const result = await stationCleaningService.garbageReport(req.query);
   res.status(200).json({ success: true, ...result });
@@ -281,27 +306,27 @@ export const getWorkerDashboard = asyncHandler(async (req, res) => {
 });
 
 export const getSupervisorDashboard = asyncHandler(async (req, res) => {
-  res.json(await stationCleaningService.getSupervisorDashboard(req.params.supervisorId, req.query));
+  res.json(await stationCleaningService.getSupervisorDashboard(req.params.supervisorId, req.query, req.user));
 });
 
 export const generateDailyReport = asyncHandler(async (req, res) => {
   const { stationId } = req.params;
-  res.json(await stationCleaningService.generateDailyReport(stationId, req.query));
+  res.json(await stationCleaningService.generateDailyReport(stationId, req.query, req.user));
 });
 
 export const generateWeeklyReport = asyncHandler(async (req, res) => {
   const { stationId } = req.params;
-  res.json(await stationCleaningService.generateWeeklyReport(stationId, req.query));
+  res.json(await stationCleaningService.generateWeeklyReport(stationId, req.query, req.user));
 });
 
 export const generateMonthlyReport = asyncHandler(async (req, res) => {
   const { stationId } = req.params;
-  res.json(await stationCleaningService.generateMonthlyReport(stationId, req.query));
+  res.json(await stationCleaningService.generateMonthlyReport(stationId, req.query, req.user));
 });
 
 export const getScoreTrend = asyncHandler(async (req, res) => {
   const { stationId } = req.params;
-  res.json(await stationCleaningService.getScoreTrend(stationId, req.query));
+  res.json(await stationCleaningService.getScoreTrend(stationId, req.query, req.user));
 });
 
 // ─── Area-Task Frequency (SRS #2) ──────────────────────────────────────────
@@ -319,4 +344,81 @@ export const deleteAreaTaskFrequency = asyncHandler(async (req, res) => {
 
 export const listAreaTaskFrequencies = asyncHandler(async (req, res) => {
   res.json(await stationCleaningService.listAreaTaskFrequencies(req.query));
+});
+
+export const submitDailyLog = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.submitDailyLog(req.body, req.user);
+  res.status(201).json({ success: true, ...result });
+});
+
+// ─── Supervisor Workers ────────────────────────────────────────────────────
+export const createWorker = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.createWorker(req.body, req.user);
+  res.status(201).json(result);
+});
+
+export const updateWorker = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.updateWorker(req.params.uid, req.body, req.user);
+  res.status(200).json(result);
+});
+
+export const deleteWorker = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.deleteWorker(req.params.uid, req.user);
+  res.status(200).json(result);
+});
+
+export const listWorkers = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.listWorkers(req.query, req.user);
+  res.status(200).json(result);
+});
+
+export const getWorker = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.getWorker(req.params.uid);
+  res.status(200).json(result);
+});
+
+// ─── Cleaning Submissions ────────────────────────────────────────────────
+export const createSubmission = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.createSubmission(req.body, req.user);
+  res.status(201).json(result);
+});
+
+export const listMySubmissions = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.listMySubmissions(req.query, req.user);
+  res.status(200).json(result);
+});
+
+export const listAllSubmissions = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.listAllSubmissions(req.query, req.user);
+  res.status(200).json(result);
+});
+
+export const reviewSubmission = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.reviewSubmission(req.params.uid, req.body, req.user);
+  res.status(200).json(result);
+});
+
+export const submitShiftSummary = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.submitShiftSummary(req.body, req.user);
+  res.status(201).json({ success: true, ...result });
+});
+
+export const listShiftSummaries = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.listShiftSummaries(req.query, req.user);
+  res.status(200).json({ success: true, ...result });
+});
+
+export const getShiftSummary = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.getShiftSummary(req.params.uid);
+  res.status(200).json({ success: true, ...result });
+});
+
+export const approveShiftSummary = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.approveShiftSummary(req.params.uid, req.user);
+  res.status(200).json({ success: true, ...result });
+});
+
+export const rejectShiftSummary = asyncHandler(async (req, res) => {
+  const result = await stationCleaningService.rejectShiftSummary(req.params.uid, req.body, req.user);
+  res.status(200).json({ success: true, ...result });
 });

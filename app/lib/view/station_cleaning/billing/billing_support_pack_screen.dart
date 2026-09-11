@@ -1,8 +1,12 @@
 import 'package:crm_train/model/station_cleaning_models.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/station_billing_repository.dart';
 import 'package:crm_train/services/api_services.dart';
+import 'package:crm_train/services/pdf_report_service.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
+import 'package:provider/provider.dart';
 
 class BillingSupportPackScreen extends StatefulWidget {
   final String? contractId;
@@ -20,6 +24,7 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
   int _selectedYear = DateTime.now().year;
 
   StationBillingPack? _billingPack;
+  String? _errorMessage;
   final TextEditingController _rejectionReasonCtrl = TextEditingController();
   String? _resolvedContractId;
 
@@ -46,9 +51,11 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
       });
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to resolve contract: $e'), backgroundColor: kErrorRed),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to resolve contract: $e'), backgroundColor: kErrorRed),
+        );
+      }
     }
   }
 
@@ -64,7 +71,7 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
     }
     if (_resolvedContractId == null || _resolvedContractId!.isEmpty) return;
 
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _errorMessage = null; });
     try {
       final pack = await StationBillingRepository.generate(
         _resolvedContractId!,
@@ -72,13 +79,14 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
         _selectedMonth,
         _selectedYear,
       );
-      setState(() {
-        _billingPack = pack;
-      });
+      setState(() => _billingPack = pack);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load/generate billing pack: $e'), backgroundColor: kErrorRed),
-      );
+      setState(() => _errorMessage = e.toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
     } finally {
       setState(() => _isLoading = false);
     }
@@ -92,9 +100,11 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
       await StationBillingRepository.updateCompliance(_billingPack!.uid, updatedChecklist);
       _fetchOrGenerate();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update compliance: $e'), backgroundColor: kErrorRed),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
     }
   }
 
@@ -104,9 +114,11 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
       await StationBillingRepository.submit(_billingPack!.uid);
       _fetchOrGenerate();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Submission failed: $e'), backgroundColor: kErrorRed),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Submission failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
     }
   }
 
@@ -116,9 +128,11 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
       await StationBillingRepository.approve(_billingPack!.uid);
       _fetchOrGenerate();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Approval failed: $e'), backgroundColor: kErrorRed),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Approval failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
     }
   }
 
@@ -128,165 +142,656 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
       await StationBillingRepository.reject(_billingPack!.uid, _rejectionReasonCtrl.text.trim());
       _fetchOrGenerate();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rejection failed: $e'), backgroundColor: kErrorRed),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Rejection failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
     }
   }
+
+  bool _can(String permission) {
+    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+    if (user == null) return false;
+    final r = (user.role ?? '').toUpperCase().replaceAll(' ', '_');
+    const perms = {
+      'SUPER_ADMIN': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
+      'COMPANY_MASTER': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
+      'RAILWAY_MASTER': {'VIEW'},
+      'ADMIN': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
+      'RAILWAY_ADMIN': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
+      'CONTRACTOR_MASTER': {'VIEW'},
+      'CONTRACTOR_ADMIN': {'VIEW', 'MANAGE', 'APPROVE'},
+    };
+    return (perms[r] ?? <String>{}).contains(permission);
+  }
+
+  Future<void> _downloadPdf() async {
+    if (_billingPack == null) return;
+    try {
+      final pdfBytes = await PDFReportService.generateStationBillingPdf(_billingPack!);
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: 'BillingPack_${_billingPack!.contractNumber}_${_billingPack!.month}_${_billingPack!.year}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
+    }
+  }
+
+  Future<void> _recordPayment() async {
+    final amountCtrl = TextEditingController();
+    final refCtrl = TextEditingController();
+    String mode = 'bank_transfer';
+    final modes = ['bank_transfer', 'cheque', 'cash', 'online'];
+    final recorded = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Record Payment'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Amount *', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: mode,
+                decoration: const InputDecoration(labelText: 'Mode *', border: OutlineInputBorder()),
+                items: modes.map((m) => DropdownMenuItem(value: m, child: Text(m.replaceAll('_', ' ').toUpperCase()))).toList(),
+                onChanged: (v) { if (v != null) mode = v; },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: refCtrl,
+                decoration: const InputDecoration(labelText: 'Reference *', border: OutlineInputBorder(), hintText: 'e.g. payment ref no.'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              final amount = double.tryParse(amountCtrl.text.trim());
+              if (amount == null || amount <= 0) return;
+              if (refCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, {'amount': amountCtrl.text.trim(), 'mode': mode, 'reference': refCtrl.text.trim()});
+            },
+            child: const Text('Record Payment'),
+          ),
+        ],
+      ),
+    );
+    if (recorded == null) return;
+    try {
+      await StationBillingRepository.recordPayment(
+        _billingPack!.uid,
+        amount: double.parse(recorded['amount']!),
+        mode: recorded['mode']!,
+        reference: recorded['reference'],
+      );
+      _fetchOrGenerate();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Payment recorded'), backgroundColor: kSuccessGreen),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Payment failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'DRAFT': return kRailwayBlue;
+      case 'SUBMITTED': return kWarningOrange;
+      case 'APPROVED': return kSuccessGreen;
+      case 'REJECTED': return kErrorRed;
+      default: return Colors.grey;
+    }
+  }
+
+  Widget _summaryCard(String title, List<Widget> rows, {Color? headerColor}) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            color: headerColor ?? kRailwayBlue,
+            child: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+          ),
+          ...rows,
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value, {Color? valueColor, bool bold = true}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 160, child: Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 12))),
+          Expanded(child: Text(value, style: TextStyle(fontWeight: bold ? FontWeight.w600 : FontWeight.normal, fontSize: 12, color: valueColor))),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() => Divider(height: 1, color: Colors.grey[200]);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Billing Support Pack', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Billing Support Pack', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          if (_billingPack != null)
+            IconButton(
+              icon: const Icon(Icons.download, color: Colors.white),
+              tooltip: 'Download PDF',
+              onPressed: _downloadPdf,
+            ),
+        ],
       ),
       body: Column(
         children: [
-          Card(
-            margin: const EdgeInsets.all(12),
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      value: _selectedMonth,
-                      decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder()),
-                      items: List.generate(12, (index) {
-                        return DropdownMenuItem(value: index + 1, child: Text((index + 1).toString()));
-                      }),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedMonth = val);
-                      },
-                    ),
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.white,
+            child: Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: _selectedMonth,
+                    decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                    items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text(DateTime(2000, i + 1).month.toString()))),
+                    onChanged: (v) { if (v != null) setState(() => _selectedMonth = v); },
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      value: _selectedYear,
-                      decoration: const InputDecoration(labelText: 'Year', border: OutlineInputBorder()),
-                      items: [2025, 2026, 2027].map((y) {
-                        return DropdownMenuItem(value: y, child: Text(y.toString()));
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedYear = val);
-                      },
-                    ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: _selectedYear,
+                    decoration: const InputDecoration(labelText: 'Year', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                    items: [2024, 2025, 2026, 2027].map((y) => DropdownMenuItem(value: y, child: Text(y.toString()))).toList(),
+                    onChanged: (v) { if (v != null) setState(() => _selectedYear = v); },
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 44,
+                  child: ElevatedButton(
                     onPressed: _fetchOrGenerate,
                     style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
                     child: const Text('Go'),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _billingPack == null
-                    ? const Center(child: Text('Select month/year and tap Go to generate support pack.'))
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Contractor: ${_billingPack!.contractorName}',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                            Text('Contract Value (Monthly Base): ₹${_billingPack!.monthlyContractValue}'),
-                            Text('Billable Amount: ₹${_billingPack!.billableAmount}', style: const TextStyle(fontSize: 16, color: kSuccessGreen, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 12),
-                            Card(
-                              color: kRailwayBlue.withOpacity(0.05),
-                              child: ListTile(
-                                title: const Text('Status of Billing Pack'),
-                                trailing: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(color: kRailwayBlue, borderRadius: BorderRadius.circular(6)),
-                                  child: Text(_billingPack!.status, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            const Text('Compliance Document Checklist', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 8),
-                            ..._billingPack!.complianceChecklist.keys.map((key) {
-                              return CheckboxListTile(
-                                title: Text(key.replaceAll('Attached', '').toUpperCase()),
-                                value: _billingPack!.complianceChecklist[key] == true,
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    _updateComplianceCheckbox(key, val);
-                                  }
-                                },
-                              );
-                            }),
-                            const SizedBox(height: 16),
-                            if (_billingPack!.status == 'DRAFT')
-                              SizedBox(
-                                width: double.infinity,
-                                height: 48,
-                                child: ElevatedButton(
-                                  onPressed: _submitPack,
-                                  style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
-                                  child: const Text('Submit Pack for Review'),
-                                ),
-                              ),
-                            if (_billingPack!.status == 'SUBMITTED') ...[
+                : _errorMessage != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.error_outline, size: 48, color: kErrorRed),
                               const SizedBox(height: 12),
-                              Row(
+                              Text(_errorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: kErrorRed)),
+                              const SizedBox(height: 12),
+                              ElevatedButton(onPressed: _fetchOrGenerate, child: const Text('Retry')),
+                            ],
+                          ),
+                        ),
+                      )
+                    : _billingPack == null
+                        ? const Center(child: Text('Select month/year and tap Go to generate billing support pack.'))
+                        : RefreshIndicator(
+                            onRefresh: _fetchOrGenerate,
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Expanded(
-                                    child: ElevatedButton(
-                                      onPressed: _approvePack,
-                                      style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
-                                      child: const Text('Approve Pack'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: ElevatedButton(
-                                      onPressed: () {
-                                        showDialog(
-                                          context: context,
-                                          builder: (context) => AlertDialog(
-                                            title: const Text('Reject Billing Pack'),
-                                            content: TextField(
-                                              controller: _rejectionReasonCtrl,
-                                              decoration: const InputDecoration(hintText: 'Enter reason for rejection'),
-                                            ),
-                                            actions: [
-                                              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-                                              TextButton(
-                                                onPressed: () {
-                                                  Navigator.pop(context);
-                                                  _rejectPack();
-                                                },
-                                                child: const Text('Reject'),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                      style: ElevatedButton.styleFrom(backgroundColor: kErrorRed, foregroundColor: Colors.white),
-                                      child: const Text('Reject Pack'),
-                                    ),
-                                  ),
+                                  _buildHeaderSection(),
+                                  const SizedBox(height: 12),
+                                  _buildAttendanceSection(),
+                                  _buildActivitySection(),
+                                  _buildScorecardSection(),
+                                  _buildInspectionSection(),
+                                  _buildFeedbackSection(),
+                                  _buildPettyIssueSection(),
+                                  _buildEvidenceSection(),
+                                  _buildMachineSection(),
+                                  _buildExecutionSheetSection(),
+                                  _buildInspectionBillingSection(),
+                                  _buildPenaltySection(),
+                                  _buildFinancialSection(),
+                                  _buildComplianceSection(),
+                                  _buildActionButtons(),
+                                  const SizedBox(height: 24),
                                 ],
                               ),
-                            ],
-                          ],
-                        ),
-                      ),
+                            ),
+                          ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildHeaderSection() {
+    final p = _billingPack!;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${p.contractorName}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _statusColor(p.status),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(p.status, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('Contract: ${p.contractNumber}', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            Text('Period: ${p.month}/${p.year} | Station: ${p.stationName}', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            if (p.status == 'REJECTED' && p.rejectionReason != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: kErrorRed.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                child: Row(children: [
+                  const Icon(Icons.error, color: kErrorRed, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text('Rejection: ${p.rejectionReason}', style: const TextStyle(color: kErrorRed, fontSize: 11))),
+                ]),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttendanceSection() {
+    final s = _billingPack!.attendanceSummary;
+    return _summaryCard('Attendance Summary', [
+      _infoRow('Days Recorded', '${s['totalDaysRecorded'] ?? 0}'),
+      _divider(),
+      _infoRow('Total Entries', '${s['totalAttendanceEntries'] ?? 0}'),
+      _infoRow('Present (incl. Late)', '${s['totalPresent'] ?? 0}', valueColor: kSuccessGreen),
+      _infoRow('Absent', '${s['totalAbsent'] ?? 0}', valueColor: kErrorRed),
+      _divider(),
+      _infoRow('Avg Daily Manpower', '${s['averageDailyManpower'] ?? 0}'),
+      _infoRow('Attendance %', '${s['attendancePercentage'] ?? 0}%',
+          valueColor: (s['attendancePercentage'] ?? 0) >= 90 ? kSuccessGreen : kErrorRed),
+    ]);
+  }
+
+  Widget _buildActivitySection() {
+    final s = _billingPack!.activitySummary;
+    return _summaryCard('Task Completion Summary', [
+      _infoRow('Total Tasks', '${s['total'] ?? 0}'),
+      _divider(),
+      _infoRow('Approved', '${s['APPROVED'] ?? 0}', valueColor: kSuccessGreen),
+      _infoRow('Completed', '${s['COMPLETED'] ?? 0}', valueColor: Colors.blue),
+      _infoRow('In Progress', '${s['IN_PROGRESS'] ?? 0}', valueColor: kWarningOrange),
+      _infoRow('Pending', '${s['PENDING'] ?? 0}', valueColor: Colors.grey),
+      _infoRow('Rejected', '${s['REJECTED'] ?? 0}', valueColor: kErrorRed),
+      _infoRow('Resubmitted', '${s['RESUBMITTED'] ?? 0}', valueColor: kWarningOrange),
+      _divider(),
+      _infoRow('Completion Rate', '${s['completionRate'] ?? 0}%',
+          valueColor: (s['completionRate'] ?? 0) >= 80 ? kSuccessGreen : kErrorRed),
+    ]);
+  }
+
+  Widget _buildScorecardSection() {
+    final s = _billingPack!.scorecardSummary;
+    final grades = s['gradeDistribution'] as Map<String, dynamic>? ?? {};
+    return _summaryCard('Cleanliness Scorecard Summary', [
+      _infoRow('Days with Scorecard', '${s['daysWithScorecard'] ?? 0}'),
+      _infoRow('Average Score', '${s['averageScore'] ?? 0}',
+          valueColor: (s['averageScore'] ?? 0) >= 70 ? kSuccessGreen : kErrorRed),
+      _infoRow('Certified', '${s['certified'] == true ? 'Yes' : 'No'}'),
+      _divider(),
+      _infoRow('Grade A', '${grades['A'] ?? 0}', valueColor: kSuccessGreen),
+      _infoRow('Grade B', '${grades['B'] ?? 0}', valueColor: Colors.blue),
+      _infoRow('Grade C', '${grades['C'] ?? 0}', valueColor: kWarningOrange),
+      _infoRow('Grade D', '${grades['D'] ?? 0}', valueColor: kErrorRed),
+    ]);
+  }
+
+  Widget _buildInspectionSection() {
+    final s = _billingPack!.inspectionSummary;
+    if (s.isEmpty) return const SizedBox.shrink();
+    return _summaryCard('Inspection Score Summary', [
+      _infoRow('Total Inspections', '${s['totalInspections'] ?? 0}'),
+      _infoRow('Average Score', '${s['averageScore'] ?? 0}',
+          valueColor: (s['averageScore'] ?? 0) >= 70 ? kSuccessGreen : kErrorRed),
+      _divider(),
+      _infoRow('Total Deficiencies', '${s['totalDeficiencies'] ?? 0}', valueColor: kErrorRed),
+      _infoRow('Closed Deficiencies', '${s['closedDeficiencies'] ?? 0}', valueColor: kSuccessGreen),
+      _infoRow('Open Deficiencies', '${s['openDeficiencies'] ?? 0}',
+          valueColor: (s['openDeficiencies'] ?? 0) > 0 ? kErrorRed : kSuccessGreen),
+    ]);
+  }
+
+  Widget _buildFeedbackSection() {
+    final s = _billingPack!.feedbackSummary;
+    return _summaryCard('Passenger Feedback Summary', [
+      _infoRow('Total Feedbacks', '${s['totalFeedbacks'] ?? 0}'),
+      _infoRow('Average Rating', '${s['averageRating'] ?? 'N/A'}',
+          valueColor: (s['averageRating'] ?? 5) >= 3.0 ? kSuccessGreen : kErrorRed),
+      _infoRow('Negative Feedbacks', '${s['negativeFeedbacks'] ?? 0}',
+          valueColor: (s['negativeFeedbacks'] ?? 0) > 0 ? kErrorRed : kSuccessGreen),
+    ]);
+  }
+
+  Widget _buildPettyIssueSection() {
+    final s = _billingPack!.pettyIssueSummary;
+    if (s.isEmpty) return const SizedBox.shrink();
+    return _summaryCard('Petty Issue Summary', [
+      _infoRow('Total Petty Issues', '${s['total'] ?? 0}'),
+      _infoRow('Resolved', '${s['resolved'] ?? 0}', valueColor: kSuccessGreen),
+      _infoRow('Open', '${s['open'] ?? 0}', valueColor: (s['open'] ?? 0) > 0 ? kErrorRed : kSuccessGreen),
+    ]);
+  }
+
+  Widget _buildEvidenceSection() {
+    final s = _billingPack!.evidenceSummary;
+    if (s.isEmpty) return const SizedBox.shrink();
+    final rate = s['evidenceComplianceRate'] ?? 0;
+    return _summaryCard('Photo Evidence Summary', [
+      _infoRow('Total Forms', '${s['totalForms'] ?? 0}'),
+      _infoRow('Forms with Photos', '${s['formsWithPhotos'] ?? 0}', valueColor: kSuccessGreen),
+      _infoRow('Total Photos Uploaded', '${s['totalPhotos'] ?? 0}'),
+      _divider(),
+      _infoRow('Evidence Compliance', '$rate%',
+          valueColor: rate >= 80 ? kSuccessGreen : kWarningOrange),
+    ]);
+  }
+
+  Widget _buildMachineSection() {
+    final s = _billingPack!.machineSummary;
+    return _summaryCard('Machine & Equipment Summary', [
+      _infoRow('Total Machines', '${s['total'] ?? 0}'),
+      _infoRow('Deployed', '${s['deployed'] ?? 0}', valueColor: kSuccessGreen),
+      _infoRow('In Maintenance', '${s['inMaintenance'] ?? 0}',
+          valueColor: (s['inMaintenance'] ?? 0) > 0 ? kWarningOrange : kSuccessGreen),
+      _divider(),
+      _infoRow('Downtime Incidents', '${s['downtime']?['incidents'] ?? 0}'),
+      _infoRow('Downtime Hours', '${s['downtime']?['totalHours'] ?? 0}'),
+      _infoRow('Downtime Penalty', '₹${s['downtime']?['totalPenalty'] ?? 0}',
+          valueColor: (s['downtime']?['totalPenalty'] ?? 0) > 0 ? kErrorRed : kSuccessGreen),
+    ]);
+  }
+
+  Widget _buildExecutionSheetSection() {
+    final s = _billingPack!.executionSheetSummary;
+    if (s.isEmpty || s['configured'] != true) return const SizedBox.shrink();
+    final score = s['executionScore'] ?? 0;
+    final shortfall = s['shortfallDeduction'] ?? 0;
+    final achieved = s['achievedAmount'] ?? 0;
+    final componentBase = s['executionComponentNetBase'] ?? 0;
+    final items = (s['itemScores'] as List<dynamic>?) ?? [];
+    return _summaryCard('Work Execution Sheet (50% Billing Component)', [
+      _infoRow('Execution Score', '$score%',
+          valueColor: score >= 80 ? kSuccessGreen : score >= 50 ? kWarningOrange : kErrorRed),
+      _infoRow('Items Configured', '${s['items'] ?? 0}'),
+      _infoRow('Days Logged', '${s['daysLogged'] ?? 0}'),
+      _infoRow('Days Area Executed', '${s['daysAreaExecuted'] ?? 0}'),
+      _divider(),
+      _infoRow('Component Base (50%)', '₹$componentBase'),
+      _infoRow('Achieved Amount', '₹$achieved', valueColor: kSuccessGreen),
+      if (shortfall > 0)
+        _infoRow('Shortfall Deduction', '₹$shortfall', valueColor: kErrorRed),
+      if (items.isNotEmpty) ...[
+        _divider(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          child: Text('Item Breakdown', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey[600])),
+        ),
+        ...items.take(10).map((item) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text('#${item['itemNo']} ${item['description'] ?? ''}',
+                    style: const TextStyle(fontSize: 11), overflow: TextOverflow.ellipsis),
+              ),
+              Text('${item['achievedRatio'] ?? 0}%',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: (item['achievedRatio'] ?? 0) >= 80 ? kSuccessGreen : kWarningOrange,
+                  )),
+            ],
+          ),
+        )),
+        if (items.length > 10)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            child: Text('...and ${items.length - 10} more', style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+          ),
+      ],
+    ]);
+  }
+
+  Widget _buildInspectionBillingSection() {
+    final s = _billingPack!.inspectionBillingSummary;
+    if (s.isEmpty || s['configured'] != true) return const SizedBox.shrink();
+    final score = s['inspectionScore'] ?? 0;
+    final shortfall = s['shortfallDeduction'] ?? 0;
+    final achieved = s['achievedAmount'] ?? 0;
+    final componentBase = s['inspectionComponentNetBase'] ?? 0;
+    final totalInspected = s['totalScoredInspections'] ?? 0;
+    return _summaryCard('Inspection Score (20% Billing Component)', [
+      _infoRow('Inspection Score', '$score',
+          valueColor: score >= 80 ? kSuccessGreen : score >= 50 ? kWarningOrange : kErrorRed),
+      _infoRow('Scored Inspections', '$totalInspected'),
+      _divider(),
+      _infoRow('Component Base (20%)', '₹$componentBase'),
+      _infoRow('Achieved Amount', '₹$achieved', valueColor: kSuccessGreen),
+      if (shortfall > 0)
+        _infoRow('Shortfall Deduction', '₹$shortfall', valueColor: kErrorRed),
+    ]);
+  }
+
+  Widget _buildPenaltySection() {
+    final p = _billingPack!.penalties;
+    final deductions = (p['deductions'] as List<dynamic>?) ?? [];
+    return _summaryCard('Penalties & Deductions', [
+      if (deductions.isEmpty)
+        const Padding(
+          padding: EdgeInsets.all(14),
+          child: Text('No deductions applied', style: TextStyle(color: Colors.grey)),
+        )
+      else
+        ...deductions.map((d) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(child: Text('${d['reason'] ?? ''}', style: const TextStyle(fontSize: 12))),
+                  Text('₹${d['amount'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: kErrorRed)),
+                ],
+              ),
+            ),
+            if (d['percentage'] != null && (d['percentage'] as num) > 0)
+              Padding(
+                padding: const EdgeInsets.only(left: 14, bottom: 4),
+                child: Text('${d['percentage']}%', style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+              ),
+            _divider(),
+          ],
+        )),
+      _divider(),
+      _infoRow('Total Penalty', '₹${p['totalPenaltyAmount'] ?? 0}',
+          valueColor: (p['totalPenaltyAmount'] ?? 0) > 0 ? kErrorRed : kSuccessGreen),
+    ]);
+  }
+
+  Widget _buildFinancialSection() {
+    final p = _billingPack!;
+    return _summaryCard('Financial Summary', [
+      _infoRow('Monthly Contract Value', '₹${p.monthlyContractValue}'),
+      _infoRow('Total Deductions', '₹${p.penalties['totalPenaltyAmount'] ?? 0}', valueColor: kErrorRed),
+      _divider(),
+      _infoRow('Net Billable', '₹${p.billableAmount}', valueColor: kSuccessGreen, bold: true),
+      _infoRow('GST (${p.gstRate}%)', '₹${p.gstAmount}'),
+      _infoRow('Total Payable (incl. GST)', '₹${p.totalPayableWithGst}',
+          valueColor: Colors.deepOrange, bold: true),
+    ]);
+  }
+
+  Widget _buildComplianceSection() {
+    final checklist = _billingPack!.complianceChecklist;
+    return _summaryCard('Compliance Document Checklist', [
+      ...checklist.keys.map((key) {
+        final val = checklist[key] == true;
+        return CheckboxListTile(
+          dense: true,
+          title: Text(key
+            .replaceAll('Attached', '')
+            .replaceAllMapped(RegExp(r'[A-Z]'), (m) => ' ${m.group(0)}')
+            .trim()
+            .toUpperCase(),
+            style: const TextStyle(fontSize: 12)),
+          value: val,
+          activeColor: kRailwayBlue,
+          onChanged: _can('MANAGE')
+              ? (v) { if (v != null) _updateComplianceCheckbox(key, v); }
+              : null,
+        );
+      }),
+    ]);
+  }
+
+  Widget _buildActionButtons() {
+    final p = _billingPack!;
+    if (p.status == 'DRAFT' && _can('MANAGE')) {
+      return SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton.icon(
+          onPressed: _submitPack,
+          icon: const Icon(Icons.send),
+          style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
+          label: const Text('Submit Pack for Review'),
+        ),
+      );
+    }
+    if (p.status == 'SUBMITTED' && _can('APPROVE')) {
+      return Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _approvePack,
+                icon: const Icon(Icons.check_circle),
+                style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+                label: const Text('Approve'),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  _rejectionReasonCtrl.clear();
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Reject Billing Pack'),
+                      content: TextField(
+                        controller: _rejectionReasonCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter reason for rejection',
+                          border: OutlineInputBorder(),
+                        ),
+                        maxLines: 3,
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _rejectPack();
+                          },
+                          style: TextButton.styleFrom(foregroundColor: kErrorRed),
+                          child: const Text('Reject'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.cancel),
+                style: ElevatedButton.styleFrom(backgroundColor: kErrorRed, foregroundColor: Colors.white),
+                label: const Text('Reject'),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    if (p.status == 'APPROVED' && _can('PAY')) {
+      return SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton.icon(
+          onPressed: _recordPayment,
+          icon: const Icon(Icons.payment),
+          style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+          label: const Text('Record Payment'),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 }

@@ -481,7 +481,7 @@ class _ObhsTaskExecutionSheetState extends State<ObhsTaskExecutionSheet> {
     try {
       await WorkerRepository.submitObhsTask(
         runInstanceId: widget.runInstanceId,
-        taskId: widget.task['uid'] ?? '',
+        taskId: widget.task['taskId'] ?? widget.task['uid'] ?? '',
         taskType: widget.task['taskType'] ?? '',
         coachNo: widget.coachNo,
         frequencyIndex: widget.task['frequencyIndex'] ?? '',

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:crm_train/model/area_cleaning_models.dart';
+import 'dart:convert';
 import 'package:crm_train/model/station_models.dart';
+import 'package:crm_train/model/platform_model.dart';
+import 'package:crm_train/repositories/platform_repository.dart';
 import 'package:crm_train/repositories/base_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
@@ -18,58 +20,72 @@ class AreaPerformanceDashboard extends StatefulWidget {
 
 class _AreaPerformanceDashboardState extends State<AreaPerformanceDashboard> {
   List<Station> _stations = [];
-  String? _selectedAreaId;
-  String _selectedAreaName = '';
-  AreaDashboard? _dashboard;
+  Map<String, dynamic>? _dashboardData;
   bool _isLoading = true;
   String? _error;
 
   String? _selectedStationId;
-  List<StationArea> _areasOfStation = [];
-  bool _loadingAreas = false;
+  String? _selectedPlatformId;
+  List<Platform> _platformsOfStation = [];
+  bool _loadingPlatforms = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedAreaId = widget.areaId;
-    _selectedAreaName = widget.areaName ?? '';
     _selectedStationId = widget.stationId;
-    if (_selectedAreaId != null) {
+    if (_selectedStationId != null) {
       _loadDashboard();
+      _loadStations();
     } else {
       _loadStations();
     }
   }
 
   Future<void> _loadStations() async {
-    setState(() => _isLoading = true);
     try {
-      _stations = await ApiService.getStations(active: true);
+      final stationsList = await ApiService.getStations(active: true);
+      setState(() {
+        _stations = stationsList;
+      });
       if (_selectedStationId != null) {
-        await _loadAreasForStation(_selectedStationId!);
+        await _loadPlatformsForStation(_selectedStationId!);
       }
     } catch (_) {}
-    if (mounted) setState(() => _isLoading = false);
+    if (_selectedStationId == null && mounted) {
+      setState(() => _isLoading = false);
+    }
   }
 
-  Future<void> _loadAreasForStation(String stationId) async {
-    if (mounted) setState(() => _loadingAreas = true);
+  Future<void> _loadPlatformsForStation(String stationId) async {
+    if (mounted) setState(() => _loadingPlatforms = true);
     try {
-      _areasOfStation = await ApiService.getStationAreas(stationId);
+      final platforms = await PlatformRepository.getByStation(stationId);
+      setState(() {
+        _platformsOfStation = platforms;
+      });
     } catch (_) {}
-    if (mounted) setState(() => _loadingAreas = false);
+    if (mounted) setState(() => _loadingPlatforms = false);
   }
 
   Future<void> _loadDashboard() async {
-    if (_selectedAreaId == null) return;
-    setState(() => _isLoading = true);
+    if (_selectedStationId == null) return;
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
+      final path = _selectedPlatformId != null
+          ? '/api/dashboard/platform/$_selectedPlatformId'
+          : '/api/dashboard/station/$_selectedStationId';
+
       final result = await BaseRepository.apiCall(
         method: 'GET',
-        path: '/api/dashboard/area/$_selectedAreaId',
+        path: path,
         parser: (d) => d,
       );
-      _dashboard = AreaDashboard.fromJson(result);
+      setState(() {
+        _dashboardData = result;
+      });
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -79,11 +95,20 @@ class _AreaPerformanceDashboardState extends State<AreaPerformanceDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    String title = 'Performance';
+    if (_dashboardData != null) {
+      final level = _dashboardData!['level'] ?? 'station';
+      if (level == 'station') {
+        title = 'Performance: ${_dashboardData!['stationName'] ?? ''}';
+      } else {
+        title = 'Performance: Platform ${_dashboardData!['platformNumber'] ?? _dashboardData!['platformName'] ?? ''}';
+      }
+    }
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text(_selectedAreaName.isNotEmpty ? 'Performance: $_selectedAreaName' : 'Area Performance',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -102,7 +127,7 @@ class _AreaPerformanceDashboardState extends State<AreaPerformanceDashboard> {
                     ],
                   ),
                 )
-              : _dashboard == null
+              : _dashboardData == null
                   ? _buildSelectionUI()
                   : RefreshIndicator(
                       onRefresh: _loadDashboard,
@@ -112,15 +137,7 @@ class _AreaPerformanceDashboardState extends State<AreaPerformanceDashboard> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildOverviewCard(),
-                            const SizedBox(height: 12),
-                            _buildCleaningCard(),
-                            const SizedBox(height: 12),
-                            _buildWorkersCard(),
-                            const SizedBox(height: 12),
-                            _buildTodayTasksCard(),
-                            const SizedBox(height: 12),
-                            _buildScorecardSection(),
+                            _buildDashboardUI(),
                           ],
                         ),
                       ),
@@ -128,237 +145,358 @@ class _AreaPerformanceDashboardState extends State<AreaPerformanceDashboard> {
     );
   }
 
-  Widget _buildOverviewCard() {
-    final c = _dashboard!.cleaning;
-    final completed = (c['completedTasks'] ?? 0).toString();
-    final pending = (c['pendingTasks'] ?? 0).toString();
-    final score = (c['averageScore'] ?? 0).toStringAsFixed(1);
-
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.speed, color: kRailwayBlue, size: 20),
-              ),
-              const SizedBox(width: 10),
-              const Text('Overview', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ]),
-            const Divider(height: 20),
-            Row(
-              children: [
-                _statItem('Score', score, kRailwayBlue),
-                _statItem('Completed', completed, kSuccessGreen),
-                _statItem('Pending', pending, kWarningOrange),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _statItem('Frequency', _dashboard!.cleaningFrequency, Colors.teal),
-                _statItem('Priority', 'P${_dashboard!.priority}', _dashboard!.priority <= 2 ? kErrorRed : kSuccessGreen),
-                _statItem('Shift', _dashboard!.defaultShift, Colors.indigo),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+  Widget _buildDashboardUI() {
+    final level = _dashboardData!['level'] ?? 'station';
+    if (level == 'station') {
+      return _buildStationDashboard();
+    } else {
+      return _buildPlatformDashboard();
+    }
   }
 
-  Widget _buildCleaningCard() {
-    final c = _dashboard!.cleaning;
-    final coverage = (c['coverage'] ?? 0).toStringAsFixed(1);
-    final missed = (c['missedActivities'] ?? 0).toString();
-    final runs = _dashboard!.runs.toString();
+  Widget _buildStationDashboard() {
+    final cleaning = _dashboardData!['cleaning'] ?? {};
+    final attendance = _dashboardData!['attendance'] ?? {};
+    final feedback = _dashboardData!['feedback'] ?? {};
+    final complaints = _dashboardData!['complaints'] ?? {};
+    final machines = _dashboardData!['machines'] ?? {};
+    final activities = _dashboardData!['activities'] ?? {};
+    final platformsList = _dashboardData!['platforms'] as List<dynamic>? ?? [];
 
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: kSuccessGreen.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.cleaning_services, color: kSuccessGreen, size: 20),
-              ),
-              const SizedBox(width: 10),
-              const Text('Cleaning Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ]),
-            const Divider(height: 20),
-            Row(
+    final totalTasks = (cleaning['total'] ?? 0).toString();
+    final approvedTasks = (cleaning['approved'] ?? 0).toString();
+    final pendingTasks = (cleaning['pending'] ?? 0).toString();
+    final inProgressTasks = (cleaning['inProgress'] ?? 0).toString();
+    final rejectedTasks = (cleaning['rejected'] ?? 0).toString();
+
+    final attendanceRate = attendance['attendanceRate'] ?? 0;
+    final avgRating = feedback['averageRating'] ?? 0.0;
+    final openComplaints = complaints['open'] ?? 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildLevelBadge('Station Level'),
+        const SizedBox(height: 16),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _statItem('Coverage', '$coverage%', kSuccessGreen),
-                _statItem('Missed', missed, kErrorRed),
-                _statItem('Runs', runs, kRailwayBlue),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWorkersCard() {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.teal.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.people, color: Colors.teal, size: 20),
-              ),
-              const SizedBox(width: 10),
-              const Text('Workers', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ]),
-            const Divider(height: 20),
-            Text('Total: ${_dashboard!.workerCount}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTodayTasksCard() {
-    final tasks = _dashboard!.scheduledTasks;
-    final pending = tasks.where((t) => t.status == 'pending').length;
-    final completed = tasks.where((t) => t.status == 'completed' || t.status == 'approved').length;
-    final inProgress = tasks.where((t) => t.status == 'in_progress').length;
-
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: kWarningOrange.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.list_alt, color: kWarningOrange, size: 20),
-              ),
-              const SizedBox(width: 10),
-              const Text('Today\'s Tasks', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ]),
-            const Divider(height: 20),
-            Row(
-              children: [
-                _statItem('Total', '${tasks.length}', kRailwayBlue),
-                _statItem('Pending', '$pending', kWarningOrange),
-                _statItem('In Progress', '$inProgress', Colors.teal),
-                _statItem('Done', '$completed', kSuccessGreen),
-              ],
-            ),
-            if (tasks.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 100,
-                child: ListView.builder(
-                  itemCount: tasks.length.clamp(0, 3),
-                  itemBuilder: (context, i) {
-                    final t = tasks[i];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Row(
-                        children: [
-                          Icon(
-                            t.status == 'completed' || t.status == 'approved'
-                                ? Icons.check_circle : t.status == 'in_progress'
-                                    ? Icons.play_circle : Icons.schedule,
-                            size: 16,
-                            color: t.status == 'completed' || t.status == 'approved'
-                                ? kSuccessGreen : t.status == 'in_progress'
-                                    ? kRailwayBlue : Colors.grey,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(t.activityType ?? 'Task', style: const TextStyle(fontSize: 12)),
-                          const Spacer(),
-                          Text(t.scheduledTime, style: const TextStyle(fontSize: 11, color: kTextSecondary)),
-                        ],
-                      ),
-                    );
-                  },
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.speed, color: kRailwayBlue, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('Overview', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ]),
+                const Divider(height: 20),
+                Row(
+                  children: [
+                    _statItem('Attendance Rate', '$attendanceRate%', kSuccessGreen),
+                    _statItem('Avg Rating', '$avgRating/5', Colors.amber),
+                    _statItem('Open Complaints', '$openComplaints', kErrorRed),
+                  ],
                 ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildScorecardSection() {
-    final c = _dashboard!.cleaning;
-    final avgScore = (c['averageScore'] as num?)?.toDouble() ?? 0;
-    final completionRate = (c['completionRate'] as num?)?.toDouble() ?? 0;
-    final missed = (c['missedActivities'] as num?)?.toDouble() ?? 0;
-
-    if (avgScore == 0 && completionRate == 0) return const SizedBox.shrink();
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.purple.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.assessment, color: Colors.purple, size: 20),
-              ),
-              const SizedBox(width: 10),
-              const Text('Scorecard', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ]),
-            const Divider(height: 20),
-            _scoreBar('Avg Score', avgScore, Colors.teal),
-            _scoreBar('Completion', completionRate, kRailwayBlue),
-            _scoreBar('Missed', missed.clamp(0, 100), kErrorRed),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _scoreBar(String label, dynamic value, Color color) {
-    final v = (value is num) ? value.toDouble() : 0.0;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(label, style: const TextStyle(fontSize: 13)),
-              const Spacer(),
-              Text('${v.toStringAsFixed(0)}/100', style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: v / 100,
-              backgroundColor: color.withOpacity(0.1),
-              valueColor: AlwaysStoppedAnimation(color),
-              minHeight: 8,
+              ],
             ),
           ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.teal.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.cleaning_services, color: Colors.teal, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('Cleaning Tasks', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ]),
+                const Divider(height: 20),
+                Row(
+                  children: [
+                    _statItem('Total', totalTasks, kRailwayBlue),
+                    _statItem('Pending', pendingTasks, kWarningOrange),
+                    _statItem('In Progress', inProgressTasks, Colors.teal),
+                    _statItem('Done', approvedTasks, kSuccessGreen),
+                  ],
+                ),
+                if (rejectedTasks != '0') ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Spacer(),
+                      Text('Rejected Tasks: $rejectedTasks', style: const TextStyle(color: kErrorRed, fontWeight: FontWeight.bold, fontSize: 13)),
+                      const Spacer(),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.purple.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.analytics, color: Colors.purple, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('Operational Metrics', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ]),
+                const Divider(height: 20),
+                _metricRow(Icons.build_circle, 'Machines In Maintenance', '${machines['inMaintenance'] ?? 0} / ${machines['total'] ?? 0}'),
+                _metricRow(Icons.task_alt, 'Daily Activities Completed', '${activities['completed'] ?? 0} / ${activities['total'] ?? 0}'),
+                _metricRow(Icons.receipt_long, 'Billing Readiness Count', '${_dashboardData!['billingReadiness']?['ready'] ?? 0}'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (platformsList.isNotEmpty) ...[
+          Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.view_carousel, color: Colors.orange, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text('Platforms List', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  ]),
+                  const Divider(height: 20),
+                  ...platformsList.map((p) => ListTile(
+                        leading: const Icon(Icons.train, color: kRailwayBlue),
+                        title: Text(p['platformNumber'] != null && p['platformNumber'].toString().isNotEmpty ? 'Platform ${p['platformNumber']}' : (p['platformName'] ?? '')),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey),
+                        onTap: () {
+                          setState(() {
+                            _selectedPlatformId = p['platformId'];
+                            _isLoading = true;
+                          });
+                          _loadDashboard();
+                        },
+                      )),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 24),
+        Center(
+          child: TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _dashboardData = null;
+                _selectedPlatformId = null;
+              });
+            },
+            icon: const Icon(Icons.arrow_back),
+            label: const Text('Change Station / Platform'),
+            style: TextButton.styleFrom(foregroundColor: kRailwayBlue),
+          ),
+        ),
+        const SizedBox(height: 40),
+      ],
+    );
+  }
+
+  Widget _buildPlatformDashboard() {
+    final cleaning = _dashboardData!['cleaning'] ?? {};
+    final areasList = _dashboardData!['areas'] as List<dynamic>? ?? [];
+    final areaCount = _dashboardData!['areaCount'] ?? 0;
+    final runCount = _dashboardData!['runCount'] ?? 0;
+
+    final totalTasks = (cleaning['total'] ?? 0).toString();
+    final approvedTasks = (cleaning['approved'] ?? 0).toString();
+    final pendingTasks = (cleaning['pending'] ?? 0).toString();
+    final inProgressTasks = (cleaning['inProgress'] ?? 0).toString();
+    final rejectedTasks = (cleaning['rejected'] ?? 0).toString();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildLevelBadge('Platform Level'),
+        const SizedBox(height: 16),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.speed, color: kRailwayBlue, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('Platform Overview', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ]),
+                const Divider(height: 20),
+                Row(
+                  children: [
+                    _statItem('Total Areas', '$areaCount', kRailwayBlue),
+                    _statItem('Runs Today', '$runCount', kSuccessGreen),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.teal.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.cleaning_services, color: Colors.teal, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('Cleaning Tasks', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ]),
+                const Divider(height: 20),
+                Row(
+                  children: [
+                    _statItem('Total', totalTasks, kRailwayBlue),
+                    _statItem('Pending', pendingTasks, kWarningOrange),
+                    _statItem('In Progress', inProgressTasks, Colors.teal),
+                    _statItem('Done', approvedTasks, kSuccessGreen),
+                  ],
+                ),
+                if (rejectedTasks != '0') ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Spacer(),
+                      Text('Rejected Tasks: $rejectedTasks', style: const TextStyle(color: kErrorRed, fontWeight: FontWeight.bold, fontSize: 13)),
+                      const Spacer(),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (areasList.isNotEmpty) ...[
+          Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.area_chart, color: Colors.orange, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text('Areas on this Platform', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  ]),
+                  const Divider(height: 20),
+                  ...areasList.map((a) => ListTile(
+                        leading: const Icon(Icons.layers, color: Colors.teal),
+                        title: Text(a['areaName'] ?? ''),
+                        subtitle: Text('Frequency: ${a['cleaningFrequency'] ?? 'daily'} | Shift: ${a['defaultShift'] ?? 'morning'}'),
+                      )),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 24),
+        Center(
+          child: TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _dashboardData = null;
+                _selectedPlatformId = null;
+              });
+            },
+            icon: const Icon(Icons.arrow_back),
+            label: const Text('Change Station / Platform'),
+            style: TextButton.styleFrom(foregroundColor: kRailwayBlue),
+          ),
+        ),
+        const SizedBox(height: 40),
+      ],
+    );
+  }
+
+  Widget _buildLevelBadge(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: kRailwayBlue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: kRailwayBlue.withOpacity(0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.verified_user, color: kRailwayBlue, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(color: kRailwayBlue, fontWeight: FontWeight.bold, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.grey[600], size: 18),
+          const SizedBox(width: 10),
+          Text(label, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+          const Spacer(),
+          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black)),
         ],
       ),
     );
@@ -394,14 +532,14 @@ class _AreaPerformanceDashboardState extends State<AreaPerformanceDashboard> {
                     Icon(Icons.dashboard_customize, color: kRailwayBlue, size: 24),
                     SizedBox(width: 10),
                     Text(
-                      'Select Station & Area',
+                      'Select Station & Platform',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Please select a station and area to view performance metrics.',
+                  'Please select a station and platform to view performance metrics.',
                   style: TextStyle(color: Colors.black54, fontSize: 13),
                 ),
                 const Divider(height: 32),
@@ -424,52 +562,55 @@ class _AreaPerformanceDashboardState extends State<AreaPerformanceDashboard> {
                       if (v != null) {
                         setState(() {
                           _selectedStationId = v;
-                          _selectedAreaId = null;
+                          _selectedPlatformId = null;
                         });
-                        _loadAreasForStation(v);
+                        _loadPlatformsForStation(v);
                       }
                     },
                   ),
                   const SizedBox(height: 16),
                 ],
-                const Text('Area *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const Text('Platform (optional)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                 const SizedBox(height: 6),
-                DropdownButtonFormField<String>(
-                  value: _selectedAreaId,
+                DropdownButtonFormField<String?>(
+                  value: _selectedPlatformId,
                   decoration: InputDecoration(
                     border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.area_chart, size: 20),
+                    prefixIcon: const Icon(Icons.view_carousel, size: 20),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     isDense: true,
-                    suffixIcon: _loadingAreas
+                    suffixIcon: _loadingPlatforms
                         ? const Padding(
                             padding: EdgeInsets.all(12.0),
                             child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                           )
                         : null,
                   ),
-                  items: _areasOfStation.map((a) => DropdownMenuItem(
-                    value: a.uid,
-                    child: Text(a.name),
-                  )).toList(),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('All Platforms (Station Level)'),
+                    ),
+                    ..._platformsOfStation.map((p) => DropdownMenuItem<String?>(
+                      value: p.uid,
+                      child: Text(p.displayName),
+                    )),
+                  ],
                   onChanged: _selectedStationId == null
                       ? null
                       : (v) {
-                          if (v != null) {
-                            setState(() {
-                              _selectedAreaId = v;
-                              _selectedAreaName = _areasOfStation.firstWhere((a) => a.uid == v).name;
-                            });
-                          }
+                          setState(() {
+                            _selectedPlatformId = v;
+                          });
                         },
-                  hint: Text(_selectedStationId == null ? 'Select station first' : 'Select area'),
+                  hint: Text(_selectedStationId == null ? 'Select station first' : 'All Platforms (Station Level)'),
                 ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton.icon(
-                    onPressed: _selectedAreaId == null
+                    onPressed: _selectedStationId == null
                         ? null
                         : () => _loadDashboard(),
                     icon: const Icon(Icons.analytics),

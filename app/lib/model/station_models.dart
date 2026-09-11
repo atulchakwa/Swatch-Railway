@@ -1,6 +1,6 @@
 enum StationCategory { a1, a, b, c, d }
 enum StationType { terminal, junction, regular, depot }
-enum CleaningFrequency { daily, weekly, monthly, special, festival, vipVisit, emergency }
+enum CleaningFrequency { daily, weekly, monthly, special, festival, vipVisit, emergency, every15min, every30min, hourly, every2h, every4h, every6h, twiceDaily, threeTimesDaily, fourTimesDaily, sixTimesDaily, onceDaily, twiceWeekly, onceWeekly, twiceMonthly, onceMonthly, hourlyMopping }
 enum StationFormStatus { draft, submitted, approved, scored, locked, rejected }
 
 class Station {
@@ -109,6 +109,12 @@ class StationArea {
   final String description;
   final bool active;
   final String? platformId;
+  final String? mainArea;
+  final double? basicAreaSqFt;
+  final String? frequencyType;
+  final int? boqTimesPerPeriod;
+  final double? tenderedAreaPerDay;
+  final String? cleaningFrequency;
 
   StationArea({
     this.uid,
@@ -118,16 +124,29 @@ class StationArea {
     this.description = '',
     this.active = true,
     this.platformId,
+    this.mainArea,
+    this.basicAreaSqFt,
+    this.frequencyType,
+    this.boqTimesPerPeriod,
+    this.tenderedAreaPerDay,
+    this.cleaningFrequency,
   });
 
   Map<String, dynamic> toJson() => {
     if (uid != null) 'uid': uid,
     'stationId': stationId,
     'name': name,
+    'areaName': name,
     'order': order,
     'description': description,
     'active': active,
     if (platformId != null) 'platformId': platformId,
+    if (mainArea != null) 'mainArea': mainArea,
+    if (basicAreaSqFt != null) 'basicAreaSqFt': basicAreaSqFt,
+    if (frequencyType != null) 'frequencyType': frequencyType,
+    if (boqTimesPerPeriod != null) 'boqTimesPerPeriod': boqTimesPerPeriod,
+    if (tenderedAreaPerDay != null) 'tenderedAreaPerDay': tenderedAreaPerDay,
+    if (cleaningFrequency != null) 'cleaningFrequency': cleaningFrequency,
   };
 
   factory StationArea.fromJson(Map<String, dynamic> json) => StationArea(
@@ -138,6 +157,12 @@ class StationArea {
     description: json['description'] ?? '',
     active: json['active'] ?? true,
     platformId: json['platformId'],
+    mainArea: json['mainArea'] as String?,
+    basicAreaSqFt: (json['basicAreaSqFt'] as num?)?.toDouble(),
+    frequencyType: json['frequencyType'] as String?,
+    boqTimesPerPeriod: (json['boqTimesPerPeriod'] as num?)?.toInt(),
+    tenderedAreaPerDay: (json['tenderedAreaPerDay'] as num?)?.toDouble(),
+    cleaningFrequency: json['cleaningFrequency'] as String?,
   );
 
   @override
@@ -256,7 +281,10 @@ class StationContractorMapping {
 class StationCleaningSchedule {
   String? uid;
   final String stationId;
+  final String stationName;
+  final String scheduleName;
   final String areaId;
+  final String areaName;
   final String zoneId;
   final CleaningFrequency frequency;
   final String shift;
@@ -269,11 +297,16 @@ class StationCleaningSchedule {
   final List<String> daysOfWeek;
   final bool active;
   final DateTime createdAt;
+  final DateTime? effectiveFrom;
+  final DateTime? effectiveTo;
 
   StationCleaningSchedule({
     this.uid,
     required this.stationId,
+    this.stationName = '',
+    this.scheduleName = 'Schedule',
     this.areaId = '',
+    this.areaName = '',
     this.zoneId = '',
     this.frequency = CleaningFrequency.daily,
     this.shift = 'Morning',
@@ -286,6 +319,8 @@ class StationCleaningSchedule {
     this.daysOfWeek = const [],
     this.active = true,
     DateTime? createdAt,
+    this.effectiveFrom,
+    this.effectiveTo,
   }) : createdAt = createdAt ?? DateTime.now();
 
   String get frequencyLabel {
@@ -297,13 +332,32 @@ class StationCleaningSchedule {
       case CleaningFrequency.festival: return 'Festival';
       case CleaningFrequency.vipVisit: return 'VIP Visit';
       case CleaningFrequency.emergency: return 'Emergency';
+      case CleaningFrequency.every15min: return 'Every 15 min';
+      case CleaningFrequency.every30min: return 'Every 30 min';
+      case CleaningFrequency.hourly: return 'Hourly';
+      case CleaningFrequency.every2h: return 'Every 2 hrs';
+      case CleaningFrequency.every4h: return 'Every 4 hrs';
+      case CleaningFrequency.every6h: return 'Every 6 hrs';
+      case CleaningFrequency.twiceDaily: return 'Twice Daily';
+      case CleaningFrequency.threeTimesDaily: return 'Three Times Daily';
+      case CleaningFrequency.fourTimesDaily: return 'Four Times Daily';
+      case CleaningFrequency.sixTimesDaily: return 'Six Times Daily';
+      case CleaningFrequency.onceDaily: return 'Once Daily';
+      case CleaningFrequency.twiceWeekly: return 'Twice Weekly';
+      case CleaningFrequency.onceWeekly: return 'Once Weekly';
+      case CleaningFrequency.twiceMonthly: return 'Twice Monthly';
+      case CleaningFrequency.onceMonthly: return 'Once Monthly';
+      case CleaningFrequency.hourlyMopping: return 'Hourly Mopping';
     }
   }
 
   Map<String, dynamic> toJson() => {
     if (uid != null) 'uid': uid,
     'stationId': stationId,
+    'stationName': stationName,
+    'scheduleName': scheduleName,
     'areaId': areaId,
+    'areaName': areaName,
     'zoneId': zoneId,
     'frequency': frequency.name,
     'shift': shift,
@@ -316,12 +370,17 @@ class StationCleaningSchedule {
     'daysOfWeek': daysOfWeek,
     'active': active,
     'createdAt': createdAt.toIso8601String(),
+    if (effectiveFrom != null) 'effectiveFrom': effectiveFrom!.toIso8601String(),
+    if (effectiveTo != null) 'effectiveTo': effectiveTo!.toIso8601String(),
   };
 
   factory StationCleaningSchedule.fromJson(Map<String, dynamic> json) => StationCleaningSchedule(
     uid: json['uid'],
     stationId: json['stationId'] ?? '',
+    stationName: json['stationName'] ?? '',
+    scheduleName: json['scheduleName'] ?? 'Schedule',
     areaId: json['areaId'] ?? '',
+    areaName: json['areaName'] ?? '',
     zoneId: json['zoneId'] ?? '',
     frequency: CleaningFrequency.values.firstWhere((e) => e.name == json['frequency'], orElse: () => CleaningFrequency.daily),
     shift: json['shift'] ?? 'Morning',
@@ -334,6 +393,8 @@ class StationCleaningSchedule {
     daysOfWeek: List<String>.from(json['daysOfWeek'] ?? []),
     active: json['active'] ?? true,
     createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
+    effectiveFrom: json['effectiveFrom'] != null ? DateTime.tryParse(json['effectiveFrom']) : null,
+    effectiveTo: json['effectiveTo'] != null ? DateTime.tryParse(json['effectiveTo']) : null,
   );
 }
 

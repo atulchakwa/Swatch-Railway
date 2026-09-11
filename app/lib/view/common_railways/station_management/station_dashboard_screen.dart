@@ -120,6 +120,11 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
     });
   }
 
+  bool _isContractorRole(String role) {
+    final r = role.toUpperCase().replaceAll(' ', '_');
+    return r == 'CONTRACTOR_ADMIN' || r == 'CONTRACTOR_MASTER' || r == 'CONTRACTOR_SUPERVISOR';
+  }
+
   Future<void> _loadStations() async {
     setState(() { isStationsLoading = true; stationsError = null; });
     try {
@@ -128,12 +133,20 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
       final data = await ApiService.getStations();
       if (mounted) {
         List<Station> all = data;
-        if (role == 'Railway Supervisor') {
+        final roleUpper = role.toUpperCase().replaceAll(' ', '_');
+        if (roleUpper == 'RAILWAY_SUPERVISOR') {
           all = all.where((s) => s.division == user?.division).toList();
-        } else if (role == 'Station Master' || role == 'Area Master' || role == 'Platform Master') {
-          all = all.where((s) => s.uid == user?.stationId).toList();
-        } else if (role == 'Contractor Admin' || role == 'Contractor' || role == 'Contractor Master') {
-          all = all.where((s) => s.uid == user?.stationId).toList();
+        } else if (_isContractorRole(role)) {
+          final userStationIds = <String>{};
+          if (user?.stationId != null && user!.stationId!.isNotEmpty) {
+            userStationIds.add(user.stationId!);
+          }
+          if (user?.stations != null && user!.stations.isNotEmpty) {
+            userStationIds.addAll(user.stations);
+          }
+          if (userStationIds.isNotEmpty) {
+            all = all.where((s) => s.uid != null && userStationIds.contains(s.uid)).toList();
+          }
         }
         setState(() {
           _allStations = all;
@@ -158,8 +171,6 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
           all = all.where((f) => f.division == user?.division).toList();
         } else if (role == 'Contractor Admin' || role == 'Contractor' || role == 'Contractor Master') {
           all = all.where((f) => f.submittedBy == user?.uid).toList();
-        } else if (role == 'Station Master' || role == 'Area Master' || role == 'Platform Master') {
-          all = all.where((f) => f.stationId == user?.stationId).toList();
         }
         setState(() {
           _allForms = all;
@@ -569,9 +580,9 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const StationAttendanceScreen(
-                          stationId: 'ADI',
-                          stationName: 'Ahmedabad Junction',
+                        builder: (_) => StationAttendanceScreen(
+                          stationId: _selectedStation?.uid ?? '',
+                          stationName: _selectedStation?.stationName ?? '',
                         ),
                       ),
                     ),
@@ -587,9 +598,9 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const DailyActivityListScreen(
-                          stationId: 'ADI',
-                          stationName: 'Ahmedabad Junction',
+                        builder: (_) => DailyActivityListScreen(
+                          stationId: _selectedStation?.uid ?? '',
+                          stationName: _selectedStation?.stationName ?? '',
                         ),
                       ),
                     ),
@@ -605,10 +616,9 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const BillingSupportPackScreen(
-                          contractId: 'CON-123456',
-                          stationId: 'ADI',
-                          stationName: 'Ahmedabad Junction',
+                        builder: (_) => BillingSupportPackScreen(
+                          stationId: _selectedStation?.uid ?? '',
+                          stationName: _selectedStation?.stationName ?? '',
                         ),
                       ),
                     ),

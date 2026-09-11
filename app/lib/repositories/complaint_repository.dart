@@ -14,8 +14,8 @@ class ComplaintRepository {
     final uri = Uri.parse('$baseUrl/api/complaints').replace(queryParameters: query);
     final res = await http.get(uri, headers: await _headers());
     if (res.statusCode == 200) {
-      final list = jsonDecode(res.body)['complaints'] ?? [];
-      return list.map((e) => Complaint.fromJson(e)).toList();
+      final list = jsonDecode(res.body)['complaints'] as List<dynamic>? ?? [];
+      return list.map<Complaint>((e) => Complaint.fromJson(e)).toList();
     }
     throw Exception('Failed to load complaints');
   }

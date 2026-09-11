@@ -782,12 +782,13 @@ class WorkerMobileHomeScreen extends StatelessWidget {
           'subtitle': 'View & raise',
           'color': Colors.red,
         },
-        {
-          'icon': Icons.cleaning_services,
-          'title': 'Station Cleaning',
-          'subtitle': 'My platform tasks',
-          'color': Colors.teal,
-        },
+        // ── Station Cleaning: hidden (commented) per requirement ──
+        // {
+        //   'icon': Icons.cleaning_services,
+        //   'title': 'Station Cleaning',
+        //   'subtitle': 'My platform tasks',
+        //   'color': Colors.teal,
+        // },
         {
           'icon': Icons.bug_report,
           'title': 'Pest Control',
@@ -840,21 +841,22 @@ class WorkerMobileHomeScreen extends StatelessWidget {
                   childAspectRatio: aspectRatio,
                 ),
                 itemBuilder: (context, index) {
-                  final action = actions[index];
+                    final action = actions[index];
                     return GestureDetector(
                     onTap: () {
                       final title = action['title'] as String;
+                      final sid = controller.currentUser.value?.stationId;
                       Widget page;
                       if (title == 'Complaints') {
                         page = const WorkerComplaintsScreen();
                       } else if (title == 'Station Cleaning') {
                         page = const WorkerStationCleaningScreen();
                       } else if (title == 'Pest Control') {
-                        page = const WorkerPestControlScreen();
+                        page = WorkerPestControlScreen(stationId: sid);
                       } else if (title == 'Machines') {
                         page = const WorkerMachineScreen();
                       } else if (title == 'Garbage') {
-                        page = const WorkerGarbageScreen();
+                        page = WorkerGarbageScreen(stationId: sid);
                       } else if (title == 'Audit Trail') {
                         page = const WorkerAuditScreen();
                       } else {
