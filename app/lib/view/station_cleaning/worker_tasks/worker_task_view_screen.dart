@@ -1,16 +1,37 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:crm_train/services/api_services.dart';
-import 'package:crm_train/repositories/worker_repo.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
+import 'package:crm_train/repositories/task_type_repository.dart';
+import 'package:crm_train/model/task_type_model.dart';
 import 'package:crm_train/helper/api_error_handler.dart';
 import 'package:crm_train/utills/app_colors.dart';
+
+const List<Map<String, String>> _defaultCleaningActivities = [
+  {'name': 'sweeping', 'label': 'Sweeping'},
+  {'name': 'mopping', 'label': 'Mopping'},
+  {'name': 'washing', 'label': 'Washing'},
+  {'name': 'rag_picking', 'label': 'Rag Picking'},
+  {'name': 'garbage_collection', 'label': 'Garbage Collection'},
+  {'name': 'garbage_disposal', 'label': 'Garbage Disposal'},
+  {'name': 'drain_cleaning', 'label': 'Drain Cleaning'},
+  {'name': 'consumable_refill', 'label': 'Consumable Refill'},
+  {'name': 'cobweb_removal', 'label': 'Cobweb Removal'},
+  {'name': 'deep_cleaning', 'label': 'Deep Cleaning'},
+];
+
+List<TaskType> get _defaultCleaningActivitiesFallback => _defaultCleaningActivities
+    .map((a) => TaskType(
+          uid: a['name']!,
+          name: a['name']!,
+          label: a['label']!,
+          createdAt: '',
+          updatedAt: '',
+        ))
+    .toList();
 
 class WorkerTaskViewScreen extends StatefulWidget {
   final String workerId;
@@ -437,7 +458,7 @@ class _WorkerTaskViewScreenState extends State<WorkerTaskViewScreen> {
   }
 }
 
-// ─── OBHS-style 4-step Task Execution Bottom Sheet ─────────────────────────
+// ─── Simple Task Execution Bottom Sheet (no photos) ────────────────────────
 
 class _TaskExecutionSheet extends StatefulWidget {
   final String taskId;
@@ -455,21 +476,124 @@ class _TaskExecutionSheet extends StatefulWidget {
 }
 
 class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
-  int currentStep = 0;
-  XFile? beforePhoto;
-  XFile? afterPhoto;
   final TextEditingController commentController = TextEditingController();
   bool isSubmitting = false;
-  final ScrollController _scrollController = ScrollController();
-  final FocusNode _commentFocusNode = FocusNode();
-  final picker = ImagePicker();
+  List<Map<String, dynamic>>? _selectedActivities;
+  List<TaskType> _activityOptions = _defaultCleaningActivitiesFallback;
+  bool _loadingActivities = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActivities();
+  }
 
   @override
   void dispose() {
     commentController.dispose();
-    _scrollController.dispose();
-    _commentFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadActivities() async {
+    try {
+      final loaded = await TaskTypeRepository.list(category: 'cleaning', isActive: true);
+      if (mounted && loaded.isNotEmpty) {
+        setState(() => _activityOptions = loaded);
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loadingActivities = false);
+  }
+
+  Future<void> _pickActivities() async {
+    final selected = <String>{};
+    for (final a in (_selectedActivities ?? [])) {
+      final id = a['uid']?.toString() ?? '';
+      if (id.isNotEmpty) selected.add(id);
+    }
+    final picked = await showModalBottomSheet<Map<String, dynamic>?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setSheetState) {
+            return Container(
+              height: MediaQuery.of(sheetCtx).size.height * 0.72,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.cleaning_services, color: kRailwayBlue),
+                      const SizedBox(width: 8),
+                      const Text('Select Activities', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(sheetCtx, null),
+                      ),
+                    ],
+                  ),
+                  const Text(
+                    'Choose the activities performed for this task before completing. You can pick more than one.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: _loadingActivities
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView(
+                            children: _activityOptions.map((tt) {
+                              return CheckboxListTile(
+                                dense: true,
+                                controlAffinity: ListTileControlAffinity.leading,
+                                title: Text(tt.label.isNotEmpty ? tt.label : tt.name, style: const TextStyle(fontSize: 14)),
+                                value: selected.contains(tt.uid),
+                                onChanged: (v) => setSheetState(() {
+                                  if (v == true) {
+                                    selected.add(tt.uid);
+                                  } else {
+                                    selected.remove(tt.uid);
+                                  }
+                                }),
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.check),
+                      label: Text('Confirm Activities${selected.isEmpty ? '' : ' (${selected.length})'}'),
+                      onPressed: selected.isEmpty
+                          ? null
+                          : () {
+                              final pickedList = _activityOptions
+                                  .where((tt) => selected.contains(tt.uid))
+                                  .map((tt) => {'uid': tt.uid, 'name': tt.name, 'label': tt.label})
+                                  .toList();
+                              Navigator.pop(sheetCtx, {'activities': pickedList});
+                            },
+                      style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (picked == null || picked['activities'] == null) return;
+    final list = (picked['activities'] as List).cast<Map<String, dynamic>>();
+    setState(() => _selectedActivities = list);
   }
 
   @override
@@ -483,7 +607,6 @@ class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
         ),
         padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
         child: SingleChildScrollView(
-          controller: _scrollController,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -501,273 +624,83 @@ class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
                 ],
               ),
               const SizedBox(height: 20),
-              Text('Step ${currentStep + 1} of 4', style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w500)),
-              const SizedBox(height: 8),
-              Row(
-                children: List.generate(4, (index) => Expanded(
-                  child: Container(
-                    height: 4,
-                    margin: EdgeInsets.only(right: index < 3 ? 8 : 0),
-                    decoration: BoxDecoration(
-                      color: index <= currentStep ? kRailwayBlue : Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                )),
-              ),
-              const SizedBox(height: 20),
-              if (currentStep == 0) _buildBeforePhotoStep()
-              else if (currentStep == 1) _buildCommentStep()
-              else if (currentStep == 2) _buildAfterPhotoStep()
-              else _buildSummaryStep(),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  if (currentStep > 0)
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => setState(() => currentStep--),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: Colors.grey),
-                        ),
-                        child: const Text('Back'),
-                      ),
-                    ),
-                  if (currentStep > 0) const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _canProceed() && !isSubmitting
-                          ? () {
-                              FocusScope.of(context).unfocus();
-                              if (currentStep < 3) {
-                                setState(() => currentStep++);
-                              } else {
-                                _submit();
-                              }
-                            }
-                          : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kRailwayBlue,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text(
-                        isSubmitting ? 'Submitting...' : currentStep == 3 ? 'Submit' : 'Next',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBeforePhotoStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Capture Before Photo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
-        const SizedBox(height: 12),
-        if (beforePhoto != null)
-          Container(
-            width: double.infinity,
-            height: 200,
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(12),
-              image: DecorationImage(image: FileImage(File(beforePhoto!.path)), fit: BoxFit.cover),
-            ),
-          )
-        else
-          GestureDetector(
-            onTap: () => _capturePhoto(isBefore: true),
-            child: Container(
-              width: double.infinity,
-              height: 200,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[300]!, width: 2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.camera_alt, size: 48, color: Colors.grey[600]),
-                  const SizedBox(height: 12),
-                  Text('Tap to take photo', style: TextStyle(fontSize: 14, color: Colors.grey[600], fontWeight: FontWeight.w500)),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildCommentStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Add Comments', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
-        const SizedBox(height: 12),
-        TextField(
-          controller: commentController,
-          focusNode: _commentFocusNode,
-          minLines: 3,
-          maxLines: 3,
-          decoration: InputDecoration(
-            hintText: 'Enter your comments here (Hinglish allowed)...',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            contentPadding: const EdgeInsets.all(12),
-          ),
-          onTap: () => WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_scrollController.hasClients) {
-              _scrollController.animateTo(
-                _scrollController.position.maxScrollExtent,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOut,
-              );
-            }
-          }),
-        ),
-        const SizedBox(height: 12),
-        Text('Character count: ${commentController.text.length}', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-      ],
-    );
-  }
-
-  Widget _buildAfterPhotoStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Capture After Photo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
-        const SizedBox(height: 12),
-        if (afterPhoto != null)
-          Container(
-            width: double.infinity,
-            height: 200,
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(12),
-              image: DecorationImage(image: FileImage(File(afterPhoto!.path)), fit: BoxFit.cover),
-            ),
-          )
-        else
-          GestureDetector(
-            onTap: () => _capturePhoto(isBefore: false),
-            child: Container(
-              width: double.infinity,
-              height: 200,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[300]!, width: 2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.camera_alt, size: 48, color: Colors.grey[600]),
-                  const SizedBox(height: 12),
-                  Text('Tap to take photo', style: TextStyle(fontSize: 14, color: Colors.grey[600], fontWeight: FontWeight.w500)),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildSummaryStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Review & Submit', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.green[50],
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.green[200]!),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.check_circle, color: kSuccessGreen, size: 20),
-                  SizedBox(width: 8),
-                  Text('Task Summary', style: TextStyle(fontWeight: FontWeight.w600, color: kSuccessGreen)),
-                ],
-              ),
+              const Text('Choose Activity (required)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
               const SizedBox(height: 12),
-              _summaryItem('Before Photo', beforePhoto != null ? 'Captured ✓' : 'Optional / not captured'),
-              _summaryItem('Comments', commentController.text.isEmpty ? 'None' : commentController.text),
-              _summaryItem('After Photo', afterPhoto != null ? 'Captured ✓' : 'Optional / not captured'),
+              InkWell(
+                onTap: _pickActivities,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: _selectedActivities == null || _selectedActivities!.isEmpty ? Colors.orange : kSuccessGreen),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _selectedActivities == null || _selectedActivities!.isEmpty
+                            ? Icons.add_circle_outline
+                            : Icons.check_circle,
+                        color: _selectedActivities == null || _selectedActivities!.isEmpty ? kWarningOrange : kSuccessGreen,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          (_selectedActivities == null || _selectedActivities!.isEmpty)
+                              ? 'Tap to select activity'
+                              : _selectedActivities!.map((a) => a['label'] ?? a['name'] ?? '').join(', '),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text('Add Comments', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: commentController,
+                minLines: 3,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Enter comments (optional)...',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: ((_selectedActivities != null && _selectedActivities!.isNotEmpty) && !isSubmitting)
+                      ? _submit
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kRailwayBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text(
+                    isSubmitting ? 'Submitting...' : (widget.mode == 'complete' ? 'Complete Task' : 'Resubmit Task'),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _summaryItem(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.black87)),
-          Expanded(
-            child: Text(value, style: TextStyle(fontSize: 12, color: Colors.grey[600]), maxLines: 2, overflow: TextOverflow.ellipsis),
-          ),
-        ],
       ),
     );
-  }
-
-  bool _canProceed() {
-    if (currentStep == 0) return true;
-    if (currentStep == 1) return commentController.text.isNotEmpty;
-    if (currentStep == 2) return true;
-    return true;
-  }
-
-  Future<void> _capturePhoto({required bool isBefore}) async {
-    FocusScope.of(context).unfocus();
-    final photo = await picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 80,
-      maxWidth: 1280,
-    );
-    if (photo == null) return;
-    setState(() {
-      if (isBefore) {
-        beforePhoto = photo;
-      } else {
-        afterPhoto = photo;
-      }
-    });
   }
 
   Future<void> _submit() async {
+    setState(() => isSubmitting = true);
     try {
-      setState(() => isSubmitting = true);
-
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
       if (token == null) throw Exception('AUTH_ERROR');
-
-      String? beforeUrl;
-      String? afterUrl;
-      if (beforePhoto != null) {
-        beforeUrl = await WorkerRepository.uploadMedia(beforePhoto!.path);
-      }
-      if (afterPhoto != null) {
-        afterUrl = await WorkerRepository.uploadMedia(afterPhoto!.path);
-      }
 
       double? lat;
       double? lng;
@@ -781,9 +714,12 @@ class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
 
       final body = <String, dynamic>{
         'remarks': commentController.text.trim(),
+        'activities': _selectedActivities?.map((a) => {
+          'id': a['uid'],
+          'name': a['name'],
+          'label': a['label'],
+        }).toList() ?? [],
       };
-      if (beforeUrl != null) { body['beforePhoto'] = beforeUrl; }
-      if (afterUrl != null) { body['afterPhoto'] = afterUrl; }
       if (lat != null) { body['gpsLat'] = lat; body['gpsLng'] = lng; }
 
       final endpoint = widget.mode == 'complete' ? 'complete' : 'resubmit';
@@ -795,13 +731,13 @@ class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
 
       if (response.statusCode == 200) {
         if (!mounted) return;
-        final body = response.body.isEmpty ? <String, dynamic>{} : (jsonDecode(response.body) as Map<String, dynamic>);
-        final warning = body['shiftWarning'] == true;
+        final resBody = response.body.isEmpty ? <String, dynamic>{} : (jsonDecode(response.body) as Map<String, dynamic>);
+        final warning = resBody['shiftWarning'] == true;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(widget.mode == 'complete'
-                ? (warning ? 'Submitted. You completed a task outside your ${body['assignedShift']} shift.' : 'Task submitted successfully!')
-                : (warning ? 'Resubmitted outside your ${body['assignedShift']} shift.' : 'Task resubmitted for review')),
+                ? (warning ? 'Submitted. You completed a task outside your ${resBody['assignedShift']} shift.' : 'Task submitted successfully!')
+                : (warning ? 'Resubmitted outside your ${resBody['assignedShift']} shift.' : 'Task resubmitted for review')),
             backgroundColor: warning ? kWarningOrange : kSuccessGreen,
           ),
         );

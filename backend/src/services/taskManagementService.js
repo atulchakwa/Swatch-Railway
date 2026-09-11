@@ -1,6 +1,11 @@
 import { db, admin } from '../database/index.js';
 import { NotFoundError, ValidationError, ForbiddenError } from '../errors/index.js';
 
+const getISTDateStr = (offset = 0) => {
+  const shifted = new Date(Date.now() + offset * 86400000);
+  return shifted.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+};
+
 // Roles that may only ever see their OWN tasks (their own shift), never every
 // task across a station/date. Contractor supervisors/workers, cleaners etc.
 // Stored in normalized form (spaces/underscores stripped, upper-cased) so
@@ -241,6 +246,48 @@ class TaskManagementService {
     return null;
   }
 
+  // Own shift for any contractor worker/supervisor: the recorded supervisor
+  // shift first, else their active area-worker assignment's shift.
+  async _getOwnShift(userId) {
+    if (!userId) return null;
+    const recorded = await this._getSupervisorShift(userId);
+    if (recorded) return recorded;
+    const assigned = await this._resolveAssignedShift(userId);
+    return assigned ? String(assigned).trim().toLowerCase() : null;
+  }
+
+  // Contract supervisors/workers may only ever see/act on TODAY's tasks (IST).
+  // This is applied at both list time and start/complete time so they can never
+  // pull up tomorrow's (or past) work.
+  _isOwnTaskRole(role) {
+    return _OWN_TASK_ROLES.has(_normalizeRole(role));
+  }
+
+  // Hard guard for contractor supervisors/workers (the ones who actually
+  // execute station-cleaning work — workers recorded by the supervisor have no
+  // login): the task must be (1) assigned to the calling user, (2) belong to
+  // their recorded shift, and (3) be for TODAY (IST). They can never start or
+  // complete another shift's task or a task from any other day.
+  async _assertOwnTaskAccess(task, user) {
+    if (!this._isOwnTaskRole(user?.role)) return;
+    const uid = user.uid;
+    const isOwner = task.supervisorId === uid || task.workerId === uid;
+    if (!isOwner) {
+      throw new ForbiddenError('You can only work on tasks assigned to you');
+    }
+    const taskShift = task.shift ? String(task.shift).trim().toLowerCase() : null;
+    if (taskShift) {
+      const ownShift = await this._getOwnShift(uid);
+      if (ownShift && taskShift !== ownShift) {
+        throw new ForbiddenError(`This task belongs to the ${taskShift} shift; you are assigned to ${ownShift}`);
+      }
+    }
+    const taskDate = task.date || task.scheduledDate || '';
+    if (taskDate && taskDate !== getISTDateStr()) {
+      throw new ForbiddenError('You can only work on today\'s tasks');
+    }
+  }
+
   async _setSupervisorShift(supervisorId, shift, stationId, contractId, supervisorName) {
     if (!supervisorId || !shift) return;
     const s = String(shift).trim().toLowerCase();
@@ -349,26 +396,52 @@ class TaskManagementService {
     return null;
   }
 
+  // Contractor supervisor/worker roles must mark their START attendance for
+  // today (station cleaning) before they may start ANY task — manual or
+  // auto-generated. Mirrors the app's attendance tab gate, enforced here too.
+  async _assertStartAttendance(user) {
+    if (!user || !user.uid) return;
+    if (!this._isOwnTaskRole(user?.role)) return;
+    const todayIST = getISTDateStr();
+    const snapshot = await db.collection('station_cleaning_attendance')
+      .where('workerId', '==', user.uid)
+      .get();
+    let latestDoc = null;
+    let latestTime = 0;
+    snapshot.forEach(doc => {
+      const d = doc.data();
+      if (String(d.date || '') !== todayIST) return;
+      const time = d.serverTimestamp || d.createdAt || 0;
+      const t = new Date(time).getTime() || 0;
+      if (t >= latestTime) {
+        latestTime = t;
+        latestDoc = d;
+      }
+    });
+    const startMarked = latestDoc && latestDoc.isStartMarked === true;
+    if (!startMarked) {
+      throw new ForbiddenError('Mark your START attendance first before starting any task');
+    }
+  }
+
   async startTask(taskId, data, user) {
     const ref = db.collection('cleaningTasks').doc(taskId);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Task not found');
     const task = doc.data();
+    await this._assertOwnTaskAccess(task, user);
+    await this._assertStartAttendance(user);
     if (task.status !== 'pending' && task.status !== 'assigned') {
       throw new ValidationError(`Task cannot be started. Current status: ${task.status}`);
     }
 
-    // ─── Activities picked before start (station-cleaning only) ─────────────
-    // Auto-generated tasks carry no activities. The supervisor chooses one or
-    // more before starting; they are recorded on THIS single task document —
-    // never expanded into multiple task records. Scope: a task may only be
-    // started with activities when its station has an active station-cleaning
-    // contract, so this flow never touches any other contract type.
+    // ─── Activities (station-cleaning only) ────────────────────────────────
+    // Auto-generated tasks carry no activities. Starting does NOT require an
+    // activity — the supervisor must choose one before COMPLETING the task
+    // (enforced in completeTask). If the caller supplies activities now, they
+    // are recorded on this single task document — never expanded into
+    // multiple task records. Scope: station-cleaning contracts only.
     const rawActivities = data.activities || data.activityIds || [];
-    const hasExistingActivities = (
-      (Array.isArray(task.taskActivities) && task.taskActivities.length > 0) ||
-      Boolean(task.taskTypeId)
-    );
     let taskActivities = null;
     if (rawActivities.length > 0) {
       const contract = await this._getActiveStationCleaningContract(task.stationId || '');
@@ -405,11 +478,9 @@ class TaskManagementService {
         }
       }
       if (resolved.length === 0) {
-        throw new ValidationError('Provide at least one valid activity before starting the task');
+        throw new ValidationError('Provide at least one valid activity');
       }
       taskActivities = resolved;
-    } else if (!hasExistingActivities) {
-      throw new ValidationError('Select at least one activity before starting the task');
     }
 
     const primary = taskActivities ? taskActivities[0] : null;
@@ -433,13 +504,83 @@ class TaskManagementService {
     return warning ? { message: 'Task started', taskId, ...warning } : { message: 'Task started', taskId };
   }
 
+  async _resolveActivities(rawActivities, task, stationId) {
+    if (!Array.isArray(rawActivities) || rawActivities.length === 0) return null;
+    const contract = await this._getActiveStationCleaningContract(stationId || '');
+    if (!contract.uid) {
+      throw new ForbiddenError('Activities can only be set for station-cleaning tasks');
+    }
+    const normalized = [];
+    for (const entry of rawActivities) {
+      if (!entry) continue;
+      if (typeof entry === 'string') {
+        normalized.push({ id: entry });
+      } else {
+        normalized.push({
+          id: entry.id || entry.uid || '',
+          name: entry.name || '',
+          label: entry.label || entry.name || entry.label || '',
+        });
+      }
+    }
+    const resolved = [];
+    for (const item of normalized) {
+      if (!item.id) continue;
+      const tid = String(item.id);
+      const typeDoc = await db.collection('taskTypes').doc(tid).get();
+      if (typeDoc.exists) {
+        const td = typeDoc.data();
+        resolved.push({
+          id: tid,
+          name: td.name || item.name || '',
+          label: td.label || td.name || item.label || item.name || '',
+        });
+      } else if (item.name || item.label) {
+        resolved.push({ id: tid, name: item.name || item.label || '', label: item.label || item.name || '' });
+      }
+    }
+    if (resolved.length === 0) {
+      throw new ValidationError('Provide at least one valid activity');
+    }
+    return resolved;
+  }
+
   async completeTask(taskId, data, user) {
     const ref = db.collection('cleaningTasks').doc(taskId);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Task not found');
     const task = doc.data();
+    await this._assertOwnTaskAccess(task, user);
     if (task.status !== 'in_progress' && task.status !== 'resubmitted') {
       throw new ValidationError(`Only in-progress or resubmitted tasks can be completed. Current: ${task.status}`);
+    }
+
+    // ─── Activity must be chosen before completing (station-cleaning) ───────
+    // Manual or auto-generated task: the supervisor must have picked at least
+    // one cleaning activity (either when starting, on a previous completion
+    // attempt, or now) before the task can be marked done.
+    const recordedActivities = Array.isArray(task.taskActivities) && task.taskActivities.length > 0
+      ? task.taskActivities
+      : null;
+    let activities = task.activities && Array.isArray(task.activities) && task.activities.length > 0
+      ? task.activities
+      : null;
+    let resolvedActivities = null;
+    if (data && (data.activities || data.activityIds)) {
+      resolvedActivities = await this._resolveActivities(data.activities || data.activityIds, task, task.stationId);
+    }
+    const finalizeActivities = resolvedActivities || recordedActivities || activities;
+    let activityUpdates = {};
+    if (finalizeActivities) {
+      const primary = finalizeActivities[0];
+      activityUpdates = {
+        taskActivities: finalizeActivities,
+        activityType: (primary && (primary.label || primary.name)) || task.activityType || 'Cleaning',
+        taskTypeId: (primary && primary.id) || task.taskTypeId || null,
+        taskTypeName: (primary && (primary.name || primary.label)) || task.taskTypeName || null,
+      };
+    } else if (String(task.stationId || '') && (await this._getActiveStationCleaningContract(task.stationId))) {
+      throw new ValidationError('Select at least one activity before completing the task');
     }
 
     const updates = {
@@ -449,7 +590,8 @@ class TaskManagementService {
       gpsLat: data.gpsLat || task.gpsLat || null,
       gpsLng: data.gpsLng || task.gpsLng || null,
       remarks: data.remarks || task.remarks || '',
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      ...activityUpdates
     };
     await ref.update(updates);
     const warning = await this._shiftWarning(task, user.uid);
@@ -463,7 +605,32 @@ class TaskManagementService {
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Task not found');
     const task = doc.data();
+    await this._assertOwnTaskAccess(task, user);
     if (task.status !== 'rejected') throw new ValidationError('Only rejected tasks can be resubmitted');
+
+    // ─── Activity must be chosen before resubmitting ───────────────────────
+    // Use whichever activities are available: existing (from first completion
+    // attempt) or newly supplied at resubmission.
+    const recordedActivities = Array.isArray(task.taskActivities) && task.taskActivities.length > 0
+      ? task.taskActivities
+      : (task.activities && Array.isArray(task.activities) && task.activities.length > 0 ? task.activities : null);
+    let resolvedActivities = null;
+    if (data && (data.activities || data.activityIds)) {
+      resolvedActivities = await this._resolveActivities(data.activities || data.activityIds, task, task.stationId);
+    }
+    const finalizeActivities = resolvedActivities || recordedActivities;
+    let activityUpdates = {};
+    if (finalizeActivities) {
+      const primary = finalizeActivities[0];
+      activityUpdates = {
+        taskActivities: finalizeActivities,
+        activityType: (primary && (primary.label || primary.name)) || task.activityType || 'Cleaning',
+        taskTypeId: (primary && primary.id) || task.taskTypeId || null,
+        taskTypeName: (primary && (primary.name || primary.label)) || task.taskTypeName || null,
+      };
+    } else if (String(task.stationId || '') && (await this._getActiveStationCleaningContract(task.stationId))) {
+      throw new ValidationError('Select at least one activity before resubmitting the task');
+    }
 
     const updates = {
       status: 'resubmitted',
@@ -473,7 +640,8 @@ class TaskManagementService {
       gpsLng: data.gpsLng || task.gpsLng || null,
       remarks: data.remarks || task.remarks || '',
       rejectionReason: null,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      ...activityUpdates
     };
     await ref.update(updates);
     return { message: 'Task resubmitted for review', taskId };
@@ -536,6 +704,15 @@ class TaskManagementService {
       if (ownShift) {
         tasks = tasks.filter(t => !t.shift || String(t.shift).trim().toLowerCase() === ownShift);
       }
+    }
+    // Today-only enforcement for contractor roles: they can never see (or
+    // pull up) tasks from any other day — only the current IST day.
+    if (user && this._isOwnTaskRole(user.role)) {
+      const todayIST = getISTDateStr();
+      tasks = tasks.filter(t => {
+        const d = t.date || t.scheduledDate || '';
+        return !d || d === todayIST;
+      });
     }
 
     if (includeOverdue === 'true') {
@@ -607,9 +784,15 @@ class TaskManagementService {
     if (date) {
       tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
     }
+    // Contractor workers are locked to today (IST) — they can never pull up
+    // other days' work.
+    tasks = tasks.filter(t => {
+      const d = t.date || t.scheduledDate || '';
+      return !d || d === getISTDateStr();
+    });
     // Shift-window enforcement: a contractor worker/supervisor only sees tasks
     // belonging to their recorded shift (worker id == supervisor id here).
-    const ownShift = await this._getSupervisorShift(workerId);
+    const ownShift = await this._getOwnShift(workerId);
     if (ownShift) {
       tasks = tasks.filter(t => !t.shift || String(t.shift).trim().toLowerCase() === ownShift);
     }
@@ -649,7 +832,17 @@ class TaskManagementService {
     const snapshot = await q.get();
     let tasks = [];
     snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
-    tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
+    // Contractor roles are locked to today (IST): they can never view other
+    // days even if an explicit date is requested.
+    if (isOwnTaskRole) {
+      const todayIST = getISTDateStr();
+      tasks = tasks.filter(t => {
+        const d = t.date || t.scheduledDate || '';
+        return !d || d === todayIST;
+      });
+    } else {
+      tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
+    }
     // Contractor supervisors/workers must only ever see their own tasks
     // (their shift), never other shifts/supervisors on the same station.
     if (isOwnTaskRole) {
@@ -668,6 +861,7 @@ class TaskManagementService {
   async getSupervisorTasks(supervisorId, date, statusFilter, user) {
     if (!supervisorId) throw new ValidationError('supervisorId is required');
     const role = (user?.role || '').toUpperCase();
+    const reqUserIsOwnTaskRole = _OWN_TASK_ROLES.has(_normalizeRole(user?.role));
     if (!['SUPER_ADMIN', 'COMPANY_MASTER', 'RAILWAY_MASTER', 'ADMIN'].includes(role)) {
       const allowedSupervisorIds = [user?.uid];
       if (user?.contractId) {
@@ -693,8 +887,16 @@ class TaskManagementService {
       t.isDue = actionableStatuses.includes(t.status) && !t.isOverdue;
       tasks.push(t);
     });
-    if (date) {
+    if (date && !reqUserIsOwnTaskRole) {
       tasks = tasks.filter(t => t.date === date || t.scheduledDate === date);
+    }
+    // Contractor roles are locked to today (IST) — never other days.
+    if (reqUserIsOwnTaskRole) {
+      const todayIST = getISTDateStr();
+      tasks = tasks.filter(t => {
+        const d = t.date || t.scheduledDate || '';
+        return !d || d === todayIST;
+      });
     }
     // Shift-window enforcement: a contractor supervisor's screen only ever
     // shows tasks belonging to their recorded shift.

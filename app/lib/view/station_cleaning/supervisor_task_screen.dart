@@ -11,7 +11,6 @@ import 'package:crm_train/model/task_type_model.dart';
 import 'package:crm_train/repositories/worker_repo.dart';
 import 'package:crm_train/helper/api_error_handler.dart';
 import 'package:crm_train/utills/app_colors.dart';
-import 'workers/worker_management_screen.dart';
 import 'shift_summary_screen.dart';
 
 const List<Map<String, String>> _defaultCleaningActivities = [
@@ -72,9 +71,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
   String _selectedDate = DateTime.now().toIso8601String().split('T')[0];
   String _taskFilter = 'all';
 
-  // Workers
-  List<Map<String, dynamic>> _workers = [];
-
   // Shift summary status (for the supervisor's own submissions)
   Map<String, dynamic>? _summary;
   bool _summaryLoading = false;
@@ -85,7 +81,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _loadAll();
   }
 
@@ -97,7 +93,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
-    await Future.wait([_loadAttendanceStatus(), _loadTasks(), _loadWorkers(), _loadSummary()]);
+    await Future.wait([_loadAttendanceStatus(), _loadTasks(), _loadSummary()]);
     setState(() => _isLoading = false);
   }
 
@@ -159,27 +155,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
     }
   }
 
-  Future<void> _loadWorkers() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      if (token == null) return;
-
-      final uri = Uri.parse('${ApiService.baseUrl}/api/station-cleaning/workers/list')
-          .replace(queryParameters: {'stationId': widget.stationId});
-      final response = await http.get(
-        uri,
-        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 30));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        final list = body['workers'] as List<dynamic>? ?? body['data'] as List<dynamic>? ?? [];
-        setState(() => _workers = list.cast<Map<String, dynamic>>());
-      }
-    } catch (_) {}
-  }
-
   List<Map<String, dynamic>> get _filteredTasks {
     var list = _tasks;
     if (_taskFilter == 'overdue') {
@@ -190,10 +165,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
     list.sort((a, b) => ((a['scheduledTime'] ?? '00:00') as String).compareTo(b['scheduledTime'] ?? '00:00'));
     return list;
   }
-
-  List<Map<String, dynamic>> get _unassignedTasks =>
-      _tasks.where((t) => t['workerId'] == null || t['workerId'] == '').toList()
-        ..sort((a, b) => ((a['scheduledTime'] ?? '00:00') as String).compareTo(b['scheduledTime'] ?? '00:00'));
 
   int get _pendingCount => _tasks.where((t) => t['status'] == 'pending').length;
   int get _overdueCount => _tasks.where((t) => t['isOverdue'] == true).length;
@@ -604,51 +575,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
     );
   }
 
-  Future<void> _showAssignWorker(String taskId) async {
-    if (_workers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No workers registered. Add workers first.'), backgroundColor: Colors.orange),
-      );
-      return;
-    }
-
-    final selected = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) => _WorkerPicker(workers: _workers),
-    );
-
-    if (selected == null) return;
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      if (token == null) return;
-
-      final response = await http.post(
-        Uri.parse('${ApiService.baseUrl}/api/tasks/${taskId}/assign'),
-        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-        body: jsonEncode({'workerId': selected['uid'], 'workerName': selected['name'] ?? selected['fullName'] ?? ''}),
-      );
-
-      if (response.statusCode == 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Task assigned to ${selected['name'] ?? selected['fullName']}'), backgroundColor: kSuccessGreen),
-          );
-        }
-        _loadTasks();
-      } else {
-        throw Exception(ApiErrorHandler.getErrorMessage(response.body, response.statusCode));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Assignment error: $e'), backgroundColor: kErrorRed),
-        );
-      }
-    }
-  }
-
   // ─── Task Execution ──────────────────────────────────────────────────────
 
   Future<void> _startTask(String taskId, [Map<String, dynamic>? task]) async {
@@ -657,15 +583,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
         const SnackBar(content: Text('Mark start attendance first'), backgroundColor: kWarningOrange),
       );
       return;
-    }
-
-    final hasActivities = (task?['taskActivities'] is List && (task!['taskActivities'] as List).isNotEmpty) ||
-        (task?['taskTypeId'] != null && (task!['taskTypeId'] as String).isNotEmpty);
-
-    List<Map<String, dynamic>>? picked;
-    if (!hasActivities) {
-      picked = await _showActivityPicker(context);
-      if (picked == null) return; // cancelled
     }
 
     try {
@@ -684,13 +601,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
       final body = <String, dynamic>{};
       if (lat != null) { body['gpsLat'] = lat; body['gpsLng'] = lng; }
-      if (picked != null && picked.isNotEmpty) {
-        body['activities'] = picked.map((a) => {
-          'uid': a['uid'],
-          'name': a['name'],
-          'label': a['label'],
-        }).toList();
-      }
 
       final response = await http.post(
         Uri.parse('${ApiService.baseUrl}/api/tasks-v2/$taskId/start'),
@@ -709,103 +619,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: kErrorRed));
       }
     }
-  }
-
-  Future<List<Map<String, dynamic>>?> _showActivityPicker(BuildContext context) async {
-    List<TaskType> taskTypes = [];
-    bool loading = true;
-    try {
-      final loaded = await TaskTypeRepository.list(category: 'cleaning', isActive: true);
-      taskTypes = loaded.isNotEmpty ? loaded : _defaultCleaningActivitiesFallback;
-    } catch (_) {
-      taskTypes = _defaultCleaningActivitiesFallback;
-    }
-    loading = false;
-
-    if (!mounted) return null;
-    final selected = <String>{};
-    final result = await showModalBottomSheet<Map<String, dynamic>?>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) {
-        return StatefulBuilder(
-          builder: (sheetCtx, setSheetState) {
-            return Container(
-              height: MediaQuery.of(sheetCtx).size.height * 0.72,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.cleaning_services, color: kRailwayBlue),
-                      const SizedBox(width: 8),
-                      const Text('Select Activities', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(sheetCtx, null),
-                      ),
-                    ],
-                  ),
-                  const Text('Choose the activities performed for this task. You can pick more than one.',
-                      style: TextStyle(fontSize: 12, color: Colors.black54)),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: loading
-                        ? const Center(child: CircularProgressIndicator())
-                        : ListView(
-                            children: taskTypes.map((tt) {
-                              return CheckboxListTile(
-                                dense: true,
-                                controlAffinity: ListTileControlAffinity.leading,
-                                title: Text(tt.label.isNotEmpty ? tt.label : tt.name, style: const TextStyle(fontSize: 14)),
-                                value: selected.contains(tt.uid),
-                                onChanged: (v) => setSheetState(() {
-                                  if (v == true) {
-                                    selected.add(tt.uid);
-                                  } else {
-                                    selected.remove(tt.uid);
-                                  }
-                                }),
-                              );
-                            }).toList(),
-                          ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.play_arrow),
-                      label: Text('Start Task${selected.isEmpty ? '' : ' (${selected.length})'}'),
-                      onPressed: selected.isEmpty
-                          ? null
-                          : () {
-                              final pickedList = taskTypes
-                                  .where((tt) => selected.contains(tt.uid))
-                                  .map((tt) => {'uid': tt.uid, 'name': tt.name, 'label': tt.label})
-                                  .toList();
-                              Navigator.pop(sheetCtx, {'activities': pickedList});
-                            },
-                      style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    if (result == null || result['activities'] == null) return null;
-    return (result['activities'] as List).cast<Map<String, dynamic>>();
   }
 
   void _showCompleteSheet(String taskId) {
@@ -857,7 +670,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
           tabs: [
             const Tab(icon: Icon(Icons.fingerprint), text: 'Attendance'),
             Tab(icon: const Icon(Icons.cleaning_services), text: 'Tasks ($_pendingCount)'),
-            Tab(icon: const Icon(Icons.assignment), text: 'Assign (${_unassignedTasks.length})'),
           ],
         ),
       ),
@@ -870,7 +682,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
               children: [
                 _buildAttendanceTab(),
                 _buildTasksTab(),
-                _buildAssignTab(),
               ],
             ),
           ),
@@ -1175,13 +986,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                if (status == 'pending' && (t['workerId'] == null || t['workerId'] == ''))
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.person_add, size: 16),
-                    label: const Text('Assign'),
-                    onPressed: () => _showAssignWorker(taskId),
-                  ),
-                if (status == 'pending' && t['workerId'] != null && t['workerId'] != '')
+                if (status == 'pending')
                   ElevatedButton.icon(
                     icon: const Icon(Icons.play_arrow, size: 16),
                     label: const Text('Start'),
@@ -1207,95 +1012,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
     );
   }
 
-  // ─── Assign Tab ──────────────────────────────────────────────────────────
-
-  Widget _buildAssignTab() {
-    if (_unassignedTasks.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.check_circle, size: 64, color: kSuccessGreen.withOpacity(0.5)),
-            const SizedBox(height: 16),
-            const Text('All tasks assigned!', style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.people),
-              label: const Text('Manage Workers'),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => WorkerManagementScreen(
-                    stationId: widget.stationId,
-                    stationName: widget.stationName,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Text('${_unassignedTasks.length} unassigned task(s)',
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              const Spacer(),
-              TextButton.icon(
-                icon: const Icon(Icons.people, size: 18),
-                label: const Text('Workers'),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => WorkerManagementScreen(
-                      stationId: widget.stationId,
-                      stationName: widget.stationName,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _loadTasks,
-            child: ListView.builder(
-              itemCount: _unassignedTasks.length,
-              itemBuilder: (ctx, i) {
-                final t = _unassignedTasks[i];
-                final areaName = t['areaName'] ?? '';
-                final activityName = t['activityType'] ?? t['taskTypeName'] ?? 'Cleaning';
-                final time = t['scheduledTime'] ?? '--:--';
-                final taskId = t['uid'] ?? t['id'];
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.orange.withOpacity(0.15),
-                      child: const Icon(Icons.schedule, color: Colors.orange),
-                    ),
-                    title: Text('$time - $activityName'),
-                    subtitle: Text('${areaName.isNotEmpty ? areaName : 'Area'} | ${t['frequency'] ?? ''} | ${t['shift'] ?? ''}'),
-                    trailing: ElevatedButton.icon(
-                      icon: const Icon(Icons.person_add, size: 16),
-                      label: const Text('Assign'),
-                      onPressed: () => _showAssignWorker(taskId),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  // ─── Assign Tab removed: supervisor performs tasks manually ──────────────
 
   Color _statusColor(String status) {
     switch (status) {
@@ -1323,56 +1040,6 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
   }
 }
 
-// ─── Worker Picker Bottom Sheet ────────────────────────────────────────────
-
-class _WorkerPicker extends StatelessWidget {
-  final List<Map<String, dynamic>> workers;
-  const _WorkerPicker({required this.workers});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('Select Worker', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 300,
-            child: ListView.separated(
-              itemCount: workers.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (ctx, i) {
-                final w = workers[i];
-                final name = w['name'] ?? w['fullName'] ?? 'Unknown';
-                final phone = w['phone'] ?? w['mobileNumber'] ?? '';
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: kRailwayBlue.withOpacity(0.15),
-                    child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                        style: TextStyle(color: kRailwayBlue, fontWeight: FontWeight.bold)),
-                  ),
-                  title: Text(name),
-                  subtitle: Text(phone.isNotEmpty ? phone : 'No phone'),
-                  onTap: () => Navigator.pop(context, w),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ─── Supervisor Task Execution Sheet ───────────────────────────────────────
 
 class _SupervisorTaskExecutionSheet extends StatefulWidget {
@@ -1393,11 +1060,122 @@ class _SupervisorTaskExecutionSheet extends StatefulWidget {
 class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionSheet> {
   final TextEditingController _commentCtrl = TextEditingController();
   bool isSubmitting = false;
+  List<Map<String, dynamic>>? _selectedActivities;
+  List<TaskType> _activityOptions = _defaultCleaningActivitiesFallback;
+  bool _loadingActivities = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActivities();
+  }
 
   @override
   void dispose() {
     _commentCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadActivities() async {
+    try {
+      final loaded = await TaskTypeRepository.list(category: 'cleaning', isActive: true);
+      if (mounted && loaded.isNotEmpty) {
+        setState(() => _activityOptions = loaded);
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loadingActivities = false);
+  }
+
+  Future<void> _pickActivities() async {
+    final selected = <String>{};
+    for (final a in (_selectedActivities ?? [])) {
+      final id = a['uid']?.toString() ?? '';
+      if (id.isNotEmpty) selected.add(id);
+    }
+    final picked = await showModalBottomSheet<Map<String, dynamic>?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setSheetState) {
+            return Container(
+              height: MediaQuery.of(sheetCtx).size.height * 0.72,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.cleaning_services, color: kRailwayBlue),
+                      const SizedBox(width: 8),
+                      const Text('Select Activities', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(sheetCtx, null),
+                      ),
+                    ],
+                  ),
+                  const Text(
+                    'Choose the activities performed for this task before completing. You can pick more than one.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: _loadingActivities
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView(
+                            children: _activityOptions.map((tt) {
+                              return CheckboxListTile(
+                                dense: true,
+                                controlAffinity: ListTileControlAffinity.leading,
+                                title: Text(tt.label.isNotEmpty ? tt.label : tt.name, style: const TextStyle(fontSize: 14)),
+                                value: selected.contains(tt.uid),
+                                onChanged: (v) => setSheetState(() {
+                                  if (v == true) {
+                                    selected.add(tt.uid);
+                                  } else {
+                                    selected.remove(tt.uid);
+                                  }
+                                }),
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.check),
+                      label: Text('Confirm Activities${selected.isEmpty ? '' : ' (${selected.length})'}'),
+                      onPressed: selected.isEmpty
+                          ? null
+                          : () {
+                              final pickedList = _activityOptions
+                                  .where((tt) => selected.contains(tt.uid))
+                                  .map((tt) => {'uid': tt.uid, 'name': tt.name, 'label': tt.label})
+                                  .toList();
+                              Navigator.pop(sheetCtx, {'activities': pickedList});
+                            },
+                      style: ElevatedButton.styleFrom(backgroundColor: kSuccessGreen, foregroundColor: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (picked == null || picked['activities'] == null) return;
+    final list = (picked['activities'] as List).cast<Map<String, dynamic>>();
+    setState(() => _selectedActivities = list);
   }
 
   @override
@@ -1427,6 +1205,40 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
                 ],
               ),
               const SizedBox(height: 16),
+              const Text('Choose Activity (required)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: _pickActivities,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: _selectedActivities == null || _selectedActivities!.isEmpty ? Colors.orange : kSuccessGreen),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _selectedActivities == null || _selectedActivities!.isEmpty
+                            ? Icons.add_circle_outline
+                            : Icons.check_circle,
+                        color: _selectedActivities == null || _selectedActivities!.isEmpty ? kWarningOrange : kSuccessGreen,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          (_selectedActivities == null || _selectedActivities!.isEmpty)
+                              ? 'Tap to select activity'
+                              : _selectedActivities!.map((a) => a['label'] ?? a['name'] ?? '').join(', '),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               const Text('Remark the location', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               const SizedBox(height: 12),
               TextField(
@@ -1434,7 +1246,7 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
                 minLines: 3,
                 maxLines: 4,
                 decoration: InputDecoration(
-                  hintText: 'Enter remarks...',
+                  hintText: 'Enter remarks (optional)...',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   contentPadding: const EdgeInsets.all(12),
                 ),
@@ -1443,7 +1255,7 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: (_commentCtrl.text.trim().isNotEmpty && !isSubmitting) ? _submit : null,
+                  onPressed: ((_selectedActivities != null && _selectedActivities!.isNotEmpty) && !isSubmitting) ? _submit : null,
                   style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
                   child: Text(isSubmitting ? 'Submitting...' : (widget.mode == 'complete' ? 'Complete Task' : 'Resubmit Task')),
                 ),
@@ -1473,6 +1285,11 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
 
       final body = <String, dynamic>{
         'remarks': _commentCtrl.text.trim(),
+        'activities': _selectedActivities?.map((a) => {
+          'id': a['uid'],
+          'name': a['name'],
+          'label': a['label'],
+        }).toList() ?? [],
       };
       if (lat != null) { body['gpsLat'] = lat; body['gpsLng'] = lng; }
 

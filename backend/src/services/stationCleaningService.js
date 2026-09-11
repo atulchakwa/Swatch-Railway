@@ -4,6 +4,18 @@ import { paginate } from '../utils/paginate.js';
 import { fcmService } from './fcmService.js';
 import logger from '../logger/index.js';
 
+function getISTDate(offset = 0) {
+  const shifted = new Date(Date.now() + offset * 86400000);
+  return shifted.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+// Add N days to a plain YYYY-MM-DD date without any local-timezone drift.
+function addDaysToDate(yyyymmdd, days) {
+  const d = new Date(`${yyyymmdd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
 class StationCleaningService {
 
   _resolveStationId(requestedStationId, user) {
@@ -394,55 +406,66 @@ class StationCleaningService {
     if (!scheduleDoc.exists) throw new NotFoundError('Schedule not found');
     const schedule = scheduleDoc.data();
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
-    const startTime = schedule.startTime || '06:00';
-    const endTime = schedule.endTime || '14:00';
-    const frequency = schedule.frequency || 'daily';
-
-    let areaName = schedule.areaName || '';
-    if (!areaName && schedule.areaId) {
-      try {
-        const areaDoc = await db.collection('stationAreas').doc(schedule.areaId).get();
-        if (areaDoc.exists) {
-          areaName = areaDoc.data().name || areaDoc.data().areaName || '';
-        }
-      } catch (_) {}
-    }
-    schedule.areaName = areaName;
-
-    const taskTimes = this._calculateTaskTimes(frequency, startTime, endTime);
-
+    const targetDate = date || getISTDate();
     const numDays = Math.max(1, generateForDays || 1);
     const daysToGenerate = [];
-    const start = new Date(targetDate + 'T00:00:00');
+    const start = new Date(targetDate + 'T00:00:00Z');
     for (let i = 0; i < numDays; i++) {
       const d = new Date(start);
-      d.setDate(d.getDate() + i);
+      d.setUTCDate(d.getUTCDate() + i);
       daysToGenerate.push(d.toISOString().split('T')[0]);
     }
 
+    // ─── Resolve the area(s) this schedule is responsible for ──────────────
+    // - schedule.areaId set   -> that exact area (skipped when the area has
+    //   been deactivated so stale duplicate schedules generate nothing).
+    // - schedule.areaId empty  -> EVERY active area of the station, so a
+    //   per-shift default schedule produces daily tasks for all areas.
+    const areas = [];
+    if (schedule.areaId) {
+      const areaDoc = await db.collection('stationAreas').doc(schedule.areaId).get();
+      if (areaDoc.exists) {
+        const areaData = areaDoc.data();
+        if (String(areaData.status || 'active').toLowerCase() !== 'inactive') {
+          areas.push({ id: schedule.areaId, data: areaData });
+        }
+      }
+    } else {
+      const snap = await db.collection('stationAreas')
+        .where('stationId', '==', schedule.stationId)
+        .where('status', '==', 'active').get();
+      snap.forEach(doc => areas.push({ id: doc.id, data: doc.data() }));
+      if (areas.length === 0) {
+        const all = await db.collection('stationAreas')
+          .where('stationId', '==', schedule.stationId).get();
+        all.forEach(doc => areas.push({ id: doc.id, data: doc.data() }));
+      }
+    }
+
+    // ─── Idempotency: one task per (station, date, area, time) regardless of
+    // how many (duplicate) schedules or cron runs try to create it. Uses
+    // equality filters only (stationId + date) so no composite index is
+    // required. ────────────────────────────────────────────────────────────
     const existingKeys = new Set();
-    if (daysToGenerate.length > 0) {
+    for (const dayStr of daysToGenerate) {
       try {
-        const existingSnap = await db.collection('cleaningTasks')
-          .where('scheduleId', '==', scheduleId)
-          .where('date', '>=', daysToGenerate[0])
-          .where('date', '<=', daysToGenerate[daysToGenerate.length - 1])
-          .select('date', 'scheduledTime')
+        const daySnap = await db.collection('cleaningTasks')
+          .where('stationId', '==', schedule.stationId)
+          .where('date', '==', dayStr)
+          .select('areaId', 'scheduledTime', 'status')
           .get();
-        existingSnap.forEach(doc => {
+        daySnap.forEach(doc => {
           const d = doc.data();
-          existingKeys.add(`${d.date}|${d.scheduledTime}`);
+          if (d.status === 'cancelled') return;
+          existingKeys.add(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`);
         });
-      } catch (indexErr) {
+      } catch (dayErr) {
         const allSnap = await db.collection('cleaningTasks')
-          .where('scheduleId', '==', scheduleId)
-          .select('date', 'scheduledTime')
-          .get();
+          .where('stationId', '==', schedule.stationId).get();
         allSnap.forEach(doc => {
           const d = doc.data();
-          if (d.date >= daysToGenerate[0] && d.date <= daysToGenerate[daysToGenerate.length - 1]) {
-            existingKeys.add(`${d.date}|${d.scheduledTime}`);
+          if (d.status !== 'cancelled' && (d.date || d.scheduledDate || '') === dayStr) {
+            existingKeys.add(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`);
           }
         });
       }
@@ -451,66 +474,107 @@ class StationCleaningService {
     let totalCount = 0;
     const allTaskIds = [];
     const supervisorsByShift = await this._supervisorsByShift(schedule);
+    const batch = db.batch();
+    let batchCount = 0;
 
     for (const dayStr of daysToGenerate) {
-      const batch = db.batch();
-      let batchCount = 0;
+      for (const area of areas) {
+        // Frequency always comes from the AREA's mapped cleaning frequency
+        // (how many times this area must be cleaned), never a schedule's
+        // hardcoded every_30_min. Slot times use the canonical full-day
+        // times for that frequency so each day has exactly its required
+        // number of cleaning passes, spread across the shifts.
+        const areaData = area.data || {};
+        const effectiveFrequency =
+          areaData.cleaningFrequency || areaData.frequency || schedule.frequency || 'daily';
+        const taskTimes = this._getCanonicalFrequencyTimes(effectiveFrequency);
+        const areaName = areaData.name || areaData.areaName || schedule.areaName || '';
 
-      for (const timeSlot of taskTimes) {
-        const key = `${dayStr}|${timeSlot}`;
-        if (existingKeys.has(key)) continue;
+        for (const timeSlot of taskTimes) {
+          const key = `${dayStr}|${area.id}|${timeSlot}`;
+          if (existingKeys.has(key)) continue;
 
-        const slotShift = this._shiftForTime(timeSlot) ||
-          (schedule.shift || 'morning').toString().toLowerCase();
-        const shiftSupervisor = supervisorsByShift.get(slotShift);
-        const supervisorId = shiftSupervisor?.uid || schedule.supervisorId || null;
-        const supervisorName = shiftSupervisor?.fullName || schedule.supervisorName || '';
-        if (!supervisorId) continue;
+          const slotShift = this._shiftForTime(timeSlot) ||
+            (schedule.shift || 'morning').toString().toLowerCase();
+          const shiftSupervisor = supervisorsByShift.get(slotShift);
+          const supervisorId = shiftSupervisor?.uid || schedule.supervisorId || null;
+          const supervisorName = shiftSupervisor?.fullName || schedule.supervisorName || '';
+          if (!supervisorId) continue;
 
-        const taskRef = db.collection('cleaningTasks').doc();
-        const task = {
-          uid: taskRef.id,
-          stationId: schedule.stationId,
-          stationName: schedule.stationName || '',
-          areaId: schedule.areaId || '',
-          areaName: schedule.areaName || '',
-          zoneId: schedule.zoneId || '',
-          shift: slotShift,
-          frequency,
-          date: dayStr,
-          scheduledDate: dayStr,
-          scheduledTime: timeSlot,
-          supervisorId,
-          supervisorName,
-          scheduleId,
-          entityId: schedule.entityId || '',
-          entityName: schedule.entityName || '',
-          activityType: 'station_cleaning',
-          status: 'pending',
-          workerId: null,
-          workerName: null,
-          priority: 3,
-          startedAt: null, completedAt: null,
-          approvedAt: null, rejectedAt: null,
-          beforePhoto: null, afterPhoto: null,
-          gpsLat: null, gpsLng: null,
-          supervisorNotes: null, rejectionReason: null,
-          resubmittedAt: null,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: new Date().toISOString()
-        };
-        batch.set(taskRef, task);
-        allTaskIds.push(taskRef.id);
-        batchCount++;
-      }
-
-      if (batchCount > 0) {
-        await batch.commit();
-        totalCount += batchCount;
+          const taskRef = db.collection('cleaningTasks').doc();
+          const task = {
+            uid: taskRef.id,
+            stationId: schedule.stationId,
+            stationName: schedule.stationName || '',
+            areaId: area.id,
+            areaName,
+            zoneId: areaData.zoneId || schedule.zoneId || '',
+            shift: slotShift,
+            frequency: effectiveFrequency,
+            date: dayStr,
+            scheduledDate: dayStr,
+            scheduledTime: timeSlot,
+            supervisorId,
+            supervisorName,
+            scheduleId,
+            entityId: areaData.entityId || schedule.entityId || '',
+            entityName: areaData.entityName || schedule.entityName || '',
+            activityType: 'station_cleaning',
+            status: 'pending',
+            workerId: null,
+            workerName: null,
+            priority: 3,
+            startedAt: null, completedAt: null,
+            approvedAt: null, rejectedAt: null,
+            beforePhoto: null, afterPhoto: null,
+            gpsLat: null, gpsLng: null,
+            supervisorNotes: null, rejectionReason: null,
+            resubmittedAt: null,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: new Date().toISOString()
+          };
+          batch.set(taskRef, task);
+          existingKeys.add(key);
+          allTaskIds.push(taskRef.id);
+          batchCount++;
+        }
       }
     }
 
-    return { message: `Generated ${totalCount} tasks for ${daysToGenerate.length} day(s)`, count: totalCount, taskIds: allTaskIds };
+    if (batchCount > 0) {
+      await batch.commit();
+      totalCount += batchCount;
+    }
+
+    return {
+      message: `Generated ${totalCount} tasks for ${daysToGenerate.length} day(s) across ${areas.length} area(s)`,
+      count: totalCount,
+      taskIds: allTaskIds,
+    };
+  }
+
+  // Canonical full-day slot times for a given area frequency, mirroring
+  // taskManagementService._getDefaultFrequencyTimes so the schedule generator
+  // agrees with the frequency/attendance dashboards.
+  _getCanonicalFrequencyTimes(frequency) {
+    switch (frequency) {
+      case 'hourly':
+        return ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00'];
+      case '2hrs':
+        return ['06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'];
+      case '4hrs':
+        return ['06:00', '10:00', '14:00', '18:00', '22:00'];
+      case 'daily':
+        return ['08:00'];
+      case 'twice_daily':
+        return ['06:00', '18:00'];
+      case 'shift_wise':
+        return ['06:00', '14:00', '22:00'];
+      case 'four_times_daily':
+        return ['06:00', '10:00', '14:00', '18:00'];
+      default:
+        return ['08:00'];
+    }
   }
 
   _shiftForTime(timeStr) {
@@ -579,10 +643,9 @@ class StationCleaningService {
     const intervalMap = {
       every_15_min: 15, every15min: 15, every_15min: 15,
       every_30_min: 30, every30min: 30, every_30min: 30,
-      hourly: 60, every_1_hour: 60,
-      every_2_hour: 120, every2h: 120, every_2h: 120,
+      hourly: 60, every_1_hour: 60, '2hrs': 120, every_2_hour: 120, every2h: 120, every_2h: 120,
       every_3_hour: 180,
-      every_4_hour: 240, every4h: 240, every_4h: 240,
+      '4hrs': 240, every_4_hour: 240, every4h: 240, every_4h: 240,
       every_6_hour: 360, every6h: 360, every_6h: 360,
     };
 
@@ -1767,7 +1830,82 @@ class StationCleaningService {
         updatedAt: new Date().toISOString(),
       }, { merge: true });
     }
+    if (shift !== 'none') {
+      await this._ensureShiftSchedule(stationId, shift, contract.uid, supervisorId, supData.fullName || '');
+    }
     return { uid: supervisorId, shift: shift === 'none' ? null : shift, stationId };
+  }
+
+  // Guarantees a default schedule exists for a station+shift window so the
+  // daily / refresh crons produce tasks for the supervisor assigned to that
+  // shift. Skips when one already exists; idempotent by (stationId, shift).
+  async _ensureShiftSchedule(stationId, shift, contractId, supervisorId, supervisorName) {
+    const s = String(shift || '').trim().toLowerCase();
+    if (!['morning', 'evening', 'night'].includes(s)) return null;
+    const existing = await db.collection('stationSchedules')
+      .where('stationId', '==', stationId)
+      .where('status', '==', 'active').get();
+    for (const doc of existing.docs) {
+      const d = doc.data();
+      if (String(d.shift || d.shiftType || '').trim().toLowerCase() === s) {
+        return null;
+      }
+    }
+    const windows = { morning: ['06:00', '14:00'], evening: ['14:00', '22:00'], night: ['20:00', '04:00'] };
+    const [startTime, endTime] = windows[s] || ['06:00', '14:00'];
+    const ref = db.collection('stationSchedules').doc();
+    const data = {
+      uid: ref.id,
+      stationId,
+      scheduleName: `Default ${s.charAt(0).toUpperCase() + s.slice(1)} Shift`,
+      areaId: '',
+      zoneId: '',
+      frequency: 'daily',
+      shift: s,
+      shiftType: s,
+      entityId: '',
+      entityName: 'Station Cleaning',
+      supervisorId: supervisorId || '',
+      supervisorName: supervisorName || '',
+      startTime,
+      endTime,
+      daysOfWeek: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      estimatedHours: null,
+      effectiveFrom: getISTDate(),
+      effectiveTo: null,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await ref.set(data);
+    logger.info('StationCleaning', `Auto-created default ${s} shift schedule ${ref.id} for station ${stationId}`);
+    return data;
+  }
+
+  // Reconciles default shift schedules for every station that has supervisors
+  // recorded. Idempotent — used at boot/cron so any newly-assigned shift
+  // (morning/evening/night) immediately gets a schedule + daily tasks.
+  async ensureShiftSchedulesForAllStations() {
+    const snaps = await db.collection('stationSupervisorShifts').get();
+    const handled = new Map();
+    let created = 0;
+    for (const doc of snaps.docs) {
+      const d = doc.data();
+      const stationId = d.stationId;
+      const shift = String(d.shift || '').trim().toLowerCase();
+      if (!stationId || !['morning', 'evening', 'night'].includes(shift)) continue;
+      const key = `${stationId}|${shift}`;
+      if (handled.has(key)) continue;
+      handled.set(key, true);
+      const result = await this._ensureShiftSchedule(
+        stationId, shift, d.contractId || '', doc.id, d.supervisorName || ''
+      );
+      if (result) created++;
+    }
+    if (created > 0) {
+      logger.info('StationCleaning', `Ensured ${created} default shift schedule(s) from recorded supervisor shifts`);
+    }
+    return { created };
   }
 
   // ─── Cleaning Submissions CRUD ─────────────────────────────────────────────

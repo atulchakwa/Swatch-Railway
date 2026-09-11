@@ -3,6 +3,7 @@ import { validateEnvironment } from './src/config/env.js';
 import app from './src/app.js';
 import logger from './src/logger/index.js';
 import config from './src/config/index.js';
+import { stationCleaningService } from './src/services/stationCleaningService.js';
 
 validateEnvironment();
 
@@ -48,8 +49,50 @@ async function seedDefaultAdmin() {
   }
 }
 
+// On boot, pre-generate upcoming station-cleaning tasks for all active schedules
+// so a missed midnight cron / Render restart never leaves a day empty. Uses
+// generateForDays>1 to create today AND upcoming dates (no backfill of the past).
+async function preGenerateStationCleaningTasks() {
+  try {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(`${today}T12:00:00Z`).getUTCDay()];
+    try {
+      await stationCleaningService.ensureShiftSchedulesForAllStations();
+    } catch (scheduleErr) {
+      logger.error('Boot', `Shift-schedule reconcile failed: ${scheduleErr.message}`);
+    }
+    const scheduleSnap = await db.collection('stationSchedules')
+      .where('status', '==', 'active').get();
+    let totalSchedules = 0;
+    let totalTasks = 0;
+    for (const doc of scheduleSnap.docs) {
+      const s = doc.data();
+      if (s.daysOfWeek && Array.isArray(s.daysOfWeek) && s.daysOfWeek.length > 0) {
+        if (!s.daysOfWeek.includes(dayName)) continue;
+      }
+      try {
+        const result = await stationCleaningService.generateTasksFromSchedule({
+          scheduleId: doc.id,
+          date: today,
+          generateForDays: 3,
+        });
+        totalSchedules++;
+        totalTasks += result.count || 0;
+      } catch (err) {
+        logger.error('Boot', `StationSchedule pre-gen error ${doc.id}: ${err.message}`);
+      }
+    }
+    if (totalSchedules > 0) {
+      logger.info('Boot', `Pre-generated ${totalTasks} tasks across ${totalSchedules} schedule(s) for upcoming days`);
+    }
+  } catch (err) {
+    logger.error('Boot', `Pre-generation failed: ${err.message}`);
+  }
+}
+
 import './src/cron.js';
 await seedDefaultAdmin();
+await preGenerateStationCleaningTasks();
 
 app.listen(config.port, () => {
   logger.info('Server', `Modular Swachh Railways server running on http://localhost:${config.port}`);

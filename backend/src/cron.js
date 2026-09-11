@@ -7,6 +7,20 @@ import logger from './logger/index.js';
 import { taskManagementService } from './services/taskManagementService.js';
 import { stationCleaningService } from './services/stationCleaningService.js';
 
+const CRON_TZ = 'Asia/Kolkata';
+
+// Business date (YYYY-MM-DD) in IST, independent of the host server timezone.
+// Offsets of -1/0/+1 days can be supplied for backdating or look-ahead.
+function getISTDate(offset = 0) {
+  const shifted = new Date(Date.now() + offset * 86400000);
+  return shifted.toLocaleDateString('en-CA', { timeZone: CRON_TZ });
+}
+
+// Weekday name (Mon..Sun) matching the IST business date for a given ISO date.
+function getISTDayName(dateStr) {
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(`${dateStr}T12:00:00Z`).getUTCDay()];
+}
+
 let resend = null;
 try {
   if (process.env.RESEND_API_KEY) resend = new Resend(process.env.RESEND_API_KEY);
@@ -216,11 +230,21 @@ cron.schedule('0 0 * * *', async () => {
   logger.info('Cron', ' Running Midnight Cron Job...');
   try {
     await checkContractExpiry();
-    const today = new Date().toISOString().split('T')[0];
-    const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+    const today = getISTDate();
+    const dayName = getISTDayName(today);
 
-    const legacyResult = await taskManagementService.generateFrequencyBasedTasks(today);
-    logger.info('Cron', ` [TaskGen-Legacy] ${legacyResult.message}`);
+    try {
+      const legacyResult = await taskManagementService.generateFrequencyBasedTasks(today);
+      logger.info('Cron', ` [TaskGen-Legacy] ${legacyResult.message}`);
+    } catch (legacyErr) {
+      logger.error('Cron', ` [TaskGen-Legacy] FAILED: ${legacyErr.message}`);
+    }
+
+    try {
+      await stationCleaningService.ensureShiftSchedulesForAllStations();
+    } catch (reconcileErr) {
+      logger.error('Cron', ` [ShiftSchedule] Reconcile failed: ${reconcileErr.message}`);
+    }
 
     const scheduleSnap = await db.collection('stationSchedules')
       .where('status', '==', 'active').get();
@@ -243,7 +267,7 @@ cron.schedule('0 0 * * *', async () => {
         const result = await stationCleaningService.generateTasksFromSchedule({
           scheduleId: doc.id,
           date: today,
-          generateForDays: 1,
+          generateForDays: 3,
         });
         totalSchedules++;
         totalTasks += result.count || 0;
@@ -256,21 +280,59 @@ cron.schedule('0 0 * * *', async () => {
       logger.info('Cron', ` [StationSchedule] Generated ${totalTasks} tasks across ${totalSchedules} schedule(s)`);
     }
   } catch (e) { logger.error('Cron', ' [Cron Error] Midnight tasks:', e.message); }
-});
+}, { timezone: CRON_TZ });
 
 // ─── Daily 6 AM & 6 PM: Regenerate tasks for current day if needed ───
 cron.schedule('0 6,18 * * *', async () => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const existingSnap = await db.collection('cleaningTasks').where('scheduledDate', '==', today).limit(1).get();
-    if (existingSnap.empty) {
+    const today = getISTDate();
+    const dayName = getISTDayName(today);
+
+    try {
       const result = await taskManagementService.generateFrequencyBasedTasks(today);
       logger.info('Cron', ` [TaskGen-Refresh] ${result.message}`);
-    } else {
-      logger.info('Cron', ' [TaskGen-Refresh] Tasks already exist for today, skipping');
+    } catch (e) {
+      logger.error('Cron', ` [TaskGen-Refresh] Legacy generation failed: ${e.message}`);
+    }
+
+    try {
+      await stationCleaningService.ensureShiftSchedulesForAllStations();
+    } catch (reconcileErr) {
+      logger.error('Cron', ` [ShiftSchedule-Refresh] Reconcile failed: ${reconcileErr.message}`);
+    }
+
+    const scheduleSnap = await db.collection('stationSchedules')
+      .where('status', '==', 'active').get();
+    let totalSchedules = 0;
+    let totalTasks = 0;
+    for (const doc of scheduleSnap.docs) {
+      const s = doc.data();
+      if (s.daysOfWeek && Array.isArray(s.daysOfWeek) && s.daysOfWeek.length > 0) {
+        if (!s.daysOfWeek.includes(dayName)) continue;
+      }
+      if (s.effectiveFrom && s.effectiveTo) {
+        const from = new Date(s.effectiveFrom);
+        const to = new Date(s.effectiveTo);
+        const now = new Date();
+        if (now < from || now > to) continue;
+      }
+      try {
+        const result = await stationCleaningService.generateTasksFromSchedule({
+          scheduleId: doc.id,
+          date: today,
+          generateForDays: 1,
+        });
+        totalSchedules++;
+        totalTasks += result.count || 0;
+      } catch (err) {
+        logger.error('Cron', ` [StationSchedule-Refresh] Error processing ${doc.id}: ${err.message}`);
+      }
+    }
+    if (totalSchedules > 0) {
+      logger.info('Cron', ` [StationSchedule-Refresh] Generated ${totalTasks} tasks across ${totalSchedules} schedule(s)`);
     }
   } catch (e) { logger.error('Cron', ' [Cron Error] Task refresh:', e.message); }
-});
+}, { timezone: CRON_TZ });
 
 // ─── Daily 23:55: Automated daily reports ───
 cron.schedule('55 23 * * *', async () => {
