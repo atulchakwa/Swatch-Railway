@@ -2,7 +2,9 @@ import 'package:crm_train/utills/app_colors.dart';
 import 'package:crm_train/view/common_contractor/form_screen/forms/cts_form_screen_v2.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../providers/station_cleaning_provider.dart';
 import '../../../services/api_services.dart';
 import '../../../services/dashboard_counts_service.dart';
 import '../../common_railways/widgets/DonutChart.dart';
@@ -88,6 +90,10 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
   bool isChartLoading = true;
   bool isStatsLoading = true;
 
+  Map<String, dynamic>? scDashboard;
+  Map<String, dynamic>? scDailyReport;
+  bool isScLoading = true;
+
   String dateRange = 'Last 30 days';
 
   List<Map<String, dynamic>> get coachKpi => [
@@ -167,7 +173,33 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     await Future.wait([
       _loadFormStatusCounts(),
       _loadCleaningStats(),
+      _loadScDashboard(),
     ]);
+  }
+
+  Future<void> _loadScDashboard() async {
+    if (!_isStationCleaning) return;
+    setState(() => isScLoading = true);
+    try {
+      final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+      if (user == null) { setState(() => isScLoading = false); return; }
+      final provider = StationCleaningProvider();
+      String stationId = user.stationId ?? '';
+      if (stationId.isEmpty && (user.stations is List) && (user.stations as List).isNotEmpty) {
+        stationId = (user.stations as List).first.toString();
+      }
+      final results = await Future.wait([
+        provider.fetchSupervisorDashboard(user.uid),
+        if (stationId.isNotEmpty) provider.fetchDailyReport(stationId),
+      ]);
+      if (mounted) setState(() {
+        scDashboard = results[0];
+        scDailyReport = stationId.isNotEmpty ? results.elementAt(1) : null;
+        isScLoading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { scDashboard = null; scDailyReport = null; isScLoading = false; });
+    }
   }
 
   String? get _effectiveContractType => widget.contractType;
@@ -913,53 +945,11 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
                 const SizedBox(height: 18),
 
-                // Station cleaning users see a redirect card instead of form stats
-                if (_isStationCleaning)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: Column(
-                      children: [
-                        Icon(Icons.cleaning_services, size: 48, color: Colors.blue.shade700),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Station Cleaning Module',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Use the sidebar menu to access Station Cleaning features like Area Management, Tasks, Machines, and Materials.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.blue.shade700, fontSize: 13),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => const StationDashboardScreen()),
-                            );
-                          },
-                          icon: const Icon(Icons.open_in_new),
-                          label: const Text('Go to Station Dashboard'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade700,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                if (_isStationCleaning) ...[
+                  _buildStationCleaningDashboard(),
+                ] else ...[
 
+                // OBHS and railway users see the full forms dashboard
                 // OBHS and railway users see the full forms dashboard
                 if (!_isStationCleaning) ...[
                   Text("Forms Overview",
@@ -1123,7 +1113,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
 
 
-                if(user?.role == 'Contractor Supervisor')
+                if(!_isStationCleaning && user?.role == 'Contractor Supervisor')
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(14),
@@ -1239,9 +1229,231 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
                 const SizedBox(height: 28)
               ],
+            ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+
+  Widget _buildStationCleaningDashboard() {
+    if (isScLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 60),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final d = scDashboard;
+    if (d == null) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              const Icon(Icons.error_outline, size: 44, color: kErrorRed),
+              const SizedBox(height: 10),
+              const Text('Could not load station cleaning dashboard',
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(onPressed: _loadScDashboard, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final total = (d['totalTasks'] ?? 0) as int;
+    final completed = (d['completedTasks'] ?? 0) as int;
+    final inProgress = (d['inProgressTasks'] ?? 0) as int;
+    final pending = (d['pendingTasks'] ?? 0) as int;
+    final approved = (d['approvedTasks'] ?? 0) as int;
+    final rejected = (d['rejectedTasks'] ?? 0) as int;
+    final overdue = (d['overdueTasks'] ?? 0) as int;
+    final awaiting = (completed - approved).clamp(0, total);
+    final fraction = total > 0 ? completed / total : 0.0;
+    final rate = (fraction * 100).round();
+    final workerCount = (d['workerPerformance'] as List? ?? []).length;
+    final todayLabel = DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
+    final rep = scDailyReport;
+    final grade = rep?['grade']?.toString() ?? 'N/A';
+    final avgScore = (rep?['averageScore'] ?? 0).toInt();
+    Color gradeColor = grade == 'A'
+        ? Colors.greenAccent
+        : grade == 'B'
+        ? Colors.lightGreenAccent
+        : grade == 'C'
+        ? kWarningOrange
+        : Colors.redAccent;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: const LinearGradient(colors: [kRailwayBlue, Colors.lightBlue],
+                begin: Alignment.topLeft, end: Alignment.bottomRight),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(todayLabel,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        const SizedBox(height: 6),
+                        const Text('Station Cleaning',
+                            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text('$total tasks scheduled today',
+                            style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    children: [
+                      Container(
+                        width: 54,
+                        height: 54,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                        ),
+                        child: Text(grade,
+                            style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: gradeColor)),
+                      ),
+                      const SizedBox(height: 6),
+                      Text('Grade',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11)),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: fraction,
+                  minHeight: 10,
+                  backgroundColor: Colors.white24,
+                  valueColor: AlwaysStoppedAnimation(rate >= 80 ? Colors.greenAccent : kWarningOrange),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text('Shift Progress',
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12, fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  Text('$completed/$total  •  $rate%  |  Score $avgScore%',
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        Row(
+          children: [
+            _scStatCard('Pending', pending, kWarningOrange, Icons.schedule),
+            const SizedBox(width: 8),
+            _scStatCard('In Progress', inProgress, kRailwayBlue, Icons.cleaning_services),
+            const SizedBox(width: 8),
+            _scStatCard('Completed', completed, kSuccessGreen, Icons.check_circle),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _scStatCard('Overdue', overdue, kErrorRed, Icons.cancel),
+            const SizedBox(width: 8),
+            _scStatCard('Rejected', rejected, Colors.purple, Icons.block),
+            const SizedBox(width: 8),
+            _scStatCard('Workers', workerCount, Colors.teal, Icons.people),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 3))],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Approval Status',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              const SizedBox(height: 6),
+              const Text('Tasks awaiting railway approval',
+                  style: TextStyle(color: Colors.black54, fontSize: 12)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: _approvalPill(Icons.check_circle, 'Approved', approved, kSuccessGreen)),
+                  const SizedBox(width: 8),
+                  Expanded(child: _approvalPill(Icons.hourglass_top, 'Pending Approval', awaiting, kWarningOrange)),
+                  const SizedBox(width: 8),
+                  Expanded(child: _approvalPill(Icons.cancel, 'Rejected', rejected, kErrorRed)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _scStatCard(String label, int count, Color color, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 3))],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text('$count', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+            Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _approvalPill(IconData icon, String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text('$count', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+          Text(label, style: TextStyle(fontSize: 9, color: Colors.grey[700])),
+        ],
       ),
     );
   }

@@ -84,6 +84,14 @@ class _ContractorMasterProfileScreenState
     return defaultValue;
   }
 
+  // The common nav bar hides Forms/Contracts/Users and keeps only
+  // [Dashboard, Report] (0,1) for Contractor Supervisors, while full
+  // contractors get the full list where Report sits at index 3.
+  bool get _isContractorSupervisor =>
+      _getUserField('role') == 'Contractor Supervisor';
+
+  int get _reportsTabIndex => _isContractorSupervisor ? 1 : 3;
+
   String _getInitials() {
     final name = _getUserField('fullName', 'U');
     final parts = name.split(' ');
@@ -426,25 +434,30 @@ class _ContractorMasterProfileScreenState
 
             const SizedBox(height: 20),
 
-            _actionTile(Icons.description_outlined, 'My Forms',
-                Colors.blue.shade50, Colors.blue, () {
-                  final navController = Get.find<ContractorNavController>();
-                  navController.changeTab(1);
-                  Navigator.pop(context);
-                }),
-            const SizedBox(height: 10),
+            if (!_isContractorSupervisor) ...[
+              _actionTile(Icons.description_outlined, 'My Forms',
+                  Colors.blue.shade50, Colors.blue, () {
+                    final navController = Get.find<ContractorNavController>();
+                    navController.changeTab(1);
+                    Navigator.pop(context);
+                  }),
+              const SizedBox(height: 10),
+            ],
             _actionTile(Icons.bar_chart_outlined, 'My Reports',
                 Colors.purple.shade50, Colors.purple, () {
                   final navController = Get.find<ContractorNavController>();
-                  navController.changeTab(3);
+                  navController.changeTab(_reportsTabIndex);
                   Navigator.pop(context);
                 }),
             const SizedBox(height: 10),
             _actionTile(Icons.notifications_outlined, 'Notifications',
                 Colors.orange.shade50, Colors.orange, () {
-                  final navController = Get.find<ContractorNavController>();
-                  navController.changeTab(4);
                   Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const ContractorMasterAlertScreen()),
+                  );
                 }),
             const SizedBox(height: 10),
             _actionTile(
