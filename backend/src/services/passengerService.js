@@ -44,9 +44,8 @@ class PassengerService {
       throw new ValidationError('All 5 rating parameters must be provided.');
     }
 
-    const runDoc = await db.collection('obhsRunInstances').doc(runInstanceId).get();
+    const runDoc = await db.collection('runInstances').doc(runInstanceId).get();
     if (!runDoc.exists) {
-      // Try fallback to legacy RunInstance collection just in case
       const legacyRunDoc = await db.collection('RunInstance').doc(runInstanceId).get();
       if (!legacyRunDoc.exists) {
         throw new NotFoundError('Journey not found.');
@@ -63,7 +62,7 @@ class PassengerService {
 
     const overallRating = parseFloat((totalStars / 5).toFixed(2));
 
-    const feedbackRef = db.collection('obhs_feedbacks').doc();
+    const feedbackRef = db.collection('feedbacks').doc();
 
     const feedbackData = {
       feedbackId: feedbackRef.id,
@@ -219,7 +218,6 @@ class PassengerService {
       const runData = doc.data();
       const status = (runData.status || '').toUpperCase();
       
-      // Skip completed or inactive runs
       if (['COMPLETED', 'FINISHED', 'CLOSED', 'INACTIVE'].includes(status)) {
         return;
       }

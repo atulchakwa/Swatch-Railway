@@ -149,7 +149,7 @@ class AnalyticsRepository {
         throw Exception('AUTH_ERROR');
       }
 
-      final uri = Uri.parse('$baseUrl/api/obhs/analytics/attendance-compliance').replace(
+      final uri = Uri.parse('$baseUrl/api/analytics/attendance-compliance').replace(
         queryParameters: {'runInstanceId': runInstanceId},
       );
 
@@ -182,7 +182,7 @@ class AnalyticsRepository {
         throw Exception('AUTH_ERROR');
       }
 
-      final uri = Uri.parse('$baseUrl/api/obhs/analytics/task-completion').replace(
+      final uri = Uri.parse('$baseUrl/api/analytics/task-completion').replace(
         queryParameters: {'runInstanceId': runInstanceId},
       );
 

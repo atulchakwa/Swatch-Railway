@@ -65,11 +65,6 @@ export const remove = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
-export const getObhsRun = asyncHandler(async (req, res) => {
-  const result = await runInstanceService.getRunInstanceById(req.params.runId);
-  res.status(200).json({ success: true, data: result });
-});
-
 export const activateJourney = asyncHandler(async (req, res) => {
   const result = await runInstanceService.activateJourney(req.params.runInstanceId, req.body);
   res.status(200).json(result);

@@ -1,5 +1,6 @@
 // lib/controllers/worker_controller.dart
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -10,7 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../model/user_model.dart';
 import '../model/worker_profile_model.dart';
 import '../repositories/worker_repo.dart';
-import '../services/firebase_obhs_service.dart';
+import '../repositories/station_cleaning_repository.dart';
 
 class WorkerController extends GetxController {
   final isLoading = false.obs;
@@ -107,8 +108,25 @@ class WorkerController extends GetxController {
   final emergencyTasks = <Map<String, dynamic>>[].obs;
   final isTasksLoading = false.obs;
 
+  Timer? _passengerPollTimer;
+  bool _isFetchingPassengerTasks = false;
+
+  void _startPassengerPolling() {
+    _passengerPollTimer?.cancel();
+    _passengerPollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_isFetchingPassengerTasks) fetchTasksByCategories();
+    });
+  }
+
+  void _stopPassengerPolling() {
+    _passengerPollTimer?.cancel();
+    _passengerPollTimer = null;
+  }
+
   Future<void> fetchTasksByCategories() async {
+    if (_isFetchingPassengerTasks) return;
     try {
+      _isFetchingPassengerTasks = true;
       isTasksLoading.value = true;
       final tNo = trainNo;
       
@@ -120,6 +138,8 @@ class WorkerController extends GetxController {
           
       if (tNo.isEmpty) {
         debugPrint('No train assigned, skipping task fetch');
+        _isFetchingPassengerTasks = false;
+        isTasksLoading.value = false;
         return;
       }
 
@@ -149,6 +169,7 @@ class WorkerController extends GetxController {
     } catch (e) {
       debugPrint('Error fetching categorized tasks: $e');
     } finally {
+      _isFetchingPassengerTasks = false;
       isTasksLoading.value = false;
     }
   }
@@ -172,6 +193,13 @@ class WorkerController extends GetxController {
   void onInit() {
     super.onInit();
     _restoreFromCache();
+    _startPassengerPolling();
+  }
+
+  @override
+  void onClose() {
+    _stopPassengerPolling();
+    super.onClose();
   }
 
   void setUser(UserModel user) {
@@ -180,6 +208,7 @@ class WorkerController extends GetxController {
 
     _printCurrentAuthToken();
     _restoreAttendanceState();
+    _startPassengerPolling();
     _loadProfileSmartly().then((_) {
       refreshAttendanceStatus();
       fetchTasksByCategories(); // Fetch passenger requests immediately after login/profile load
@@ -391,10 +420,7 @@ class WorkerController extends GetxController {
       final runInstanceId = await _resolveAttendanceRunInstanceId();
       if (runInstanceId == null || runInstanceId.trim().isEmpty) return;
 
-      final response = await WorkerRepository.getObhsAttendanceStatus(
-        runInstanceId: runInstanceId,
-      );
-      await _applyAttendanceStatusResponse(response);
+      // TODO: Load attendance status from the station-cleaning attendance API.
     } catch (e) {
       debugPrint('Attendance status restore failed: $e');
     }
@@ -820,7 +846,7 @@ class WorkerController extends GetxController {
       final position = await _getAttendanceLocation();
       final imageUrl = await WorkerRepository.uploadMedia(photo.path);
 
-      final response = await WorkerRepository.markAttendance(
+      final response = await StationCleaningRepository.markStationAttendance(
         type: type,
         runInstanceId: runInstanceId,
         imageUrl: imageUrl,
@@ -849,28 +875,6 @@ class WorkerController extends GetxController {
         await _saveAttendanceState(type);
         await refreshAttendanceStatus();
 
-        // ── Mirror to Firestore for report generation ────────────────────
-        FirebaseOBHSService.saveAttendance({
-          'runInstanceId': runInstanceId,
-          'workerId': workerProfile.value?.uid ?? '',
-          'workerName': workerProfile.value?.fullName ?? '',
-          'type': type,
-          'attendanceType': type,
-          'attendanceTime': DateTime.now().toIso8601String(),
-          'deviceTimestamp': DateTime.now().toIso8601String(),
-          'gpsLocation': '${position.latitude}, ${position.longitude}',
-          'photoUrl': imageUrl,
-          'syncStatus': 'Synced',
-        });
-
-        Get.snackbar(
-          isAlreadySubmitted ? 'Already Submitted' : 'Success',
-          isAlreadySubmitted
-              ? responseMessage
-              : 'Attendance marked successfully',
-          snackPosition: SnackPosition.BOTTOM,
-          duration: const Duration(seconds: 2),
-        );
         await loadWorkerStatistics();
         return true;
       }
@@ -931,7 +935,7 @@ class WorkerController extends GetxController {
 
       final position = await _getAttendanceLocation();
 
-      final response = await WorkerRepository.reportAttendanceIssue(
+      final response = await StationCleaningRepository.reportAttendanceIssue(
         runInstanceId: runId,
         issueType: issueType,
         remark: remark,

@@ -28,9 +28,7 @@ class ContractService {
     }
     const entityName = entityData.companyName;
 
-    // Determine assignment: Station Cleaning = stations from division; OBHS = trains from request
     const isStationCleaning = contractType === 'station_cleaning';
-    const isOBHS = contractType === 'obhs';
     const stationNames = [];
     let stationIds = [];
     let trainIds = [];
@@ -62,19 +60,6 @@ class ContractService {
         });
         effectiveZone = zone || stationsSnap.docs[0]?.data().zone || '';
       }
-    } else if (isOBHS) {
-      trainIds = reqTrainIds || [];
-      if (trainIds.length === 0) {
-        throw new ValidationError("Please select at least one train for OBHS contract.");
-      }
-      for (const tid of trainIds) {
-        const snap = await db.collection('trains').doc(tid).get();
-        if (snap.exists) {
-          const tData = snap.data();
-          trainNames.push(tData.trainName || tData.trainNo || tid);
-          if (!effectiveZone) effectiveZone = tData.zone;
-        } else throw new NotFoundError(`Train ${tid} not found.`);
-      }
     } else {
       stationIds = reqStationIds || [];
       if (stationIds.length === 0) {
@@ -96,7 +81,6 @@ class ContractService {
       for (const doc of duplicateSnap.docs) {
         const d = doc.data();
         const isDocStationCleaning = d.contractType === 'station_cleaning';
-        const isDocOBHS = d.contractType === 'obhs';
         if (isStationCleaning && isDocStationCleaning && stationIds.length > 0) {
           const existingStations = d.stationIds || [];
           const overlap = existingStations.filter(s => stationIds.includes(s));
@@ -104,14 +88,7 @@ class ContractService {
             throw new ValidationError(`This Contractor already has an active Station Cleaning contract covering station(s): ${overlap.join(', ')}.`);
           }
         }
-        if (isOBHS && isDocOBHS && trainIds.length > 0) {
-          const existingTrains = d.trainIds || [];
-          const overlap = existingTrains.filter(t => trainIds.includes(t));
-          if (overlap.length > 0) {
-            throw new ValidationError(`This Contractor already has an active OBHS contract covering train(s): ${overlap.join(', ')}.`);
-          }
-        }
-        if (!isStationCleaning && !isOBHS && !isDocStationCleaning && !isDocOBHS && stationIds.length > 0) {
+        if (!isStationCleaning && stationIds.length > 0) {
           const existingStations = d.stationIds || [];
           const overlap = existingStations.filter(s => stationIds.includes(s));
           if (overlap.length > 0) {

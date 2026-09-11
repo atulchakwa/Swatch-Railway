@@ -3099,8 +3099,7 @@ class ApiService {
     required List<String> serviceTypes,
     required double coachWeightage,
     required double premiseWeightage,
-    required double obhsWeightage,
-    required double passengerFeedbackWeightage,
+     required double passengerFeedbackWeightage,
     required double aiVerificationWeightage,
     required double penaltyScore90Plus,
     required double penaltyScore80To89,
@@ -3132,8 +3131,7 @@ class ApiService {
           'serviceTypes': serviceTypes,
           'coachWeightage': coachWeightage,
           'premiseWeightage': premiseWeightage,
-          'obhsWeightage': obhsWeightage,
-          'passengerFeedbackWeightage': passengerFeedbackWeightage,
+           'passengerFeedbackWeightage': passengerFeedbackWeightage,
           'aiVerificationWeightage': aiVerificationWeightage,
           'penaltyScore90Plus': penaltyScore90Plus,
           'penaltyScore80To89': penaltyScore80To89,
@@ -4290,63 +4288,9 @@ class ApiService {
     }
   }
 
-  // ================================================================
-  // == COMPLAINT ACTIONS (Assign, Escalate)
-  // ================================================================
-  static Future<void> assignComplaint(String complaintId, String assignedTo, {String? assignedToName, String? remarks}) async {
-    try {
-      final token = await getToken();
-      final response = await http.patch(
-        Uri.parse('$baseUrl/api/obhs/complaints/assign/$complaintId'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: jsonEncode({'assignedTo': assignedTo, 'assignedToName': assignedToName, 'remarks': remarks}),
-      );
-      if (response.statusCode != 200) {
-        final err = jsonDecode(response.body);
-        throw Exception(err['error'] ?? 'Failed to assign complaint');
-      }
-    } catch (e) {
-      throw Exception('Error assigning complaint: $e');
-    }
-  }
-
-  static Future<void> escalateComplaint(String complaintId, {String? escalationReason, String? escalatedTo}) async {
-    try {
-      final token = await getToken();
-      final response = await http.patch(
-        Uri.parse('$baseUrl/api/obhs/complaints/escalate/$complaintId'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: jsonEncode({'escalationReason': escalationReason, 'escalatedTo': escalatedTo}),
-      );
-      if (response.statusCode != 200) {
-        final err = jsonDecode(response.body);
-        throw Exception(err['error'] ?? 'Failed to escalate complaint');
-      }
-    } catch (e) {
-      throw Exception('Error escalating complaint: $e');
-    }
-  }
-
-  static Future<void> autoRouteComplaint(String complaintId) async {
-    try {
-      final token = await getToken();
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/obhs/complaints/auto-route'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
-        body: jsonEncode({'complaintId': complaintId}),
-      );
-      if (response.statusCode != 200) {
-        final err = jsonDecode(response.body);
-        throw Exception(err['error'] ?? 'Failed to auto-route complaint');
-      }
-    } catch (e) {
-      throw Exception('Error auto-routing complaint: $e');
-    }
-  }
-
-  // ================================================================
-  // == AUDIT LOGS
-  // ================================================================
+   // ================================================================
+   // == AUDIT LOGS
+   // ================================================================
   static Future<List<Map<String, dynamic>>> getAuditLogs({String? action, String? targetEntity, int limit = 50}) async {
     try {
       final token = await getToken();

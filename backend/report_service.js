@@ -7,7 +7,7 @@ export class ReportService {
 
   async getAttendanceAuditData(runInstanceId, workerId) {
     // 1. Fetch RunInstance
-    let runDoc = await this.db.collection('obhsRunInstances').doc(runInstanceId).get();
+    let runDoc = await this.db.collection('runInstances').doc(runInstanceId).get();
     if (!runDoc.exists) runDoc = await this.db.collection('RunInstance').doc(runInstanceId).get();
     if (!runDoc.exists) throw new Error('Run instance not found');
     const run = runDoc.data();
@@ -24,7 +24,7 @@ export class ReportService {
     }
 
     // 3. Fetch Attendance
-    let attQueryRef = this.db.collection('obhsAttendance').where('runInstanceId', '==', runInstanceId);
+    let attQueryRef = this.db.collection('station_cleaning_attendance').where('runInstanceId', '==', runInstanceId);
     if (workerId) {
       attQueryRef = attQueryRef.where('userId', '==', workerId);
     }
@@ -48,9 +48,9 @@ export class ReportService {
 
     return {
       meta: {
-        reportId: `OBHS-AUDIT-${runInstanceId.substring(0, 8)}`,
+        reportId: `SC-AUDIT-${runInstanceId.substring(0, 8)}`,
         generatedOn: new Date().toLocaleString('en-IN'),
-        generatedBy: 'OBHS Monitoring System',
+        generatedBy: 'Swach Station Cleaning Monitoring System',
         auditType: 'Attendance Compliance',
         classification: 'Operational Audit',
         division: run.divisionId || 'Unknown',
@@ -83,14 +83,14 @@ export class ReportService {
           { metric: 'Missing Attendance Events', value: isPass ? '0' : '3', status: isPass ? 'Pass' : 'Fail' }
         ],
         observation: isPass 
-          ? 'The assigned OBHS personnel successfully completed attendance submissions with valid GPS location tracking.'
+          ? 'The assigned station cleaning personnel successfully completed attendance submissions with valid GPS location tracking.'
           : 'Missing mandatory attendance records or GPS validation failed.'
       }
     };
   }
 
   async getOperationalAuditData(runInstanceId) {
-    let runDoc = await this.db.collection('obhsRunInstances').doc(runInstanceId).get();
+    let runDoc = await this.db.collection('runInstances').doc(runInstanceId).get();
     if (!runDoc.exists) runDoc = await this.db.collection('RunInstance').doc(runInstanceId).get();
     if (!runDoc.exists) throw new Error('Run instance not found');
     const run = runDoc.data();
@@ -110,9 +110,9 @@ export class ReportService {
 
     return {
       meta: {
-        reportId: `OBHS-RUN-${runInstanceId.substring(0, 8)}`,
+        reportId: `SC-RUN-${runInstanceId.substring(0, 8)}`,
         generatedOn: new Date().toLocaleString('en-IN'),
-        generatedBy: 'OBHS Operations',
+        generatedBy: 'Swach Station Cleaning Operations',
         auditType: 'Enterprise Audit',
         classification: 'Operational Audit',
         division: run.divisionId || 'Unknown',
@@ -146,7 +146,7 @@ export class ReportService {
   }
 
   async getWorkerActivityAuditData(runInstanceId, workerId) {
-    let runDoc = await this.db.collection('obhsRunInstances').doc(runInstanceId).get();
+    let runDoc = await this.db.collection('runInstances').doc(runInstanceId).get();
     if (!runDoc.exists) runDoc = await this.db.collection('RunInstance').doc(runInstanceId).get();
     if (!runDoc.exists) throw new Error('Run instance not found');
     const run = runDoc.data();
@@ -163,9 +163,9 @@ export class ReportService {
 
     return {
       meta: {
-        reportId: `OBHS-WORKER-${runInstanceId.substring(0, 8)}`,
+        reportId: `SC-WORKER-${runInstanceId.substring(0, 8)}`,
         generatedOn: new Date().toLocaleString('en-IN'),
-        generatedBy: 'OBHS Monitoring System',
+        generatedBy: 'Swach Station Cleaning Monitoring System',
         auditType: 'Worker Activity Compliance',
         classification: 'Operational Audit',
         division: run.divisionId || 'Unknown',
@@ -200,16 +200,16 @@ export class ReportService {
   }
 
   async getComplaintAuditData(runInstanceId) {
-    let runDoc = await this.db.collection('obhsRunInstances').doc(runInstanceId).get();
+    let runDoc = await this.db.collection('runInstances').doc(runInstanceId).get();
     if (!runDoc.exists) runDoc = await this.db.collection('RunInstance').doc(runInstanceId).get();
     if (!runDoc.exists) throw new Error('Run instance not found');
     const run = runDoc.data();
 
     return {
       meta: {
-        reportId: `OBHS-COMP-${runInstanceId.substring(0, 8)}`,
+        reportId: `SC-COMP-${runInstanceId.substring(0, 8)}`,
         generatedOn: new Date().toLocaleString('en-IN'),
-        generatedBy: 'OBHS Monitoring System',
+        generatedBy: 'Swach Station Cleaning Monitoring System',
         auditType: 'Complaint Tracking',
         classification: 'Operational Audit',
         division: run.divisionId || 'Unknown',

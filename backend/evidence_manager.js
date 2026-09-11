@@ -455,7 +455,7 @@ export async function generatePDFReport(reportData) {
 
     // Header
     doc.fontSize(18).font('Helvetica-Bold').text('INDIAN RAILWAYS', { align: 'center' });
-    doc.fontSize(14).text('OBHS - Coach & Washroom Cleaning System', { align: 'center' });
+    doc.fontSize(14).text('Swach Station Cleaning - Coach & Washroom Cleaning System', { align: 'center' });
     doc.moveDown(0.5);
     doc.fontSize(12).font('Helvetica-Bold').text(title || 'EVIDENCE REPORT', { align: 'center' });
     doc.moveDown();
@@ -551,7 +551,7 @@ export async function generatePDFReport(reportData) {
     // Footer
     const footerY = doc.page.height - 50;
     doc.fontSize(7).font('Helvetica').text(
-      `Generated on ${new Date().toLocaleString()} | Railway OBHS Evidence Management System`,
+      `Generated on ${new Date().toLocaleString()} | Railway Swach Station Cleaning Evidence Management System`,
       50, footerY, { align: 'center', width: 495 }
     );
 

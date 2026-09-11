@@ -171,7 +171,7 @@ class _CommonContractsScreenState extends State<CommonContractsScreen>
                 const SizedBox(width: 8),
                 _buildTypeChip('Station Cleaning', 'station_cleaning'),
                 const SizedBox(width: 8),
-                _buildTypeChip('OBHS', 'obhs'),
+                _buildTypeChip('Station Cleaning', 'station_cleaning'),
               ],
             ),
           ),

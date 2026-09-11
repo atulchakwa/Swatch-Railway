@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 export class ExcelGenerator {
   constructor() {
     this.workbook = new ExcelJS.Workbook();
-    this.workbook.creator = 'OBHS Enterprise Monitoring System';
+    this.workbook.creator = 'Swach Station Cleaning System';
     this.workbook.lastModifiedBy = 'System';
     this.workbook.created = new Date();
     this.workbook.modified = new Date();

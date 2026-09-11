@@ -16,8 +16,6 @@ router.get('/cleaning-forms', verifyToken, v2Controller.listCleaningForms);
 router.get('/cleaning-forms/:uid', verifyToken, v2Controller.getCleaningForm);
 router.get('/tasks', verifyToken, v2Controller.listTasks);
 router.get('/tasks/:taskId', verifyToken, v2Controller.getTask);
-router.get('/obhs', verifyToken, v2Controller.listOBHS);
-router.get('/obhs/:obhsId', verifyToken, v2Controller.getOBHS);
 
 router.get('/task-masters', verifyToken, v2Controller.listTaskMasters);
 router.post('/task-masters', verifyToken, v2Controller.createTaskMaster);

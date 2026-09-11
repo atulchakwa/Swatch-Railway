@@ -1,7 +1,6 @@
 import 'package:crm_train/model/station_cleaning_models.dart';
 import 'package:crm_train/model/user_model.dart';
 import 'package:crm_train/repositories/execution_repository.dart';
-import 'package:crm_train/repositories/obhs_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
 
@@ -69,7 +68,7 @@ class _ExecutionPlanFormScreenState extends State<ExecutionPlanFormScreen> {
 
   Future<void> _loadSupervisors() async {
     try {
-      final supervisors = await OBHSRepository.getUsersByRole('Contractor Supervisor'); // We'll implement this
+      final supervisors = await ApiService.getUsersByRole('Contractor Supervisor'); // We'll implement this
       if (mounted) {
         setState(() {
           _allSupervisors = supervisors;

@@ -113,7 +113,6 @@ class _ContractBillingConfigScreenState extends State<ContractBillingConfigScree
                 const SizedBox(height: 4),
                 _weightageBar('Coach Cleaning', config.coachWeightage, Colors.blue),
                 _weightageBar('Premise Cleaning', config.premiseWeightage, Colors.green),
-                _weightageBar('OBHS', config.obhsWeightage, Colors.orange),
                 _weightageBar('Passenger Feedback', config.passengerFeedbackWeightage, Colors.purple),
                 _weightageBar('AI Verification', config.aiVerificationWeightage, Colors.teal),
                 const Divider(),
@@ -128,7 +127,6 @@ class _ContractBillingConfigScreenState extends State<ContractBillingConfigScree
                 const SizedBox(height: 4),
                 _penaltyRule('Manpower Shortage', '₹${config.manpowerShortagePenalty.toInt()}'),
                 _penaltyRule('Machine Shortage', '₹${config.machineShortagePenalty.toInt()}'),
-                _penaltyRule('Missed OBHS Complaint', '₹${config.missedObhsComplaintPenalty.toInt()}'),
                 _penaltyRule('Late Task Completion', '₹${config.lateTaskCompletionPenalty.toInt()}'),
                 const SizedBox(height: 12),
                 Row(
@@ -162,12 +160,12 @@ class _ContractBillingConfigScreenState extends State<ContractBillingConfigScree
   Future<void> _generateBill(ContractBillingRule config) async {
     final now = DateTime.now();
     try {
-      await ApiService.generateBill(
-        contractId: config.contractId,
-        month: now.month,
-        year: now.year,
-        overallScore: 85,
-        scoreBreakdown: {'Coach': 88, 'Premise': 82, 'OBHS': 80, 'Feedback': 90, 'AI': 92},
+await ApiService.generateBill(
+         contractId: config.contractId,
+         month: now.month,
+         year: now.year,
+         overallScore: 85,
+         scoreBreakdown: {'Coach': 88, 'Premise': 82, 'Feedback': 90, 'AI': 92},
         machineShortageCount: 0,
         manpowerShortageCount: 0,
         missedObhsCount: 0,
@@ -186,19 +184,17 @@ class _ContractBillingConfigScreenState extends State<ContractBillingConfigScree
     final divCtrl = TextEditingController(text: existing?.division ?? '');
     final zoneCtrl = TextEditingController(text: existing?.zone ?? '');
     final valCtrl = TextEditingController(text: existing?.contractValue.toString() ?? '');
-    final coachWtCtrl = TextEditingController(text: existing?.coachWeightage.toString() ?? '35');
-    final premiseWtCtrl = TextEditingController(text: existing?.premiseWeightage.toString() ?? '35');
-    final obhsWtCtrl = TextEditingController(text: existing?.obhsWeightage.toString() ?? '15');
+final coachWtCtrl = TextEditingController(text: existing?.coachWeightage.toString() ?? '35');
+     final premiseWtCtrl = TextEditingController(text: existing?.premiseWeightage.toString() ?? '35');
     final fbWtCtrl = TextEditingController(text: existing?.passengerFeedbackWeightage.toString() ?? '10');
     final aiWtCtrl = TextEditingController(text: existing?.aiVerificationWeightage.toString() ?? '5');
     final p90Ctrl = TextEditingController(text: existing?.penaltyScore90Plus.toString() ?? '0');
     final p89Ctrl = TextEditingController(text: existing?.penaltyScore80To89.toString() ?? '2');
     final p79Ctrl = TextEditingController(text: existing?.penaltyScore70To79.toString() ?? '5');
     final p70Ctrl = TextEditingController(text: existing?.penaltyScoreBelow70.toString() ?? '10');
-    final mpCtrl = TextEditingController(text: existing?.manpowerShortagePenalty.toString() ?? '500');
-    final mcCtrl = TextEditingController(text: existing?.machineShortagePenalty.toString() ?? '1000');
-    final obCtrl = TextEditingController(text: existing?.missedObhsComplaintPenalty.toString() ?? '2000');
-    final ltCtrl = TextEditingController(text: existing?.lateTaskCompletionPenalty.toString() ?? '500');
+final mpCtrl = TextEditingController(text: existing?.manpowerShortagePenalty.toString() ?? '500');
+     final mcCtrl = TextEditingController(text: existing?.machineShortagePenalty.toString() ?? '1000');
+     final ltCtrl = TextEditingController(text: existing?.lateTaskCompletionPenalty.toString() ?? '500');
     final ncCtrl = TextEditingController(text: existing?.nonCompliancePenalty.toString() ?? '1000');
 
     String? selectedContractId = existing?.contractId;
@@ -245,11 +241,9 @@ class _ContractBillingConfigScreenState extends State<ContractBillingConfigScree
                 const Text('Score Weightages', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 TextFormField(controller: coachWtCtrl, decoration: const InputDecoration(labelText: 'Coach Weightage (%)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
+const SizedBox(height: 8),
+                 TextFormField(controller: premiseWtCtrl, decoration: const InputDecoration(labelText: 'Premise Weightage (%)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
                 const SizedBox(height: 8),
-                TextFormField(controller: premiseWtCtrl, decoration: const InputDecoration(labelText: 'Premise Weightage (%)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
-                const SizedBox(height: 8),
-                TextFormField(controller: obhsWtCtrl, decoration: const InputDecoration(labelText: 'OBHS Weightage (%)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
-                const SizedBox(height: 16),
                 const Text('Performance Deduction (%)', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 TextFormField(controller: p90Ctrl, decoration: const InputDecoration(labelText: 'Score ≥ 90 Deduction %', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
@@ -263,11 +257,11 @@ class _ContractBillingConfigScreenState extends State<ContractBillingConfigScree
                 const Text('Additional Penalties (₹)', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 TextFormField(controller: mpCtrl, decoration: const InputDecoration(labelText: 'Manpower Shortage (₹)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
-                const SizedBox(height: 8),
-                TextFormField(controller: mcCtrl, decoration: const InputDecoration(labelText: 'Machine Shortage (₹)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
-                const SizedBox(height: 8),
-                TextFormField(controller: obCtrl, decoration: const InputDecoration(labelText: 'Missed OBHS Complaint (₹)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
-              ],
+const SizedBox(height: 8),
+                 TextFormField(controller: mcCtrl, decoration: const InputDecoration(labelText: 'Machine Shortage (₹)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
+                 const SizedBox(height: 8),
+                 TextFormField(controller: ltCtrl, decoration: const InputDecoration(labelText: 'Late Task Completion (₹)', border: OutlineInputBorder(), isDense: true), keyboardType: TextInputType.number),
+               ],
             ),
           ),
           actions: [
@@ -287,19 +281,17 @@ class _ContractBillingConfigScreenState extends State<ContractBillingConfigScree
                     contractValue: double.tryParse(valCtrl.text) ?? 0,
                     billingCycle: 'Monthly',
                     serviceTypes: [],
-                    coachWeightage: double.tryParse(coachWtCtrl.text) ?? 35,
-                    premiseWeightage: double.tryParse(premiseWtCtrl.text) ?? 35,
-                    obhsWeightage: double.tryParse(obhsWtCtrl.text) ?? 15,
-                    passengerFeedbackWeightage: double.tryParse(fbWtCtrl.text) ?? 10,
+coachWeightage: double.tryParse(coachWtCtrl.text) ?? 35,
+                     premiseWeightage: double.tryParse(premiseWtCtrl.text) ?? 35,
+                     passengerFeedbackWeightage: double.tryParse(fbWtCtrl.text) ?? 10,
                     aiVerificationWeightage: double.tryParse(aiWtCtrl.text) ?? 5,
                     penaltyScore90Plus: double.tryParse(p90Ctrl.text) ?? 0,
                     penaltyScore80To89: double.tryParse(p89Ctrl.text) ?? 2,
                     penaltyScore70To79: double.tryParse(p79Ctrl.text) ?? 5,
                     penaltyScoreBelow70: double.tryParse(p70Ctrl.text) ?? 10,
-                    manpowerShortagePenalty: double.tryParse(mpCtrl.text) ?? 500,
-                    machineShortagePenalty: double.tryParse(mcCtrl.text) ?? 1000,
-                    missedObhsComplaintPenalty: double.tryParse(obCtrl.text) ?? 2000,
-                    lateTaskCompletionPenalty: double.tryParse(ltCtrl.text) ?? 500,
+manpowerShortagePenalty: double.tryParse(mpCtrl.text) ?? 500,
+                     machineShortagePenalty: double.tryParse(mcCtrl.text) ?? 1000,
+                     lateTaskCompletionPenalty: double.tryParse(ltCtrl.text) ?? 500,
                     nonCompliancePenalty: double.tryParse(ncCtrl.text) ?? 1000,
                   );
                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Configuration saved'), backgroundColor: Colors.green));

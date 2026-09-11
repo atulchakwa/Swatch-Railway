@@ -6,7 +6,7 @@ const options = {
     info: {
       title: 'Swachh Railways API',
       version: '2.0.0',
-      description: 'Enterprise Railway OBHS & Station Cleaning Management System',
+      description: 'Enterprise Railway Station Cleaning Management System',
       contact: { name: 'Railway IT Team', email: 'it@railway.gov.in' }
     },
     servers: [

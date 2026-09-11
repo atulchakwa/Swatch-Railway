@@ -108,7 +108,7 @@ class DeploymentService {
     const targetDate = date || new Date().toISOString().split('T')[0];
     const startOfDay = new Date(`${targetDate}T00:00:00.000Z`);
     const endOfDay = new Date(`${targetDate}T23:59:59.999Z`);
-    const snapshot = await db.collection('obhs_attendance')
+    const snapshot = await db.collection('deployments')
       .where('isStartMarked', '==', true).get();
     let count = 0;
     const startStr = startOfDay.toISOString();
@@ -143,9 +143,8 @@ class DeploymentService {
   async getShiftWiseManpower(date, stationId) {
     if (!stationId) throw new ValidationError('stationId is required');
     const targetDate = date || new Date().toISOString().split('T')[0];
-    const [deploySnap, attendSnap] = await Promise.all([
+    const [deploySnap] = await Promise.all([
       db.collection('deployments').where('stationId', '==', stationId).where('status', '==', 'active').get(),
-      db.collection('obhs_attendance').get()
     ]);
     const deployments = [];
     deploySnap.forEach(doc => {
@@ -154,29 +153,19 @@ class DeploymentService {
         if (!d.endDate || targetDate <= d.endDate) deployments.push(d);
       }
     });
-    const startStr = new Date(`${targetDate}T00:00:00.000Z`).toISOString();
-    const endStr = new Date(`${targetDate}T23:59:59.999Z`).toISOString();
-    const attendMap = {};
-    attendSnap.forEach(doc => {
-      const d = doc.data();
-      if (d.createdAt && d.createdAt >= startStr && d.createdAt <= endStr) {
-        attendMap[d.workerId] = true;
-      }
-    });
     const shiftMap = {};
     for (const dep of deployments) {
       const shiftId = dep.shiftId || 'unknown';
       if (!shiftMap[shiftId]) shiftMap[shiftId] = { shiftId, planned: 0, actual: 0, workerIds: [] };
       shiftMap[shiftId].planned++;
       shiftMap[shiftId].workerIds.push(dep.workerId);
-      if (attendMap[dep.workerId]) shiftMap[shiftId].actual++;
     }
     const shifts = Object.values(shiftMap).map(s => ({
       ...s,
       variance: s.planned - s.actual,
       variancePercentage: s.planned > 0 ? parseFloat((((s.planned - s.actual) / s.planned) * 100).toFixed(2)) : 0
     }));
-    return { date: targetDate, stationId, shifts, totalPlanned: deployments.length, totalActual: Object.keys(attendMap).length };
+    return { date: targetDate, stationId, shifts, totalPlanned: deployments.length, totalActual: 0 };
   }
 }
 

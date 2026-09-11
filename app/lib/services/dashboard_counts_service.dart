@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'firebase_obhs_service.dart';
 
 class FirebaseCountService {
 
@@ -638,15 +637,6 @@ class FirebaseCountService {
         'toiletriesNo': 0,
       };
     }
-  }
-
-  /// OBHS – summary stats for the Reports > OBHS tab.
-  /// Reads from the `obhsRunInstances` Firestore collection.
-  static Future<Map<String, dynamic>> getOBHSStats({
-    String? zone,
-    String? division,
-  }) async {
-    return FirebaseOBHSService.getOBHSStats(zone: zone, division: division);
   }
 
   static Future<Map<String, dynamic>> getFormStatusCounts({

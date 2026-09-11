@@ -1,6 +1,5 @@
 import { db } from '../database/index.js';
 import { NotFoundError, ValidationError, ForbiddenError, ConflictError } from '../errors/index.js';
-import { convertToDecimalDays } from '../utils/helpers.js';
 
 const BLOCKED_ROLES = ['CONTRACTOR SUPERVISOR', 'CTS', 'RAILWAY SUPERVISOR', 'WORKER', 'RAILWAY WORKER'];
 const ALLOWED_FIELDS = ['trainNo', 'trainName', 'origin', 'destination', 'days', 'zone', 'division', 'depot', 'status', 'TrainApplicableFor', 'outboundTrainNo', 'inboundTrainNo', 'returnOffset', 'cycleLength', 'outboundDurationStr', 'inboundDurationStr', 'layoverDestStr', 'layoverOriginStr', 'journeyStartTime'];
@@ -22,40 +21,11 @@ class TrainService {
     }
   }
 
-  _computeOBHS(params) {
-    const { TrainApplicableFor, days, outboundDurationStr, inboundDurationStr, layoverDestStr, layoverOriginStr, cycleLength } = params;
-    const isOBHSEnabled = TrainApplicableFor && TrainApplicableFor.includes('OBHS');
-    let requiredInstances = 0;
-    let finalCycleTime = 0;
-
-    if (isOBHSEnabled) {
-      if (!outboundDurationStr || !inboundDurationStr || !days || days.length === 0) {
-        throw new ValidationError('OBHS Validation Failed', 'For OBHS; Outbound No, Inbound No, and Departure Days are mandatory.');
-      }
-      const outbound = convertToDecimalDays(outboundDurationStr);
-      const inbound = convertToDecimalDays(inboundDurationStr);
-      const layoverD = convertToDecimalDays(layoverDestStr);
-      const layoverO = convertToDecimalDays(layoverOriginStr);
-      const calculatedC = outbound + inbound + layoverD + layoverO;
-      finalCycleTime = calculatedC > 0 ? calculatedC : (Number(cycleLength) || 0);
-      const numDays = (days.includes('All Days') || days.includes('Daily')) ? 7 : days.length;
-      const F = 7 / numDays;
-      requiredInstances = Math.ceil(finalCycleTime / F);
-      if (requiredInstances <= 0) requiredInstances = 1;
-    }
-
-    return { isOBHSEnabled, requiredInstances, finalCycleTime };
-  }
-
   async createTrain(creatorData, body) {
     this._checkRole(creatorData.role, 'create');
     this._validateFields(body);
 
     const { trainNo, trainName, origin, destination, days, zone, division, depot, status, TrainApplicableFor, outboundTrainNo, inboundTrainNo, returnOffset, cycleLength, outboundDurationStr, inboundDurationStr, layoverDestStr, layoverOriginStr, journeyStartTime } = body;
-
-    const { isOBHSEnabled, requiredInstances, finalCycleTime } = this._computeOBHS({
-      TrainApplicableFor, days, outboundDurationStr, inboundDurationStr, layoverDestStr, layoverOriginStr, cycleLength
-    });
 
     const { uid, name, email, role } = creatorData;
     const userName = name || email || role || 'Unknown';
@@ -80,15 +50,15 @@ class TrainService {
       depot: depot || null,
       status: status || 'active',
       TrainApplicableFor: TrainApplicableFor || [],
-      outboundTrainNo: isOBHSEnabled ? outboundTrainNo : null,
-      inboundTrainNo: isOBHSEnabled ? inboundTrainNo : null,
-      cycleLength: isOBHSEnabled ? Number(finalCycleTime.toFixed(4)) : (cycleLength || null),
-      requiredInstances: isOBHSEnabled ? requiredInstances : null,
-      journeyStartTime: isOBHSEnabled ? (journeyStartTime || null) : null,
-      outboundDurationStr: isOBHSEnabled ? (outboundDurationStr || null) : null,
-      inboundDurationStr: isOBHSEnabled ? (inboundDurationStr || null) : null,
-      layoverDestStr: isOBHSEnabled ? (layoverDestStr || null) : null,
-      layoverOriginStr: isOBHSEnabled ? (layoverOriginStr || null) : null,
+      outboundTrainNo: outboundTrainNo || null,
+      inboundTrainNo: inboundTrainNo || null,
+      cycleLength: cycleLength || null,
+      requiredInstances: null,
+      journeyStartTime: journeyStartTime || null,
+      outboundDurationStr: outboundDurationStr || null,
+      inboundDurationStr: inboundDurationStr || null,
+      layoverDestStr: layoverDestStr || null,
+      layoverOriginStr: layoverOriginStr || null,
       createdBy: uid,
       createdByName: userName,
       createdAt: new Date().toISOString(),
@@ -99,28 +69,7 @@ class TrainService {
 
     await docRef.set(newTrain);
 
-    if (isOBHSEnabled && requiredInstances > 0) {
-      const batch = db.batch();
-      for (let i = 0; i < requiredInstances; i++) {
-        const instanceLetter = String.fromCharCode(65 + i);
-        const instanceId = `${trainNo}-${trainName}-Inst-${instanceLetter}`;
-        batch.set(db.collection('TrainPairs').doc(instanceId), {
-          instanceId,
-          instanceName: `Instance ${instanceLetter}`,
-          trainNo,
-          trainName,
-          status: 'Inactive',
-          inboundTrainNo,
-          outboundTrainNo,
-          rotationPattern: 'Round-Robin',
-          parentTrainId: docRef.id,
-          createdAt: new Date().toISOString()
-        });
-      }
-      await batch.commit();
-    }
-
-    return { message: 'Train and OBHS Pool created successfully', uid: docRef.id, calculatedInstances: requiredInstances, data: newTrain };
+    return { message: 'Train created successfully', uid: docRef.id, data: newTrain };
   }
 
   async updateTrain(editorData, uid, updates) {
@@ -132,33 +81,11 @@ class TrainService {
     const docRef = db.collection('trains').doc(uid);
     const doc = await docRef.get();
     if (!doc.exists) throw new NotFoundError("Train not found.");
-    const existingData = doc.data();
 
     const { uid: editorId, name, email, role: editorRole } = editorData;
     const editorName = name || email || editorRole || 'Unknown';
 
     const { trainNo, trainName, origin, destination, days, zone, division, depot, status, TrainApplicableFor, outboundTrainNo, inboundTrainNo, returnOffset, cycleLength, outboundDurationStr, inboundDurationStr, layoverDestStr, layoverOriginStr, journeyStartTime } = updates;
-
-    const isOBHSNow = TrainApplicableFor ? TrainApplicableFor.includes('OBHS') : existingData.TrainApplicableFor.includes('OBHS');
-    let newRequiredInstances = existingData.requiredInstances || 0;
-    let newFinalCycleTime = existingData.cycleLength || 0;
-
-    if (isOBHSNow) {
-      const outbound = outboundDurationStr !== undefined ? convertToDecimalDays(outboundDurationStr) : convertToDecimalDays(existingData.outboundDurationStr);
-      const inbound = inboundDurationStr !== undefined ? convertToDecimalDays(inboundDurationStr) : convertToDecimalDays(existingData.inboundDurationStr);
-      const layoverD = layoverDestStr !== undefined ? convertToDecimalDays(layoverDestStr) : convertToDecimalDays(existingData.layoverDestStr);
-      const layoverO = layoverOriginStr !== undefined ? convertToDecimalDays(layoverOriginStr) : convertToDecimalDays(existingData.layoverOriginStr);
-      const calculatedC = outbound + inbound + layoverD + layoverO;
-      newFinalCycleTime = calculatedC > 0 ? calculatedC : (Number(cycleLength) || existingData.cycleLength || 0);
-      const finalDays = days || existingData.days || [];
-      if (finalDays.length === 0) {
-        throw new ValidationError('OBHS requires at least one departure day.');
-      }
-      const numDays = (finalDays.includes('All Days') || finalDays.includes('Daily')) ? 7 : finalDays.length;
-      const F = 7 / numDays;
-      newRequiredInstances = Math.ceil(newFinalCycleTime / F);
-      if (newRequiredInstances <= 0) newRequiredInstances = 1;
-    }
 
     const updateData = {};
     if (trainNo !== undefined) updateData.trainNo = trainNo;
@@ -173,15 +100,6 @@ class TrainService {
     if (outboundTrainNo !== undefined) updateData.outboundTrainNo = outboundTrainNo;
     if (inboundTrainNo !== undefined) updateData.inboundTrainNo = inboundTrainNo;
     if (status) updateData.status = status;
-    if (isOBHSNow) {
-      updateData.cycleLength = Number(newFinalCycleTime.toFixed(4));
-      updateData.requiredInstances = newRequiredInstances;
-      if (outboundDurationStr) updateData.outboundDurationStr = outboundDurationStr;
-      if (inboundDurationStr) updateData.inboundDurationStr = inboundDurationStr;
-      if (layoverDestStr) updateData.layoverDestStr = layoverDestStr;
-      if (layoverOriginStr) updateData.layoverOriginStr = layoverOriginStr;
-      if (journeyStartTime) updateData.journeyStartTime = journeyStartTime;
-    }
     updateData.updatedBy = editorId;
     updateData.updatedByName = editorName;
     updateData.updatedAt = new Date().toISOString();
@@ -189,37 +107,7 @@ class TrainService {
 
     await docRef.update(updateData);
 
-    const needsPairUpdate = trainNo || trainName || days || outboundDurationStr || inboundDurationStr || layoverDestStr || layoverOriginStr || outboundTrainNo || inboundTrainNo;
-    if (isOBHSNow && needsPairUpdate) {
-      const finalTrainNo = trainNo || existingData.trainNo;
-      const finalTrainName = trainName || existingData.trainName;
-      const finalInbound = inboundTrainNo || existingData.inboundTrainNo;
-      const finalOutbound = outboundTrainNo || existingData.outboundTrainNo;
-      const oldPairs = await db.collection('TrainPairs').where('parentTrainId', '==', uid).limit(200).get();
-      const deleteBatch = db.batch();
-      oldPairs.forEach(doc => deleteBatch.delete(doc.ref));
-      await deleteBatch.commit();
-      const createBatch = db.batch();
-      for (let i = 0; i < newRequiredInstances; i++) {
-        const instanceLetter = String.fromCharCode(65 + i);
-        const instanceId = `${finalTrainNo}-${finalTrainName}-Inst-${instanceLetter}`;
-        createBatch.set(db.collection('TrainPairs').doc(instanceId), {
-          instanceId,
-          instanceName: `Instance ${instanceLetter}`,
-          trainNo: finalTrainNo,
-          trainName: finalTrainName,
-          status: 'Inactive',
-          inboundTrainNo: finalInbound,
-          outboundTrainNo: finalOutbound,
-          rotationPattern: 'Round-Robin',
-          parentTrainId: uid,
-          updatedAt: new Date().toISOString()
-        });
-      }
-      await createBatch.commit();
-    }
-
-    return { message: 'Train and associated TrainPairs updated successfully.', uid, calculatedInstances: newRequiredInstances, updatedData: updateData };
+    return { message: 'Train updated successfully.', uid, updatedData: updateData };
   }
 
   async getTrains(userData, queryParams) {

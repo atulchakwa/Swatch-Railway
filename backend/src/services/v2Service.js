@@ -865,7 +865,7 @@ class V2Service {
     const runData = runDoc.data();
     const totalStars = Number(cleanliness) + Number(toiletHygiene) + Number(linenQuality) + Number(security) + Number(staffBehaviour);
     const overallRating = parseFloat((totalStars / 5).toFixed(2));
-    const feedbackRef = db.collection('obhs_feedbacks').doc();
+    const feedbackRef = db.collection('feedbacks').doc();
     await feedbackRef.set({
       feedbackId: feedbackRef.id, feedbackType: 'QR_PASSENGER', runInstanceId,
       trainNo: runData.trainNo || 'UNKNOWN', trainName: runData.trainName || '',
@@ -957,19 +957,6 @@ class V2Service {
   async getTask(taskId) {
     const snapshot = await db.collection('task_instances').doc(taskId).get();
     if (!snapshot.exists) throw new NotFoundError('Task not found');
-    return { success: true, data: { id: snapshot.id, ...snapshot.data() } };
-  }
-
-  async listOBHS(user, query) {
-    const snapshot = await db.collection('obhs_complaints').orderBy('createdAt', 'desc').limit(50).get();
-    const data = [];
-    snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
-    return { success: true, count: data.length, data };
-  }
-
-  async getOBHS(obhsId) {
-    const snapshot = await db.collection('obhs_complaints').doc(obhsId).get();
-    if (!snapshot.exists) throw new NotFoundError('OBHS record not found');
     return { success: true, data: { id: snapshot.id, ...snapshot.data() } };
   }
 }

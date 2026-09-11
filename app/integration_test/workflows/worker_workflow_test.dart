@@ -6,7 +6,7 @@ import '../helpers/test_helpers.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Worker OBHS Workflow Tests', () {
+  group('Worker Workflow Tests', () {
     setUpAll(() async {
       app.main();
       await Future.delayed(const Duration(seconds: 2));

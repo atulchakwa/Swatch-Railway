@@ -132,14 +132,14 @@ class UserService {
         const contractDoc = await db.collection('contracts').doc(contractId).get();
         if (contractDoc.exists) {
           const contractData = contractDoc.data();
-          if (contractData.contractType === 'station_cleaning' || contractData.contractType === 'obhs') {
+          if (contractData.contractType === 'station_cleaning') {
             domain = contractData.contractType;
           }
         }
       }
       
       // If we still don't have a domain, but the creator specifies it or it can be derived, ensure it matches
-      if (domain && !['station_cleaning', 'obhs'].includes(domain)) {
+      if (domain && !['station_cleaning'].includes(domain)) {
         domain = null;
       }
     }
@@ -294,7 +294,7 @@ class UserService {
         .limit(1).get();
       if (!contractSnapshot.empty) {
         const firstContract = contractSnapshot.docs[0].data();
-        if (firstContract.contractType === 'station_cleaning' || firstContract.contractType === 'obhs') {
+        if (firstContract.contractType === 'station_cleaning') {
           updateData.domain = firstContract.contractType;
         }
       }
@@ -678,7 +678,7 @@ class UserService {
 
     let workerList = [];
     let stats = { pending: 0, approved: 0, rejected: 0 };
-    const validRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'obhs staff', 'staff'];
+    const validRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'staff'];
 
     snapshot.forEach(doc => {
       const d = doc.data();
@@ -777,7 +777,7 @@ class UserService {
       const runInstanceId = activeRun.runInstanceId;
       const coachType = activeRun.coachType || 'S2';
 
-      const completedSnapshot = await db.collection('obhs_tasks').where('runInstanceId', '==', runInstanceId).limit(200).get();
+      const completedSnapshot = await db.collection('station_tasks').where('runInstanceId', '==', runInstanceId).limit(200).get();
       const completedTaskIds = new Set();
       completedSnapshot.forEach(doc => {
         completedTaskIds.add(doc.data().uid);
@@ -828,7 +828,7 @@ class UserService {
     const today = now.toISOString().split('T')[0];
     let attendancePercentage = 0;
     try {
-      const attendanceSnapshot = await db.collection('obhs_attendance').where('workerId', '==', uid).limit(200).get();
+      const attendanceSnapshot = await db.collection('station_cleaning_attendance').where('workerId', '==', uid).limit(200).get();
       let markedCount = 0;
       attendanceSnapshot.forEach(doc => {
         const d = doc.data();
@@ -845,7 +845,7 @@ class UserService {
 
     let complaintsRaised = 0;
     try {
-      const complaintsSnapshot = await db.collection('obhs_complaints').where('submittedBy.uid', '==', uid).limit(200).get();
+      const complaintsSnapshot = await db.collection('complaints').where('submittedBy.uid', '==', uid).limit(200).get();
       complaintsRaised = complaintsSnapshot.size;
     } catch (_) {
       // Silently handle complaints error
@@ -891,7 +891,7 @@ class UserService {
 
     const snapshot = await query.get();
 
-    const validRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'obhs staff', 'staff', 'supervisor', 'railway supervisor', 'contractor supervisor'];
+    const validRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'staff', 'supervisor', 'railway supervisor', 'contractor supervisor'];
     const workersList = [];
     snapshot.forEach(doc => {
       const data = doc.data();
@@ -1056,7 +1056,7 @@ class UserService {
           workerId: uData.uid,
           workerName: uData.fullName || "Unknown Worker",
           email: uData.email || "",
-          designation: uData.designation || "OBHS Staff",
+          designation: uData.designation || "Cleaning Staff",
           passengerFeedbackCount: 0,
           passengerSumRating: 0,
           passengerAvgRating: 0.0,
@@ -1076,7 +1076,7 @@ class UserService {
       }
     });
 
-    const feedbackSnapshot = await db.collection('obhs_feedbacks').limit(200).get();
+    const feedbackSnapshot = await db.collection('feedbacks').limit(200).get();
     feedbackSnapshot.docs.forEach(doc => {
       const fData = doc.data();
       if (!fData) return;
@@ -1175,7 +1175,7 @@ class UserService {
   }
 
   async getWorkerTasks(workerId, query = {}) {
-    const snapshot = await db.collection('obhs_tasks').where('assignedTo', '==', workerId).limit(50).get();
+    const snapshot = await db.collection('station_tasks').where('assignedTo', '==', workerId).limit(50).get();
     const tasks = [];
     snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
     return { count: tasks.length, tasks };

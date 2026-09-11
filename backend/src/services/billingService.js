@@ -56,7 +56,7 @@ class BillingService {
   }
 
   async createInvoice(creatorData, body) {
-    const { contractId, month, year, overallScore, scoreBreakdown, machineShortageCount, manpowerShortageCount, missedObhsCount, otherPenalties } = body;
+    const { contractId, month, year, overallScore, scoreBreakdown, machineShortageCount, manpowerShortageCount, otherPenalties } = body;
     const { uid, fullName } = creatorData;
 
     const ruleSnapshot = await db.collection('billingRules').where('contractId', '==', contractId).limit(1).get();
@@ -86,7 +86,6 @@ class BillingService {
     if (scoreBreakdown) billData.scoreBreakdown = scoreBreakdown;
     if (machineShortageCount) billData.machineShortageCount = machineShortageCount;
     if (manpowerShortageCount) billData.manpowerShortageCount = manpowerShortageCount;
-    if (missedObhsCount) billData.missedObhsCount = missedObhsCount;
     if (otherPenalties) billData.otherPenalties = otherPenalties;
     await ref.set(billData);
     await auditService.logAudit('BILL_CREATED', uid, fullName || 'User', ref.id, 'billingReports', `Billing report generated for contract ${contract.contractNumber || 'N/A'} period ${month}/${year} by ${fullName || 'User'}`, billData);
@@ -266,7 +265,7 @@ class BillingService {
     docPdf.pipe(stream);
 
     docPdf.fontSize(22).fillColor('#1f4e78').text('SWACHH RAILWAYS', { align: 'center' });
-    docPdf.fontSize(10).fillColor('#666').text('Indian Railways – OBHS Billing System', { align: 'center' });
+    docPdf.fontSize(10).fillColor('#666').text('Indian Railways – Billing System', { align: 'center' });
     docPdf.moveDown();
     docPdf.fontSize(16).fillColor('#1f4e78').text('INVOICE', { align: 'center' });
     docPdf.moveDown();

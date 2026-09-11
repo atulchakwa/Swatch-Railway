@@ -16,7 +16,6 @@ import coachFormsRoutes from './routes/coachForms.js';
 import premisesFormsRoutes from './routes/premisesForms.js';
 import ctsFormsRoutes from './routes/ctsForms.js';
 import stationRoutes from './routes/station.js';
-import obhsRoutes from './routes/obhs.js';
 import mediaRoutes from './routes/media.js';
 import reportsRoutes from './routes/reports.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -114,7 +113,6 @@ app.use(usersRoutes);                             // /api/users/*
 app.use(entitiesRoutes);                          // /api/contractors/* /api/master/* /api/admin/*
 app.use(contractsRoutes);                         // /api/contracts/*
 app.use(trainsRoutes);                            // /api/trains/*
-app.use(obhsRoutes);                              // /api/obhs/* /api/verifyFace /api/compareFace
 app.use(reportsRoutes);                           // /api/reports/*
 app.use(stationCleaningRoutes);                   // /api/station-area/* /api/station-zone/* etc.
 app.use(notificationsRoutes);                     // /api/notifications/*

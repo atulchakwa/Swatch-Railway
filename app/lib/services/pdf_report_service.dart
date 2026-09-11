@@ -364,7 +364,7 @@ class PDFReportService {
         build: (pw.Context context) {
           List<pw.Widget> content = [];
           
-          content.add(_buildAuditHeader(railway, 'OBHS WORKER ACTIVITY &\nEVIDENCE AUDIT REPORT', 'Operational Audit | Task Execution | Evidence Verification | Compliance Review', 'OVERALL COMPLIANCE STATUS', 'COMPLIANT & APPROVED', true));
+          content.add(_buildAuditHeader(railway, 'WORKER ACTIVITY &\nEVIDENCE AUDIT REPORT', 'Operational Audit | Task Execution | Evidence Verification | Compliance Review', 'OVERALL COMPLIANCE STATUS', 'COMPLIANT & APPROVED', true));
           content.add(pw.Divider(thickness: 1, color: borderColor));
           
           for (final run in runs) {
@@ -488,7 +488,7 @@ class PDFReportService {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         _buildAuditSectionHeader('FINAL AUDIT CONCLUSION'),
-                        _buildObservationBlock('This report confirms that the assigned OBHS worker completed all allocated operational tasks with valid evidence uploads, attendance compliance, and coach-level service execution aligned with railway audit and operational standards.\n\nAll tasks were executed successfully with complete evidence and full compliance.'),
+                        _buildObservationBlock('This report confirms that the assigned cleaning worker completed all allocated operational tasks with valid evidence uploads, attendance compliance, and coach-level service execution aligned with railway audit and operational standards.\n\nAll tasks were executed successfully with complete evidence and full compliance.'),
                       ]
                     )
                   ),
@@ -530,7 +530,7 @@ class PDFReportService {
           final statusValue = isResolved ? 'COMPLAINTS RESOLVED' : 'RESOLUTION IN PROGRESS';
 
           final widgets = <pw.Widget>[
-            _buildAuditHeader(railway, 'OBHS WORKER COMPLAINT &\nISSUE TRACKING REPORT', 'Resolution Tracking | Escalation Audit | Evidence Verification', statusTitle, statusValue, isResolved),
+            _buildAuditHeader(railway, 'WORKER COMPLAINT &\nISSUE TRACKING REPORT', 'Resolution Tracking | Escalation Audit | Evidence Verification', statusTitle, statusValue, isResolved),
             pw.Divider(thickness: 1, color: borderColor),
             
             _buildAuditSectionHeader('1. COMPLAINT & ISSUE TRACKING KPI SUMMARY'),
@@ -628,7 +628,7 @@ class PDFReportService {
         margin: const pw.EdgeInsets.all(25),
         build: (pw.Context context) {
           final widgets = <pw.Widget>[
-            _buildAuditHeader(railway, 'OBHS ENTERPRISE TRAIN RUN &\nOPERATIONAL AUDIT REPORT', 'Journey Audit | Worker Assignment Verification | Compliance Overview', 'OVERALL AUDIT STATUS', 'COMPLETED & VERIFIED', true),
+            _buildAuditHeader(railway, 'ENTERPRISE TRAIN RUN &\nOPERATIONAL AUDIT REPORT', 'Journey Audit | Worker Assignment Verification | Compliance Overview', 'OVERALL AUDIT STATUS', 'COMPLETED & VERIFIED', true),
             pw.Divider(thickness: 1, color: borderColor),
           ];
 
@@ -727,7 +727,7 @@ class PDFReportService {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         _buildAuditSectionHeader('FINAL AUDIT OBSERVATION'),
-                        _buildObservationBlock('This enterprise audit report verifies that the train run completed its scheduled journey with all OBHS resources successfully assigned and operational targets met. Overall service delivery was compliant with railway standards.'),
+                        _buildObservationBlock('This enterprise audit report verifies that the train run completed its scheduled journey with all resources successfully assigned and operational targets met. Overall service delivery was compliant with railway standards.'),
                       ]
                     )
                   ),
@@ -771,7 +771,7 @@ class PDFReportService {
         margin: const pw.EdgeInsets.all(25),
         build: (pw.Context context) {
           final widgets = <pw.Widget>[
-            _buildAuditHeader(railway, 'OBHS ATTENDANCE & EVIDENCE\nAUDIT REPORT', 'Attendance Verification | GPS Validation | Evidence Compliance | Operational Audit', 'OVERALL COMPLIANCE STATUS', 'VERIFIED & APPROVED', true),
+            _buildAuditHeader(railway, 'ATTENDANCE & EVIDENCE\nAUDIT REPORT', 'Attendance Verification | GPS Validation | Evidence Compliance | Operational Audit', 'OVERALL COMPLIANCE STATUS', 'VERIFIED & APPROVED', true),
             pw.Divider(thickness: 1, color: borderColor),
             _buildAuditSectionHeader('1. ATTENDANCE OVERVIEW'),
             pw.Container(
@@ -899,7 +899,7 @@ class PDFReportService {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         _buildAuditSectionHeader('FINAL AUDIT OBSERVATION'),
-                        _buildObservationBlock('This attendance audit report confirms that the assigned OBHS worker completed all mandatory attendance checkpoints with valid timestamp, GPS location tracking, and uploaded photographic evidence. All attendance records were successfully synchronized.'),
+                        _buildObservationBlock('This attendance audit report confirms that the assigned worker completed all mandatory attendance checkpoints with valid timestamp, GPS location tracking, and uploaded photographic evidence. All attendance records were successfully synchronized.'),
                       ]
                     )
                   ),
@@ -952,7 +952,7 @@ class PDFReportService {
         margin: const pw.EdgeInsets.all(30),
         build: (pw.Context context) {
           return [
-            _buildHeader(railway, mirtha, 'OBHS RATINGS & FEEDBACK AGGREGATION REPORT', 'VERIFIED'),
+            _buildHeader(railway, mirtha, 'ENTERPRISE RATINGS & FEEDBACK AGGREGATION REPORT', 'VERIFIED'),
 
             _buildSectionHeader('1. WEIGHTED AGGREGATED SCORE'),
             pw.Container(

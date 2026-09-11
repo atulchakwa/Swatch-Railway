@@ -61,16 +61,6 @@ export const listTasks = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
-export const getOBHS = asyncHandler(async (req, res) => {
-  const result = await v2Service.getOBHS(req.params.obhsId);
-  res.status(200).json(result);
-});
-
-export const listOBHS = asyncHandler(async (req, res) => {
-  const result = await v2Service.listOBHS(req.user, req.query);
-  res.status(200).json(result);
-});
-
 export const listTaskMasters = asyncHandler(async (req, res) => {
   const result = await v2Service.listTaskMasters(req.query);
   res.status(200).json(result);

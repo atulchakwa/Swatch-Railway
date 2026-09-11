@@ -10,21 +10,19 @@ class ContractBillingRule {
   String billingCycle;
   List<String> serviceTypes;
   double coachWeightage;
-  double premiseWeightage;
-  double obhsWeightage;
-  double passengerFeedbackWeightage;
-  double aiVerificationWeightage;
+double premiseWeightage;
+   double passengerFeedbackWeightage;
+   double aiVerificationWeightage;
 
   double penaltyScore90Plus;
   double penaltyScore80To89;
   double penaltyScore70To79;
-  double penaltyScoreBelow70;
+double penaltyScoreBelow70;
 
-  double manpowerShortagePenalty;
-  double machineShortagePenalty;
-  double missedObhsComplaintPenalty;
-  double lateTaskCompletionPenalty;
-  double nonCompliancePenalty;
+   double manpowerShortagePenalty;
+   double machineShortagePenalty;
+   double lateTaskCompletionPenalty;
+   double nonCompliancePenalty;
 
   String status;
   DateTime createdAt;
@@ -44,19 +42,17 @@ class ContractBillingRule {
     this.billingCycle = 'Monthly',
     this.serviceTypes = const [],
     this.coachWeightage = 35,
-    this.premiseWeightage = 35,
-    this.obhsWeightage = 15,
-    this.passengerFeedbackWeightage = 10,
-    this.aiVerificationWeightage = 5,
+this.premiseWeightage = 35,
+     this.passengerFeedbackWeightage = 10,
+     this.aiVerificationWeightage = 5,
     this.penaltyScore90Plus = 0,
     this.penaltyScore80To89 = 2,
     this.penaltyScore70To79 = 5,
-    this.penaltyScoreBelow70 = 10,
-    this.manpowerShortagePenalty = 500,
-    this.machineShortagePenalty = 1000,
-    this.missedObhsComplaintPenalty = 2000,
-    this.lateTaskCompletionPenalty = 500,
-    this.nonCompliancePenalty = 1000,
+this.penaltyScoreBelow70 = 10,
+     this.manpowerShortagePenalty = 500,
+     this.machineShortagePenalty = 1000,
+     this.lateTaskCompletionPenalty = 500,
+     this.nonCompliancePenalty = 1000,
     this.status = 'Active',
     required this.createdAt,
     required this.createdBy,
@@ -84,19 +80,17 @@ class ContractBillingRule {
       billingCycle: json['billingCycle'] ?? 'Monthly',
       serviceTypes: List<String>.from(json['serviceTypes'] ?? []),
       coachWeightage: (json['coachWeightage'] ?? 0).toDouble(),
-      premiseWeightage: (json['premiseWeightage'] ?? 0).toDouble(),
-      obhsWeightage: (json['obhsWeightage'] ?? 0).toDouble(),
-      passengerFeedbackWeightage: (json['passengerFeedbackWeightage'] ?? 0).toDouble(),
-      aiVerificationWeightage: (json['aiVerificationWeightage'] ?? 0).toDouble(),
+premiseWeightage: (json['premiseWeightage'] ?? 0).toDouble(),
+       passengerFeedbackWeightage: (json['passengerFeedbackWeightage'] ?? 0).toDouble(),
+       aiVerificationWeightage: (json['aiVerificationWeightage'] ?? 0).toDouble(),
       penaltyScore90Plus: (json['penaltyScore90Plus'] ?? 0).toDouble(),
       penaltyScore80To89: (json['penaltyScore80To89'] ?? 0).toDouble(),
       penaltyScore70To79: (json['penaltyScore70To79'] ?? 0).toDouble(),
-      penaltyScoreBelow70: (json['penaltyScoreBelow70'] ?? 0).toDouble(),
-      manpowerShortagePenalty: (json['manpowerShortagePenalty'] ?? 0).toDouble(),
-      machineShortagePenalty: (json['machineShortagePenalty'] ?? 0).toDouble(),
-      missedObhsComplaintPenalty: (json['missedObhsComplaintPenalty'] ?? 0).toDouble(),
-      lateTaskCompletionPenalty: (json['lateTaskCompletionPenalty'] ?? 0).toDouble(),
-      nonCompliancePenalty: (json['nonCompliancePenalty'] ?? 0).toDouble(),
+penaltyScoreBelow70: (json['penaltyScoreBelow70'] ?? 0).toDouble(),
+       manpowerShortagePenalty: (json['manpowerShortagePenalty'] ?? 0).toDouble(),
+       machineShortagePenalty: (json['machineShortagePenalty'] ?? 0).toDouble(),
+       lateTaskCompletionPenalty: (json['lateTaskCompletionPenalty'] ?? 0).toDouble(),
+       nonCompliancePenalty: (json['nonCompliancePenalty'] ?? 0).toDouble(),
       status: json['status'] ?? 'Active',
       createdAt: parseDate(json['createdAt']) ?? DateTime.now(),
       createdBy: json['createdBy'] is Map ? (json['createdBy']['name'] ?? json['createdBy']['uid']?.toString() ?? '') : (json['createdBy']?.toString() ?? ''),
@@ -117,19 +111,17 @@ class ContractBillingRule {
     'billingCycle': billingCycle,
     'serviceTypes': serviceTypes,
     'coachWeightage': coachWeightage,
-    'premiseWeightage': premiseWeightage,
-    'obhsWeightage': obhsWeightage,
-    'passengerFeedbackWeightage': passengerFeedbackWeightage,
-    'aiVerificationWeightage': aiVerificationWeightage,
+'premiseWeightage': premiseWeightage,
+     'passengerFeedbackWeightage': passengerFeedbackWeightage,
+     'aiVerificationWeightage': aiVerificationWeightage,
     'penaltyScore90Plus': penaltyScore90Plus,
     'penaltyScore80To89': penaltyScore80To89,
     'penaltyScore70To79': penaltyScore70To79,
     'penaltyScoreBelow70': penaltyScoreBelow70,
     'manpowerShortagePenalty': manpowerShortagePenalty,
-    'machineShortagePenalty': machineShortagePenalty,
-    'missedObhsComplaintPenalty': missedObhsComplaintPenalty,
-    'lateTaskCompletionPenalty': lateTaskCompletionPenalty,
-    'nonCompliancePenalty': nonCompliancePenalty,
+'machineShortagePenalty': machineShortagePenalty,
+     'lateTaskCompletionPenalty': lateTaskCompletionPenalty,
+     'nonCompliancePenalty': nonCompliancePenalty,
     'status': status,
     'createdAt': createdAt.toIso8601String(),
     'createdBy': createdBy,
@@ -421,27 +413,26 @@ class BillingEngine {
     return 'D';
   }
 
-  static BillingReport generateBill({
-    required String uid,
-    required ContractBillingRule rule,
-    required int month,
-    required int year,
-    required double overallScore,
-    required String generatedBy,
-    Map<String, dynamic>? scoreBreakdown,
-    int machineShortageCount = 0,
-    int manpowerShortageCount = 0,
-    int missedObhsCount = 0,
-    double otherPenalties = 0,
-  }) {
-    final period = '${_monthName(month)} $year';
-    final grade = calculateGrade(overallScore);
-    final perfDedPct = calculatePerformanceDeductionPct(overallScore, rule);
-    final perfDedAmount = rule.contractValue * perfDedPct / 100;
-    final machineDed = machineShortageCount * rule.machineShortagePenalty;
-    final manpowerDed = manpowerShortageCount * rule.manpowerShortagePenalty;
-    final obhsDed = missedObhsCount * rule.missedObhsComplaintPenalty;
-    final totalDed = perfDedAmount + machineDed + manpowerDed + obhsDed + otherPenalties;
+static BillingReport generateBill({
+     required String uid,
+     required ContractBillingRule rule,
+     required int month,
+     required int year,
+     required double overallScore,
+     required String generatedBy,
+     Map<String, dynamic>? scoreBreakdown,
+     int machineShortageCount = 0,
+     int manpowerShortageCount = 0,
+     double otherPenalties = 0,
+   }) {
+     final period = '${_monthName(month)} $year';
+     final grade = calculateGrade(overallScore);
+     final perfDedPct = calculatePerformanceDeductionPct(overallScore, rule);
+     final perfDedAmount = rule.contractValue * perfDedPct / 100;
+     final machineDed = machineShortageCount * rule.machineShortagePenalty;
+     final manpowerDed = manpowerShortageCount * rule.manpowerShortagePenalty;
+     final obhsDed = 0;
+     final totalDed = perfDedAmount + machineDed + manpowerDed + obhsDed + otherPenalties;
     final finalPayable = rule.contractValue - totalDed;
 
     List<BillingDeductionItem> deductions = [];
@@ -466,14 +457,7 @@ class BillingEngine {
         count: manpowerShortageCount, rate: rule.manpowerShortagePenalty, amount: manpowerDed,
       ));
     }
-    if (obhsDed > 0) {
-      deductions.add(BillingDeductionItem(
-        type: 'Missed OBHS Complaint',
-        description: 'Missed OBHS complaint penalty',
-        count: missedObhsCount, rate: rule.missedObhsComplaintPenalty, amount: obhsDed,
-      ));
-    }
-    if (otherPenalties > 0) {
+if (otherPenalties > 0) {
       deductions.add(BillingDeductionItem(
         type: 'Other Penalties', description: 'Other applicable penalties',
         count: 1, rate: otherPenalties, amount: otherPenalties,
@@ -501,8 +485,8 @@ class BillingEngine {
       machineDeduction: machineDed,
       manpowerShortageCount: manpowerShortageCount,
       manpowerDeduction: manpowerDed,
-      missedObhsCount: missedObhsCount,
-      obhsDeduction: obhsDed,
+missedObhsCount: 0,
+       obhsDeduction: 0,
       otherPenalties: otherPenalties,
       totalDeduction: totalDed,
       finalPayable: finalPayable,

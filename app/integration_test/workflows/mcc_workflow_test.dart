@@ -6,7 +6,7 @@ import '../helpers/test_helpers.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  group('MCC OBHS Workflow Tests', () {
+  group('MCC Workflow Tests', () {
     setUpAll(() async {
       // Ensure clean state before tests
       app.main();

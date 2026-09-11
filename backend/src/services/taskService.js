@@ -4,7 +4,7 @@ import { NotFoundError, ValidationError, ForbiddenError, FirestoreError } from '
 class TaskService {
   async getTasksForRun(requesterData, runInstanceId, filters = {}) {
     const { status, source } = filters;
-    let query = db.collection('obhs_tasks');
+    let query = db.collection('station_tasks');
     if (status) query = query.where('status', '==', status);
     if (runInstanceId) query = query.where('runInstanceId', '==', runInstanceId);
     const snapshot = await query.limit(200).get();
@@ -16,7 +16,7 @@ class TaskService {
   async updateTaskStatus(uid, body) {
     const { action, supervisorScore, supervisorComments, rejectionReason } = body;
     if (!action) throw new ValidationError('Action is required');
-    const taskRef = db.collection('obhs_tasks').doc(uid);
+    const taskRef = db.collection('station_tasks').doc(uid);
     const doc = await taskRef.get();
     if (!doc.exists) throw new NotFoundError('Task not found');
 
@@ -45,7 +45,7 @@ class TaskService {
   }
 
   async getTaskSummary(runInstanceId) {
-    let query = db.collection('obhs_tasks');
+    let query = db.collection('station_tasks');
     if (runInstanceId) query = query.where('runInstanceId', '==', runInstanceId);
     const snapshot = await query.limit(200).get();
     let total = 0, completed = 0;
@@ -102,13 +102,13 @@ class TaskService {
   }
 
   async getTaskById(taskId) {
-    const doc = await db.collection('obhs_tasks').doc(taskId).get();
+    const doc = await db.collection('station_tasks').doc(taskId).get();
     if (!doc.exists) throw new NotFoundError('Task not found');
     return { success: true, data: { id: doc.id, ...doc.data() } };
   }
 
   async getMyTasks(workerId, query = {}) {
-    let q = db.collection('obhs_tasks').where('assignedTo', '==', workerId);
+    let q = db.collection('station_tasks').where('assignedTo', '==', workerId);
     if (query.status) q = q.where('status', '==', query.status);
     const snapshot = await q.limit(200).get();
     const tasks = [];
@@ -118,7 +118,7 @@ class TaskService {
 
   async getTaskHistory(filters = {}) {
     const { user, query } = filters;
-    let q = db.collection('obhs_tasks');
+    let q = db.collection('station_tasks');
     if (query.status) q = q.where('status', '==', query.status);
     if (query.runInstanceId) q = q.where('runInstanceId', '==', query.runInstanceId);
     if (user && user.division) q = q.where('division', '==', user.division);
@@ -130,7 +130,7 @@ class TaskService {
   }
 
   async deleteTask(taskId) {
-    await db.collection('obhs_tasks').doc(taskId).delete();
+    await db.collection('station_tasks').doc(taskId).delete();
     return { success: true, message: 'Task deleted' };
   }
 }

@@ -6,7 +6,7 @@ import 'package:crm_train/model/platform_model.dart';
 import 'package:crm_train/repositories/platform_repository.dart';
 import 'package:crm_train/model/station_run_model.dart';
 import 'package:crm_train/repositories/station_run_repository.dart';
-import 'package:crm_train/repositories/obhs_repository.dart';
+import 'package:crm_train/repositories/worker_directory_repository.dart';
 import 'package:crm_train/repositories/area_cleaning_repository.dart';
 import 'package:crm_train/model/railway_worker_model.dart';
 import 'package:crm_train/services/api_services.dart';
@@ -129,7 +129,7 @@ class _TaskGenerationScreenState extends State<TaskGenerationScreen> {
 
       List<RailwayWorkerModel> uniqueWorkers = [];
       try {
-        final wkData = await OBHSRepository.getWorkers();
+        final wkData = await WorkerDirectoryRepository.getWorkers();
         final seen = <String>{};
         uniqueWorkers = wkData.where((w) => seen.add(w.uid)).toList();
       } catch (e) {

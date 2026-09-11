@@ -8,7 +8,7 @@ import 'package:intl/intl.dart';
 
 import '../../controllers/worker_controller.dart';
 import '../../repositories/worker_repo.dart';
-import '../../repositories/obhs_repository.dart';
+import '../../repositories/worker_directory_repository.dart';
 import '../../model/railway_worker_model.dart';
 import '../../services/api_services.dart';
 import '../../services/passenger_service.dart';
@@ -1151,7 +1151,7 @@ class _SubmitRatingScreenState extends State<SubmitRatingScreen> {
   Future<void> _fetchWorkers() async {
     setState(() => _isLoadingWorkers = true);
     try {
-      final workers = await OBHSRepository.getRailwayWorkers();
+      final workers = await WorkerDirectoryRepository.getRailwayWorkers();
       if (mounted) {
         setState(() {
           _workers = workers;

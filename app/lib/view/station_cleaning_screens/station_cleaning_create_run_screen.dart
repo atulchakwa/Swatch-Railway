@@ -8,7 +8,6 @@ import '../../repositories/platform_repository.dart';
 import '../../model/railway_worker_model.dart';
 import '../../model/station_run_model.dart';
 import '../../repositories/station_run_repository.dart';
-import '../../repositories/obhs_repository.dart';
 import '../../services/api_services.dart';
 import '../../utills/app_colors.dart';
 
@@ -60,7 +59,7 @@ class _StationCleaningCreateRunScreenState extends State<StationCleaningCreateRu
     setState(() => _isLoading = true);
     try {
       final stData = await ApiService.getStations();
-      final wkData = await OBHSRepository.getWorkers();
+      final wkData = await ApiService.getWorkers();
       if (mounted) {
         // Deduplicate workers by uid to prevent DropdownButton assertion errors
         final seen = <String>{};

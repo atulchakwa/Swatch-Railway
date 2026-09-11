@@ -92,16 +92,6 @@ export function requireContractType(...allowedTypes) {
   };
 }
 
-export function forbidContractType(...forbiddenTypes) {
-  return (req, res, next) => {
-    const userContractType = req.user?.contractType;
-    if (userContractType && forbiddenTypes.includes(userContractType)) {
-      throw new ForbiddenError(`Access denied. Users with contract type "${userContractType}" cannot access this resource.`);
-    }
-    next();
-  };
-}
-
 export function requireMasterAccess(minRole) {
   return (req, res, next) => {
     const role = (req.user?.role || '').toUpperCase();

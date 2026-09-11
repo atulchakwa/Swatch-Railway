@@ -605,7 +605,7 @@ describe('app.js - all routes mounted', () => {
     const expected = [
       'authRoutes', 'passengerRoutes', 'usersRoutes', 'entitiesRoutes',
       'contractsRoutes', 'trainsRoutes', 'runInstancesRoutes', 'coachFormsRoutes',
-      'premisesFormsRoutes', 'ctsFormsRoutes', 'stationRoutes', 'obhsRoutes',
+      'premisesFormsRoutes', 'ctsFormsRoutes', 'stationRoutes',
       'mediaRoutes', 'reportsRoutes', 'dashboardRoutes', 'tasksRoutes',
       'v2Routes', 'billingRoutes', 'cleaningFormRoutes', 'miscRoutes',
       'stationCleaningRoutes', 'notificationsRoutes', 'divisionsRoutes',

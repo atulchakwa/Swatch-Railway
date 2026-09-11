@@ -114,7 +114,7 @@ router.get('/api/station-cleaning/reports/weekly/:stationId', verifyToken, requi
 router.get('/api/station-cleaning/reports/monthly/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_REPORTS), requireStationAccess, stationCleaning.generateMonthlyReport);
 router.get('/api/station-cleaning/reports/score-trend/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_REPORTS), requireStationAccess, stationCleaning.getScoreTrend);
 
-// ─── Attendance (3-step: start / mid / end, matching OBHS flow) ─────────
+// ─── Attendance (3-step: start / mid / end) ─────────────────────────────
 router.post('/api/station-cleaning/attendance', verifyToken, requirePermission(PERMISSIONS.SUBMIT_TASKS), stationCleaningAttendance.markAttendance);
 router.get('/api/station-cleaning/attendance/status', verifyToken, stationCleaningAttendance.getAttendanceStatus);
 router.get('/api/station-cleaning/attendance/list', verifyToken, stationCleaningAttendance.listAttendance);

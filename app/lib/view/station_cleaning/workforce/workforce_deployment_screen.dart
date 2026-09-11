@@ -4,7 +4,6 @@ import 'package:crm_train/model/station_models.dart';
 import 'package:crm_train/repositories/workforce_deployment_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
-import 'package:crm_train/repositories/obhs_repository.dart';
 
 class WorkforceDeploymentScreen extends StatefulWidget {
   final String stationId;
@@ -344,7 +343,7 @@ class _AddDeploymentSheetState extends State<_AddDeploymentSheet> {
         WorkforceDeploymentRepository.getTaskTypes(),
         ApiService.getStationAreas(widget.stationId),
       ]);
-      final workersList = await OBHSRepository.getWorkers();
+      final workersList = await ApiService.getWorkers();
       final supervisorsList = await ApiService.getSupervisors(module: 'station_cleaning');
 
       if (mounted) {

@@ -369,8 +369,7 @@ class _CommonProfileScreenState extends State<CommonProfileScreen> {
         return 'Premises Cleaning';
       case 'cts':
         return 'CTS';
-      case 'obhs':
-        return 'OBHS';
+
       default:
         return type;
     }

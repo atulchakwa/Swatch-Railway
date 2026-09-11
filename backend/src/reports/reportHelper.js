@@ -17,7 +17,7 @@ const LOGO_IR = path.join(__dirname, '..', '..', 'assets', 'indian_railway.png')
 
 export function createWorkbook() {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'OBHS Enterprise Monitoring System';
+  wb.creator = 'Swach Station Cleaning System';
   wb.lastModifiedBy = 'System';
   wb.created = new Date();
   wb.modified = new Date();

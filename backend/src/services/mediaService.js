@@ -16,7 +16,7 @@ class MediaService {
     if (!file) throw new ValidationError('No file uploaded.');
     const originalExt = file.originalname.split('.').pop() || 'jpg';
     const uniqueToken = uuidv4();
-    const fileName = `obhs_tasks/${uuidv4()}_${Date.now()}.${originalExt}`;
+    const fileName = `${uuidv4()}_${Date.now()}.${originalExt}`;
 
     const result = await storageService.uploadFile(file.buffer, fileName, {
       contentType: file.mimetype

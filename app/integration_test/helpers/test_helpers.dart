@@ -54,49 +54,41 @@ Future<void> logoutUser(WidgetTester tester) async {
 }
 
 Future<void> cleanupTestData() async {
-  final db = FirebaseFirestore.instance;
-  
-  try {
-    // 1. Clean up OBHS Run Instances & Station Cleaning Runs
-    final runsSnap = await db.collection('obhsRunInstances')
-        .where('trainName', isGreaterThanOrEqualTo: 'TEST-')
-        .where('trainName', isLessThan: 'TEST-\uf8ff')
-        .get();
-    for (var doc in runsSnap.docs) {
-      await doc.reference.delete();
-    }
+   final db = FirebaseFirestore.instance;
+   
+   try {
+     // 1. Clean up Station Cleaning Runs
+     final runsSnap = await db.collection('train_run_instances')
+         .where('trainName', isGreaterThanOrEqualTo: 'TEST-')
+         .where('trainName', isLessThan: 'TEST-\uf8ff')
+         .get();
+     for (var doc in runsSnap.docs) {
+       await doc.reference.delete();
+     }
 
-    final trainRunsSnap = await db.collection('train_run_instances')
-        .where('trainName', isGreaterThanOrEqualTo: 'TEST-')
-        .where('trainName', isLessThan: 'TEST-\uf8ff')
-        .get();
-    for (var doc in trainRunsSnap.docs) {
-      await doc.reference.delete();
-    }
+     // 2. Clean up Complaints
+     final compSnap = await db.collection('obhsComplaints')
+         .where('trainNo', isGreaterThanOrEqualTo: 'TEST-')
+         .where('trainNo', isLessThan: 'TEST-\uf8ff')
+         .get();
+     for (var doc in compSnap.docs) {
+       await doc.reference.delete();
+     }
 
-    // 2. Clean up Complaints
-    final compSnap = await db.collection('obhsComplaints')
-        .where('trainNo', isGreaterThanOrEqualTo: 'TEST-')
-        .where('trainNo', isLessThan: 'TEST-\uf8ff')
-        .get();
-    for (var doc in compSnap.docs) {
-      await doc.reference.delete();
-    }
-
-    // 3. Clean up Master Data (Trains)
-    final masterTrainSnap = await db.collection('trains')
-        .where('trainNo', isGreaterThanOrEqualTo: 'TEST-')
-        .where('trainNo', isLessThan: 'TEST-\uf8ff')
-        .get();
-    for (var doc in masterTrainSnap.docs) {
-      await doc.reference.delete();
-    }
-    
-    // Note: Attendance and Tasks tied to specific Run IDs can be queried 
-    // and deleted if needed, but since the Run instance is deleted, 
-    // they become orphaned and won't show up in the app UI.
-    debugPrint('TEST- cleanup completed successfully.');
-  } catch (e) {
-    debugPrint('Cleanup failed: $e');
-  }
-}
+     // 3. Clean up Master Data (Trains)
+     final masterTrainSnap = await db.collection('trains')
+         .where('trainNo', isGreaterThanOrEqualTo: 'TEST-')
+         .where('trainNo', isLessThan: 'TEST-\uf8ff')
+         .get();
+     for (var doc in masterTrainSnap.docs) {
+       await doc.reference.delete();
+     }
+     
+     // Note: Attendance and Tasks tied to specific Run IDs can be queried 
+     // and deleted if needed, but since the Run instance is deleted, 
+     // they become orphaned and won't show up in the app UI.
+     debugPrint('TEST- cleanup completed successfully.');
+   } catch (e) {
+     debugPrint('Cleanup failed: $e');
+   }
+ }

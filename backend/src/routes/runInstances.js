@@ -9,7 +9,6 @@ router.put('/:runInstanceId', verifyToken, runInstanceController.update);
 router.get('/', verifyToken, runInstanceController.list);
 router.get('/train/:parentTrainId', verifyToken, runInstanceController.getByParentTrain);
 router.delete('/:runInstanceId', verifyToken, runInstanceController.remove);
-router.get('/obhs/:runId', verifyToken, runInstanceController.getObhsRun);
 router.post('/:runInstanceId/activate', verifyToken, runInstanceController.activateJourney);
 router.post('/:runInstanceId/complete', verifyToken, runInstanceController.completeJourney);
 router.get('/active-run', verifyToken, runInstanceController.getActiveRunForWorker);

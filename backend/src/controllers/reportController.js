@@ -51,7 +51,7 @@ export const generateAuditReport = asyncHandler(async (req, res) => {
   if (format === 'excel') {
     const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'OBHS System';
+    wb.creator = 'Swach Station Cleaning System';
     const ws = wb.addWorksheet('Summary');
     ws.columns = [
       { header: 'Metric', key: 'metric', width: 30 },

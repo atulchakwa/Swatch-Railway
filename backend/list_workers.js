@@ -6,7 +6,7 @@ import { db } from './src/database/index.js';
 
 async function listWorkers() {
   try {
-    const validWorkerRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'obhs staff', 'staff'];
+    const validWorkerRoles = ['worker', 'railway worker', 'janitor', 'attendant', 'contractor worker', 'staff'];
     const snapshot = await db.collection('users').get();
     let count = 0;
     snapshot.forEach(doc => {

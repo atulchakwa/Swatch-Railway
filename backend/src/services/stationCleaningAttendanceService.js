@@ -23,7 +23,7 @@ class StationCleaningAttendanceService {
     let lateByMinutes = 0;
     let firstAttendanceTime = null;
 
-    // Liveness (biometric) verification — mirrors OBHS attendance flow
+    // Liveness (biometric) verification for attendance
     if (livenessChallenge) {
       const { verifyFaceLiveness } = await import('./rekognitionService.js');
       const livenessResult = await verifyFaceLiveness(imageUrl, livenessChallenge);

@@ -322,21 +322,6 @@ cron.schedule('*/15 * * * *', async () => {
       }
     });
     if (updateCount > 0) { await headerBatch.commit(); logger.info('Cron', `[Cron] Updated ${updateCount} task headers to OVERDUE`); }
-    const complaintSnapshot = await db.collection('obhs_complaints').where('status', '==', 'OPEN').get();
-    const complaintBatch = db.batch();
-    let escalatedCount = 0;
-    complaintSnapshot.forEach(doc => {
-      const data = doc.data();
-      const createdAt = new Date(data.createdAt);
-      const elapsedMinutes = (now - createdAt) / (1000 * 60);
-      const slaMap = { 'Cleaning': 30, 'Garbage': 20, 'Water': 30, 'Petty Repair': 60, 'Toilet': 30, 'Electrical': 60 };
-      const slaMinutes = slaMap[data.category] || 60;
-      if (elapsedMinutes > slaMinutes && !data.slaEscalated) {
-        complaintBatch.update(doc.ref, { slaEscalated: true, slaEscalatedAt: now.toISOString(), slaBreach: true, escalationLevel: 1, status: 'ESCALATED', updatedAt: now.toISOString() });
-        escalatedCount++;
-      }
-    });
-    if (escalatedCount > 0) { await complaintBatch.commit(); logger.info('Cron', `[Cron] Auto-escalated ${escalatedCount} SLA-breached complaints`); }
   } catch (error) { logger.error('Cron', '[Cron] Task status update error:', error); }
 });
 

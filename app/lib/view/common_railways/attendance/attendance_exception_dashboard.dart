@@ -26,7 +26,7 @@ class _AttendanceExceptionDashboardState extends State<AttendanceExceptionDashbo
     try {
       final token = await ApiService.getToken();
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/api/obhs/attendance/exceptions?status=PENDING'),
+        Uri.parse('${ApiService.baseUrl}/api/attendance/exceptions?status=PENDING'),
         headers: {'Authorization': 'Bearer $token'},
       );
 
@@ -52,7 +52,7 @@ class _AttendanceExceptionDashboardState extends State<AttendanceExceptionDashbo
     try {
       final token = await ApiService.getToken();
       final response = await http.post(
-        Uri.parse('${ApiService.baseUrl}/api/obhs/attendance/exceptions/action'),
+        Uri.parse('${ApiService.baseUrl}/api/attendance/exceptions/action'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

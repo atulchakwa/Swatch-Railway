@@ -590,24 +590,19 @@ class DashboardService {
     const snapshot = await db.collection('trains').get();
     const trains = snapshot.docs.map(d => d.data());
     return { total: trains.length, active: trains.filter(t => t.status === 'ACTIVE' || t.status === 'active').length,
-      obhsEnabled: trains.filter(t => (t.TrainApplicableFor || []).includes('OBHS')).length,
       ctsEnabled: trains.filter(t => (t.TrainApplicableFor || []).includes('CTS')).length };
   }
 
   async getSupervisorStats(requesterData) {
     const { division } = requesterData;
-    const [usersSnap, formsSnap, tasksSnap] = await Promise.all([
+    const [usersSnap, formsSnap] = await Promise.all([
       db.collection('users').where('division', '==', division).get(),
       db.collection('coachForms').where('division', '==', division).get(),
-      db.collection('obhs_tasks').where('division', '==', division).get()
     ]);
     const users = usersSnap.docs.map(d => d.data());
     const forms = formsSnap.docs.map(d => d.data());
-    const tasks = tasksSnap.docs.map(d => d.data());
     return { totalWorkers: users.filter(u => u.userType === 'contractor').length,
-      activeForms: forms.filter(f => f.status === 'SUBMITTED' || f.status === 'APPROVED').length,
-      pendingReview: tasks.filter(t => t.status === 'PENDING_REVIEW').length,
-      completedToday: tasks.filter(t => t.status === 'COMPLETED').length };
+      activeForms: forms.filter(f => f.status === 'SUBMITTED' || f.status === 'APPROVED').length };
   }
 
   async getActiveTrains() {
