@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/services/dashboard_counts_service.dart';
 import 'package:crm_train/services/firebase_obhs_service.dart';
-import 'package:crm_train/utills/obhs_test_data_seeder.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -104,7 +103,7 @@ class _CommonReportScreenState extends State<CommonReportScreen>
     super.initState();
     final role = (Provider.of<AuthProvider>(context, listen: false).currentUser?.role ?? '').toUpperCase().replaceAll(' ', '_');
     _isContractorOnly = {'CONTRACTOR_ADMIN', 'CONTRACTOR_SUPERVISOR'}.contains(role);
-    _tabController = TabController(length: _isContractorOnly ? 1 : 5, vsync: this, initialIndex: _isContractorOnly ? 0 : widget.initialIndex);
+    _tabController = TabController(length: _isContractorOnly ? 1 : 4, vsync: this, initialIndex: _isContractorOnly ? 0 : widget.initialIndex);
     _loadStatistics();
     _loadStnCleaningStations();
   }
@@ -144,17 +143,10 @@ class _CommonReportScreenState extends State<CommonReportScreen>
         depot: user.depot,
       );
 
-      // ── OBHS: load from Firebase ──────────────────────────────────────────
-      final obhsData = await FirebaseCountService.getOBHSStats(
-        zone: user.zone,
-        division: user.division,
-      );
-
       setState(() {
         premisesStats = premisesData;
         coachStats = coachData;
         ctsStats = ctsData;
-        obhsStats = obhsData;
         isLoadingStats = false;
       });
     } catch (e) {
@@ -1293,7 +1285,6 @@ class _CommonReportScreenState extends State<CommonReportScreen>
                   Tab(text: "Premises"),
                   Tab(text: "Coach"),
                   Tab(text: "CTS"),
-                  Tab(text: "OBHS"),
                   Tab(text: "Stn Cleaning"),
                 ],
         ),
@@ -1306,7 +1297,6 @@ class _CommonReportScreenState extends State<CommonReportScreen>
                 _buildPremisesCleaningTab(),
                 _buildCoachCleaningTab(),
                 _buildCTSTab(),
-                _buildOBHSTab(),
                 _buildStnCleaningTab(),
               ],
       ),

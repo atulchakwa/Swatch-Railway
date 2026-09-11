@@ -22,16 +22,12 @@ import '../../common_railways/trains/common_train_screen.dart';
 import '../../common_railways/users/common_user_management_screen.dart';
 import '../../common_railways/contracts/common_contracts_screen.dart';
 import '../../common_railways/divisions/division_management_screen.dart';
-import '../../obhs_screens/obhs_runs_list_screen.dart';
-import '../../obhs_screens/obhs_attendance_list_screen.dart';
-import '../../common_railways/complaints/admin_complaints_screen.dart';
 import '../../common_railways/audit/audit_log_screen.dart';
 import '../../common_railways/billing/billing_dashboard_screen.dart';
 import '../../common_railways/cleaning_forms/cleaning_form_dashboard.dart';
 import '../../station_cleaning_screens/station_cleaning_runs_list_screen.dart';
 import '../../common_railways/station_management/station_dashboard_screen.dart';
 import '../../common_railways/report/common_report_screen.dart';
-import '../../common_railways/attendance/attendance_exception_dashboard.dart';
 import '../../common_railways/ratings/admin_ratings_screen.dart';
 import '../../common_railways/station_management/area_list_screen.dart';
 import '../../common_railways/station_management/task_generation_screen.dart';
@@ -416,18 +412,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         ]
       },
       {
-        "icon": Icons.directions_run,
-        "title": "OBHS",
-        "roles": ["Contractor Master", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Contractor Supervisor"],
-        "contractTypes": ["obhs"],
-        "children": [
-          {"title": "Attendance", "route": "obhs_attendance"},
-          {"title": "Attendance Exceptions", "route": "attendance_exceptions"},
-          {"title": "Tasks", "route": "obhs_tasks"},
-          {"title": "Complaints", "route": "complaints"},
-        ]
-      },
-      {
         "icon": Icons.analytics,
         "title": "Reports",
         "roles": ["Contractor Master", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Contractor Supervisor"],
@@ -435,7 +419,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Coach Reports", "route": "coach_reports", "contractTypes": ["obhs"]},
           {"title": "Premise Reports", "route": "premise_reports", "contractTypes": ["obhs"]},
           {"title": "Station Reports", "route": "station_reports", "contractTypes": ["station_cleaning"]},
-          {"title": "OBHS Reports", "route": "obhs_reports", "contractTypes": ["obhs"]},
         ]
       },
       {
@@ -566,15 +549,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       case "sc_performance":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AreaPerformanceDashboard()));
         break;
-      case "obhs_attendance":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const OBHSAttendanceListScreen()));
-        break;
-      case "attendance_exceptions":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const AttendanceExceptionDashboard()));
-        break;
-      case "obhs_tasks":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const OBHSRunsListScreen()));
-        break;
       case "coach_reports":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 1)));
         break;
@@ -587,9 +561,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           stationName: stationName,
           role: user?.role ?? '',
         ), user);
-        break;
-      case "obhs_reports":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 3)));
         break;
       case "divisions":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const DivisionManagementScreen()));
@@ -604,9 +575,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       case "audit_logs":
       case "activity_logs":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AuditLogScreen()));
-        break;
-      case "complaints":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminComplaintsScreen()));
         break;
       case "sc_supervisor_dashboard":
         _navigateWithStation(context, (stationId, stationName) => SupervisorDashboardScreen(

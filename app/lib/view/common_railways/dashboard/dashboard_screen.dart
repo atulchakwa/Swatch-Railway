@@ -18,9 +18,6 @@ import '../trains/train_from_screen.dart';
 import '../users/common_user_management_screen.dart';
 import '../contracts/common_contracts_screen.dart';
 import '../divisions/division_management_screen.dart';
-import '../../obhs_screens/obhs_runs_list_screen.dart';
-import '../../obhs_screens/obhs_attendance_list_screen.dart';
-import '../complaints/admin_complaints_screen.dart';
 import '../audit/audit_log_screen.dart';
 import '../billing/billing_dashboard_screen.dart';
 import '../billing/contract_billing_config_screen.dart';
@@ -38,7 +35,6 @@ import '../widgets/QuickActionCard.dart';
 import '../widgets/filter_section.dart';
 import '../widgets/indicator_color.dart';
 import '../widgets/status_tile.dart';
-import '../attendance/attendance_exception_dashboard.dart';
 import '../station_management/area_list_screen.dart';
 import '../station_management/task_generation_screen.dart';
 import '../../station_cleaning/shift_summary_approval_screen.dart';
@@ -495,18 +491,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
         ]
       },
       {
-        "icon": Icons.directions_run,
-        "title": "OBHS",
-        "contractTypes": ["obhs"],
-        "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"],
-        "children": [
-          {"title": "Attendance", "route": "obhs_attendance"},
-          {"title": "Attendance Exceptions", "route": "attendance_exceptions"},
-          {"title": "Tasks", "route": "obhs_tasks"},
-          {"title": "Complaints", "route": "complaints"},
-        ]
-      },
-      {
         "icon": Icons.analytics,
         "title": "Reports",
         "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"],
@@ -514,7 +498,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
           {"title": "Coach Reports", "route": "coach_reports", "contractTypes": ["coach"]},
           {"title": "Premise Reports", "route": "premise_reports", "contractTypes": ["premises"]},
           {"title": "Station Reports", "route": "station_reports", "contractTypes": ["station_cleaning"]},
-          {"title": "OBHS Reports", "route": "obhs_reports", "contractTypes": ["obhs"]},
         ]
       },
       {
@@ -629,15 +612,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
       case "garbage":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const WorkerGarbageScreen()));
         break;
-      case "obhs_attendance":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const OBHSAttendanceListScreen()));
-        break;
-      case "attendance_exceptions":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const AttendanceExceptionDashboard()));
-        break;
-      case "obhs_tasks":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const OBHSRunsListScreen()));
-        break;
       case "coach_reports":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 1)));
         break;
@@ -657,9 +631,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
         )));
         break;
       }
-      case "obhs_reports":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 3)));
-        break;
       case "divisions":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const DivisionManagementScreen()));
         break;
@@ -673,9 +644,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
       case "audit_logs":
       case "activity_logs":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AuditLogScreen()));
-        break;
-      case "complaints":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminComplaintsScreen()));
         break;
       case "sc_main":
       case "sc_inspection":
