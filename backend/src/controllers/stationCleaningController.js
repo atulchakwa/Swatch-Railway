@@ -309,6 +309,10 @@ export const getSupervisorDashboard = asyncHandler(async (req, res) => {
   res.json(await stationCleaningService.getSupervisorDashboard(req.params.supervisorId, req.query, req.user));
 });
 
+export const getAdminDashboard = asyncHandler(async (req, res) => {
+  res.json(await stationCleaningService.getAdminDashboard(req.params.stationId, req.query, req.user));
+});
+
 export const generateDailyReport = asyncHandler(async (req, res) => {
   const { stationId } = req.params;
   res.json(await stationCleaningService.generateDailyReport(stationId, req.query, req.user));

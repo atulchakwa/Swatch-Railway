@@ -1499,6 +1499,115 @@ class StationCleaningService {
     };
   }
 
+  // Aggregated dashboard for contractor admins: today's auto-generated tasks
+  // across the station plus every supervisor with their own task counts and
+  // shift assignment. Administrators see supervisors (not workers) here.
+  async getAdminDashboard(stationId, query = {}, user) {
+    const resolvedStationId = this._resolveStationId(stationId, user);
+    this._verifyStationAccessForStationId(resolvedStationId, user);
+    const { date } = query;
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    const stationDoc = await db.collection('stations').doc(resolvedStationId).get();
+    const station = stationDoc.exists ? stationDoc.data() : {};
+
+    const snapshot = await db.collection('cleaningTasks')
+      .where('stationId', '==', resolvedStationId)
+      .where('scheduledDate', '==', targetDate)
+      .get();
+    const tasks = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    const total = tasks.length;
+    const completed = tasks.filter((t) => t.status === 'completed' || t.status === 'approved').length;
+    const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+    const pending = tasks.filter((t) => t.status === 'pending').length;
+    const approved = tasks.filter((t) => t.status === 'approved').length;
+    const rejected = tasks.filter((t) => t.status === 'rejected').length;
+    const now = new Date();
+    const overdue = tasks.filter((t) => {
+      const actionableStatuses = ['pending', 'assigned', 'in_progress'];
+      if (!actionableStatuses.includes(t.status)) return false;
+      const taskDate = t.date || t.scheduledDate || '';
+      const taskTime = t.scheduledTime || '23:59';
+      return new Date(`${taskDate}T${taskTime}:00`) < now;
+    }).length;
+    const avgScore = total > 0
+      ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total)
+      : 0;
+
+    // Group task counts per supervisor for the day
+    const perSupervisor = {};
+    for (const t of tasks) {
+      if (!t.supervisorId) continue;
+      const key = t.supervisorId;
+      if (!perSupervisor[key]) {
+        perSupervisor[key] = {
+          supervisorId: key, totalTasks: 0, completedTasks: 0,
+          inProgressTasks: 0, pendingTasks: 0, approvedTasks: 0, rejectedTasks: 0,
+        };
+      }
+      const row = perSupervisor[key];
+      row.totalTasks += 1;
+      if (t.status === 'completed' || t.status === 'approved') row.completedTasks += 1;
+      if (t.status === 'in_progress') row.inProgressTasks += 1;
+      if (t.status === 'pending') row.pendingTasks += 1;
+      if (t.status === 'approved') row.approvedTasks += 1;
+      if (t.status === 'rejected') row.rejectedTasks += 1;
+    }
+
+    // Enrich with supervisor profile and shift assignment
+    const contract = await this._getActiveStationCleaningContract(resolvedStationId);
+    let supervisors = [];
+    if (contract) {
+      const supSnap = await db.collection('users')
+        .where('contractId', '==', contract.uid)
+        .where('status', '==', 'APPROVED')
+        .limit(200)
+        .get();
+      const list = [];
+      for (const doc of supSnap.docs) {
+        const d = doc.data();
+        const role = String(d.role || '').toUpperCase().replace(/\s+/g, '_');
+        if (role !== 'CONTRACTOR_SUPERVISOR') continue;
+        const userStations = d.stations || [];
+        if (!userStations.includes(resolvedStationId)) continue;
+        const uid = doc.id;
+        const shiftDoc = await db.collection('stationSupervisorShifts').doc(uid).get();
+        const summary = perSupervisor[uid] || {
+          supervisorId: uid, totalTasks: 0, completedTasks: 0,
+          inProgressTasks: 0, pendingTasks: 0, approvedTasks: 0, rejectedTasks: 0,
+        };
+        list.push({
+          uid,
+          fullName: d.fullName || '',
+          email: d.email || '',
+          mobile: d.mobile || '',
+          shift: shiftDoc.exists && shiftDoc.data().shift ? String(shiftDoc.data().shift).toLowerCase() : null,
+          ...summary,
+        });
+      }
+      list.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
+      supervisors = list;
+    }
+
+    return {
+      stationId: resolvedStationId,
+      stationName: station.stationName || '',
+      date: targetDate,
+      totalTasks: total,
+      completedTasks: completed,
+      inProgressTasks: inProgress,
+      pendingTasks: pending,
+      approvedTasks: approved,
+      rejectedTasks: rejected,
+      overdueTasks: overdue,
+      averageScore: avgScore,
+      grade: avgScore >= 90 ? 'A' : avgScore >= 75 ? 'B' : avgScore >= 60 ? 'C' : 'D',
+      supervisorCount: supervisors.length,
+      supervisors,
+    };
+  }
+
   _verifyStationAccessForStationId(stationId, user) {
     if (this._isMasterOrAdmin(user)) return;
     const userStations = user?.stations || (user?.stationId ? [user.stationId] : []);

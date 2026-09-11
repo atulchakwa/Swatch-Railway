@@ -150,6 +150,22 @@ class StationCleaningProvider extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>?> fetchAdminDashboard(String stationId, {String? date}) async {
+    try {
+      final params = <String, String>{};
+      if (date != null) params['date'] = date;
+      return await BaseRepository.apiCall(
+        method: 'GET',
+        path: '/api/station-cleaning/dashboard/admin/$stationId',
+        parser: (d) => d,
+        queryParams: params.isNotEmpty ? params : null,
+      );
+    } catch (e) {
+      setError(e.toString());
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>?> fetchDailyReport(String stationId, {String? date}) async {
     try {
       final params = <String, String>{};

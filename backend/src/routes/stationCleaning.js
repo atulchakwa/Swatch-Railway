@@ -108,6 +108,9 @@ router.get('/api/station-cleaning/dashboard/worker/:workerId', verifyToken, requ
 // ─── Supervisor Dashboard ──────────────────────────────────────────────────
 router.get('/api/station-cleaning/dashboard/supervisor/:supervisorId', verifyToken, requirePermission(PERMISSIONS.VIEW_DASHBOARD), requireStationAccess, stationCleaning.getSupervisorDashboard);
 
+// ─── Admin Dashboard (contractor admin: supervisors + today's auto-generated tasks) ─
+router.get('/api/station-cleaning/dashboard/admin/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_DASHBOARD), requireStationAccess, stationCleaning.getAdminDashboard);
+
 // ─── Cleaning Reports ──────────────────────────────────────────────────────
 router.get('/api/station-cleaning/reports/daily/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_REPORTS), requireStationAccess, stationCleaning.generateDailyReport);
 router.get('/api/station-cleaning/reports/weekly/:stationId', verifyToken, requirePermission(PERMISSIONS.VIEW_REPORTS), requireStationAccess, stationCleaning.generateWeeklyReport);

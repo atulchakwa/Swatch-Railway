@@ -188,8 +188,11 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       if (stationId.isEmpty && (user.stations is List) && (user.stations as List).isNotEmpty) {
         stationId = (user.stations as List).first.toString();
       }
+      final isAdmin = user.role == 'Contractor Admin';
       final results = await Future.wait([
-        provider.fetchSupervisorDashboard(user.uid),
+        isAdmin
+            ? provider.fetchAdminDashboard(stationId)
+            : provider.fetchSupervisorDashboard(user.uid),
         if (stationId.isNotEmpty) provider.fetchDailyReport(stationId),
       ]);
       if (mounted) setState(() {
@@ -1264,6 +1267,8 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       );
     }
 
+    final isAdminDashboard = d.containsKey('supervisors');
+
     final total = (d['totalTasks'] ?? 0) as int;
     final completed = (d['completedTasks'] ?? 0) as int;
     final inProgress = (d['inProgressTasks'] ?? 0) as int;
@@ -1274,11 +1279,10 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     final awaiting = (completed - approved).clamp(0, total);
     final fraction = total > 0 ? completed / total : 0.0;
     final rate = (fraction * 100).round();
-    final workerCount = (d['workerPerformance'] as List? ?? []).length;
     final todayLabel = DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
     final rep = scDailyReport;
-    final grade = rep?['grade']?.toString() ?? 'N/A';
-    final avgScore = (rep?['averageScore'] ?? 0).toInt();
+    final grade = rep?['grade']?.toString() ?? d['grade']?.toString() ?? 'N/A';
+    final avgScore = (rep?['averageScore'] ?? d['averageScore'] ?? 0).toInt();
     Color gradeColor = grade == 'A'
         ? Colors.greenAccent
         : grade == 'B'
@@ -1310,8 +1314,8 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
                         Text(todayLabel,
                             style: const TextStyle(color: Colors.white70, fontSize: 13)),
                         const SizedBox(height: 6),
-                        const Text('Station Cleaning',
-                            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                        Text(isAdminDashboard ? 'Station Overview' : 'Station Cleaning',
+                            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
                         Text('$total tasks scheduled today',
                             style: const TextStyle(color: Colors.white70, fontSize: 13)),
@@ -1380,7 +1384,10 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
             const SizedBox(width: 8),
             _scStatCard('Rejected', rejected, Colors.purple, Icons.block),
             const SizedBox(width: 8),
-            _scStatCard('Workers', workerCount, Colors.teal, Icons.people),
+            if (isAdminDashboard)
+              _scStatCard('Supervisors', (d['supervisorCount'] ?? 0) as int, Colors.teal, Icons.supervisor_account),
+            if (!isAdminDashboard)
+              _scStatCard('Workers', (d['workerPerformance'] as List? ?? []).length, Colors.teal, Icons.people),
           ],
         ),
         const SizedBox(height: 14),
@@ -1414,7 +1421,200 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
             ],
           ),
         ),
+
+        if (isAdminDashboard) ...[
+          const SizedBox(height: 14),
+          _buildAdminSupervisorsSection(d),
+        ],
       ],
+    );
+  }
+
+  Widget _buildAdminSupervisorsSection(Map<String, dynamic> d) {
+    final supervisors = (d['supervisors'] as List? ?? []).cast<Map<String, dynamic>>();
+
+    String _shiftLabel(String? s) {
+      switch (s) {
+        case 'evening': return 'Evening';
+        case 'night':    return 'Night';
+        default:         return 'Morning';
+      }
+    }
+
+    Color _shiftColor(String? s) {
+      switch (s) {
+        case 'evening': return kWarningOrange;
+        case 'night':    return kErrorRed;
+        default:         return kSuccessGreen;
+      }
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 3))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Supervisors',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SupervisorShiftAssignmentScreen(
+                        stationId: d['stationId'] ?? '',
+                        stationName: d['stationName'] ?? '',
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.manage_accounts, size: 18),
+                label: const Text('Manage', style: TextStyle(fontSize: 13)),
+              ),
+            ],
+          ),
+          if (supervisors.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.supervisor_account, size: 44, color: Colors.grey[350]),
+                    const SizedBox(height: 10),
+                    const Text('No supervisors assigned to this station yet',
+                        style: TextStyle(color: Colors.black45)),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => SupervisorShiftAssignmentScreen(
+                              stationId: d['stationId'] ?? '',
+                              stationName: d['stationName'] ?? '',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('Assign Supervisor'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ...supervisors.map((s) {
+              final completed = (s['completedTasks'] ?? 0) as int;
+              final total = (s['totalTasks'] ?? 0) as int;
+              final pending = (s['pendingTasks'] ?? 0) as int;
+              final fraction = total > 0 ? completed / total : 0.0;
+              final shift = (s['shift'] as String?) ?? 'morning';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SupervisorShiftAssignmentScreen(
+                            stationId: d['stationId'] ?? '',
+                            stationName: d['stationName'] ?? '',
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: _shiftColor(shift).withValues(alpha: 0.12),
+                            child: Text(
+                              (s['fullName'] ?? 'S').toString().substring(0, 1).toUpperCase(),
+                              style: TextStyle(color: _shiftColor(shift), fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  (s['fullName'] as String?)?.trim().isNotEmpty == true ? s['fullName'] : 'Unnamed Supervisor',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if ((s['mobile'] as String?)?.isNotEmpty == true)
+                                  Text(s['mobile'], style: const TextStyle(fontSize: 12, color: Colors.black45)),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: _shiftColor(shift).withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(_shiftLabel(shift),
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _shiftColor(shift))),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text('$completed/$total done',
+                                        style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                    const SizedBox(width: 8),
+                                    if (pending > 0)
+                                      Text('$pending pending',
+                                          style: TextStyle(fontSize: 12, color: kWarningOrange)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(3),
+                            child: SizedBox(
+                              width: 44,
+                              child: LinearProgressIndicator(
+                                value: fraction,
+                                minHeight: 4,
+                                backgroundColor: Colors.grey[200],
+                                valueColor: AlwaysStoppedAnimation(
+                                  fraction >= 0.8 ? kSuccessGreen : fraction >= 0.4 ? kWarningOrange : kErrorRed,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.chevron_right, color: Colors.grey[400], size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
     );
   }
 
