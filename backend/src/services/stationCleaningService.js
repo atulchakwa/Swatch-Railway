@@ -1760,7 +1760,13 @@ class StationCleaningService {
   async createWorker(body, user) {
     const { fullName, phone, employeePhotoUrl, aadhaarNumber, aadhaarPhotoUrl, panNumber, panPhotoUrl, pfUanNumber, pfDocumentUrl, policeVerificationNumber, policeVerificationDocUrl, stationId } = body;
     if (!fullName || !phone) throw new ValidationError('fullName and phone are required');
+    if (!/^\d{10}$/.test(String(phone).trim())) throw new ValidationError('Invalid mobile number. Must be 10 digits.');
+    if (!aadhaarNumber || !/^\d{12}$/.test(String(aadhaarNumber).trim())) throw new ValidationError('Aadhaar number is required and must be 12 digits.');
     if (!employeePhotoUrl || !String(employeePhotoUrl).trim()) throw new ValidationError('Employee identity photo is required');
+    const phoneQuery = await db.collection('supervisorWorkers').where('phone', '==', phone).limit(1).get();
+    if (!phoneQuery.empty) throw new ValidationError('Mobile Number already registered.');
+    const aadhaarQuery = await db.collection('supervisorWorkers').where('aadhaarNumber', '==', aadhaarNumber).limit(1).get();
+    if (!aadhaarQuery.empty) throw new ValidationError('Aadhaar Number already registered.');
     const ref = db.collection('supervisorWorkers').doc();
     const data = {
       uid: ref.id,
@@ -1797,6 +1803,16 @@ class StationCleaningService {
     const updates = { ...body, updatedAt: new Date().toISOString() };
     delete updates.uid;
     delete updates.supervisorId;
+    if (updates.phone !== undefined && updates.phone !== '') {
+      if (!/^\d{10}$/.test(String(updates.phone).trim())) throw new ValidationError('Invalid mobile number. Must be 10 digits.');
+      const phoneQuery = await db.collection('supervisorWorkers').where('phone', '==', updates.phone).limit(1).get();
+      if (!phoneQuery.empty && phoneQuery.docs[0].id !== uid) throw new ValidationError('Mobile Number already registered.');
+    }
+    if (updates.aadhaarNumber !== undefined && updates.aadhaarNumber !== '') {
+      if (!/^\d{12}$/.test(String(updates.aadhaarNumber).trim())) throw new ValidationError('Aadhaar number must be 12 digits.');
+      const aadhaarQuery = await db.collection('supervisorWorkers').where('aadhaarNumber', '==', updates.aadhaarNumber).limit(1).get();
+      if (!aadhaarQuery.empty && aadhaarQuery.docs[0].id !== uid) throw new ValidationError('Aadhaar Number already registered.');
+    }
     await ref.update(updates);
     return { message: 'Worker updated', uid };
   }

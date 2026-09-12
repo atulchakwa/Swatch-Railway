@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../utills/app_colors.dart';
+import '../../../utills/validators.dart';
 import '../../../model/station_models.dart';
 import '../../../model/platform_model.dart';
 import '../../../repositories/platform_repository.dart';
@@ -323,10 +324,11 @@ class _UserEditScreenState extends State<UserEditScreen> {
                   LengthLimitingTextInputFormatter(10),
                 ],
                 validator: (v) {
-                  if (v == null || v.isEmpty) return 'Required';
-                  if (v.length != 10) return '10 digits required';
-                  return null;
-                },
+                    if (v == null || v.isEmpty) return 'Required';
+                    final err = AppValidators.mobile(v);
+                    if (err != null) return '10 digits required';
+                    return null;
+                  },
               ),
               const SizedBox(height: 20),
 

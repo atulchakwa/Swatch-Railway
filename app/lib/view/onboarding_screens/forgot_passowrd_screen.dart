@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../services/auth_service.dart';
+import '../../../utills/validators.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -354,11 +355,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
               OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             ),
             validator: (v) {
-              if (isEmail) {
-                if (v == null || v.isEmpty) return 'Enter email';
-                if (!v.contains('@') || !v.contains('.'))
-                  return 'Enter valid email';
-              } else {
+if (isEmail) {
+      if (v == null || v.isEmpty) return 'Enter email';
+      if (AppValidators.email(v) != null) return 'Enter valid email';
+    } else {
                 if (v == null || v.isEmpty) return 'Enter mobile number';
                 if (v.length != 10) return 'Enter valid 10-digit mobile';
               }

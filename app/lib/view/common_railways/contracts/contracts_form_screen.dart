@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../../model/contracts_model.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../utills/validators.dart';
 import '../widgets/approve_entity_dropdown.dart';
 import '../widgets/rolevise_dropdowns.dart';
 
@@ -730,9 +731,30 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                 return "Required field";
               }
               if (label.contains('Email') && value != null && value.isNotEmpty) {
-                final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-                if (!emailRegex.hasMatch(value)) {
+                if (AppValidators.email(value) != null) {
                   return "Enter valid email";
+                }
+              }
+              if (label.contains('Mobile') && value != null && value.isNotEmpty) {
+                final mobileErr = AppValidators.mobile(value, required: false);
+                if (mobileErr != null) {
+                  return mobileErr;
+                }
+              }
+              if (label.contains('ID Proof Number') && value != null && value.isNotEmpty && selectedIDType != null) {
+                final trimmed = value.trim().toUpperCase();
+                if (selectedIDType == 'Aadhaar') {
+                  if (!RegExp(r'^\d{12}$').hasMatch(value.trim())) {
+                    return 'Enter valid 12-digit Aadhaar number';
+                  }
+                } else if (selectedIDType == 'PAN') {
+                  if (!RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]$').hasMatch(trimmed)) {
+                    return 'Enter valid PAN number';
+                  }
+                } else if (selectedIDType == 'Passport') {
+                  if (value.trim().length < 6) {
+                    return 'Enter valid Passport number';
+                  }
                 }
               }
               return null;

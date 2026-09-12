@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'dart:math';
 import '../../../utills/app_colors.dart';
+import '../../../utills/validators.dart';
 import '../../../model/train_model.dart';
 import '../../../model/station_models.dart';
 import '../../../model/platform_model.dart';
@@ -33,6 +34,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   final TextEditingController _designation = TextEditingController();
   final TextEditingController _email = TextEditingController();
   final TextEditingController _mobile = TextEditingController();
+  final TextEditingController _aadhaar = TextEditingController();
   final TextEditingController _password = TextEditingController();
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 3,
@@ -187,6 +189,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       _designation.text = draft['designation'] ?? '';
       _email.text = draft['email'] ?? '';
       _mobile.text = draft['mobile'] ?? '';
+      _aadhaar.text = draft['aadhaarNumber'] ?? '';
       _password.text = draft['password'] ?? '';
       _selectedUserType = draft['userType'] ?? 'railway';
       _selectedRole = draft['role'];
@@ -820,11 +823,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.emailAddress,
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Required';
-                  if (!v.contains('@')) return 'Invalid email';
-                  return null;
-                },
+                validator: AppValidators.email,
               ),
               const SizedBox(height: 12),
 
@@ -841,11 +840,23 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                   FilteringTextInputFormatter.digitsOnly,
                   LengthLimitingTextInputFormatter(10),
                 ],
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Required';
-                  if (v.length != 10) return '10 digits required';
-                  return null;
-                },
+                validator: AppValidators.mobile,
+              ),
+              const SizedBox(height: 12),
+
+              TextFormField(
+                controller: _aadhaar,
+                decoration: const InputDecoration(
+                  labelText: 'Aadhaar Number *',
+                  border: OutlineInputBorder(),
+                  hintText: '12 digit number',
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(12),
+                ],
+                validator: AppValidators.aadhaar,
               ),
               const SizedBox(height: 12),
 
@@ -1345,6 +1356,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       'designation': _designation.text.trim(),
       'email': _email.text.trim(),
       'mobile': _mobile.text.trim(),
+      'aadhaarNumber': _aadhaar.text.trim(),
       'password': _password.text.trim(),
       'userType': _selectedUserType,
       'role': _selectedRole,
@@ -1410,6 +1422,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
         email: _email.text.trim(),
         password: _password.text.trim(),
         mobile: _mobile.text.trim(),
+        aadhaarNumber: _aadhaar.text.trim(),
         zone: _zone?.trim().isEmpty ?? true ? null : _zone?.trim(),
         division: _division?.trim().isEmpty ?? true ? null : _division?.trim(),
         depot: _depot?.trim().isEmpty ?? true ? null : _depot?.trim(),
@@ -1463,6 +1476,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     _designation.dispose();
     _email.dispose();
     _mobile.dispose();
+    _aadhaar.dispose();
     _password.dispose();
     _signatureController.dispose();
     _stationNameController.dispose();

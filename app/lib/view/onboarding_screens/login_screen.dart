@@ -9,6 +9,7 @@ import 'package:crm_train/model/user_model.dart';
 import 'forgot_passowrd_screen.dart';
 import 'package:get/get.dart';
 import '../../../utills/app_colors.dart';
+import '../../../utills/validators.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -228,11 +229,11 @@ class _LoginScreenState extends State<LoginScreen>
       filled: true,
       fillColor: Colors.white,
     ),
-    validator: (v) {
-      if (v == null || v.isEmpty) return 'Enter email';
-      if (!v.contains('@')) return 'Enter valid email';
-      return null;
-    },
+validator: (v) {
+                  if (v == null || v.isEmpty) return 'Enter email';
+                  if (AppValidators.email(v) != null) return 'Enter valid email';
+                  return null;
+                },
   );
 
   Widget _buildPasswordField() => TextFormField(

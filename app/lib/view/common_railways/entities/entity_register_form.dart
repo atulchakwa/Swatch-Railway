@@ -7,6 +7,7 @@ import '../../../services/api_services.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../services/draft_storage_service.dart';
 import '../../../utills/app_colors.dart';
+import '../../../utills/validators.dart';
 
 class EntityRegisterForm extends StatefulWidget {
   final Map<String, dynamic>? draftData;
@@ -993,16 +994,16 @@ class _EntityRegisterFormState extends State<EntityRegisterForm> {
                   label.contains('*') &&
                   value != null &&
                   value.isNotEmpty) {
-                if (!value.contains('@')) {
+                if (AppValidators.email(value) != null) {
                   return 'Invalid email format';
                 }
               }
               if (label.contains('Contact') &&
-                  label.contains('*') &&
                   value != null &&
                   value.isNotEmpty) {
-                if (value.length != 10) {
-                  return '10 digits required';
+                final contactErr = AppValidators.mobile(value, required: false);
+                if (contactErr != null) {
+                  return contactErr;
                 }
               }
               return null;

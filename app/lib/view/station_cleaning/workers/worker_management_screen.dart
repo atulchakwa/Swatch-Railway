@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:crm_train/model/station_cleaning_models.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
+import 'package:crm_train/utills/validators.dart';
 import 'package:crm_train/repositories/worker_repo.dart';
 
 class WorkerManagementScreen extends StatefulWidget {
@@ -362,14 +364,24 @@ class _WorkerFormDialogState extends State<_WorkerFormDialog> {
                   controller: _phoneCtrl,
                   decoration: const InputDecoration(labelText: 'Phone *', border: OutlineInputBorder()),
                   keyboardType: TextInputType.phone,
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(10),
+                  ],
+                  validator: AppValidators.mobile,
                 ),
                 const SizedBox(height: 12),
                 _photoField('Employee Photo', _employeePhotoUrl, (v) => setState(() => _employeePhotoUrl = v)),
                 const Divider(height: 24),
                 TextFormField(
                   controller: _aadhaarCtrl,
-                  decoration: const InputDecoration(labelText: 'Aadhaar Number', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Aadhaar Number *', border: OutlineInputBorder()),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(12),
+                  ],
+                  validator: AppValidators.aadhaar,
                 ),
                 const SizedBox(height: 8),
                 _photoField('Aadhaar Card Photo', _aadhaarPhotoUrl, (v) => setState(() => _aadhaarPhotoUrl = v)),

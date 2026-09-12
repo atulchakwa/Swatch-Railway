@@ -5,7 +5,7 @@ import { safeFormat } from '../utils/helpers.js';
 
 class UserService {
   async createUser(creatorData, userData) {
-    let { email, password, role, userType, fullName, designation, mobile, zone, division, depot, entityId, contractId, stations, trainId, trainIds, worker_type, stationId, platformId, areaId } = userData;
+    let { email, password, role, userType, fullName, designation, mobile, aadhaarNumber, zone, division, depot, entityId, contractId, stations, trainId, trainIds, worker_type, stationId, platformId, areaId } = userData;
     let domain = userData.domain;
     const normalizedEmail = email ? email.trim().toLowerCase() : null;
     const normalizedUserType = (userType || '').toLowerCase();
@@ -25,6 +25,19 @@ class UserService {
       const mobileQuery = await db.collection('users').where('mobile', '==', mobile).limit(1).get();
       if (!mobileQuery.empty) {
         throw new ValidationError("Mobile Number already registered.");
+      }
+      if (!/^\d{10}$/.test(String(mobile).trim())) {
+        throw new ValidationError('Invalid mobile number. Must be 10 digits.');
+      }
+    }
+
+    if (aadhaarNumber) {
+      if (!/^\d{12}$/.test(String(aadhaarNumber).trim())) {
+        throw new ValidationError('Invalid Aadhaar number. Must be 12 digits.');
+      }
+      const aadhaarQuery = await db.collection('users').where('aadhaarNumber', '==', aadhaarNumber).limit(1).get();
+      if (!aadhaarQuery.empty) {
+        throw new ValidationError("Aadhaar Number already registered.");
       }
     }
 
@@ -193,6 +206,7 @@ class UserService {
         userType: normalizedUserType,
         fullName: fullName || null,
         mobile: mobile || null,
+        aadhaarNumber: aadhaarNumber || null,
         designation: designation || null,
         zone: zone || null,
         division: division || null,
@@ -221,7 +235,7 @@ class UserService {
   }
 
   async updateUser(editorData, uid, updates) {
-    const { fullName, designation, mobile, zone, division, depot, role, userType, password, entityId, contractId, stations, trainId, trainIds, worker_type, stationId, platformId, areaId } = updates;
+    const { fullName, designation, mobile, aadhaarNumber, zone, division, depot, role, userType, password, entityId, contractId, stations, trainId, trainIds, worker_type, stationId, platformId, areaId } = updates;
     const { uid: editorId, name, fullName: editorAuthName, role: editorRole } = editorData;
     const editorName = editorAuthName || name || editorRole || 'Admin';
 
@@ -267,7 +281,26 @@ class UserService {
     const updateData = {};
     if (fullName !== undefined) updateData.fullName = fullName;
     if (designation !== undefined) updateData.designation = designation;
-    if (mobile !== undefined) updateData.mobile = mobile;
+    if (mobile !== undefined) {
+      if (!/^\d{10}$/.test(String(mobile).trim())) {
+        throw new ValidationError('Invalid mobile number. Must be 10 digits.');
+      }
+      const mobileQuery = await db.collection('users').where('mobile', '==', mobile).limit(1).get();
+      if (!mobileQuery.empty && mobileQuery.docs[0].id !== uid) {
+        throw new ValidationError("Mobile Number already registered.");
+      }
+      updateData.mobile = mobile;
+    }
+    if (aadhaarNumber !== undefined) {
+      if (!/^\d{12}$/.test(String(aadhaarNumber).trim())) {
+        throw new ValidationError('Invalid Aadhaar number. Must be 12 digits.');
+      }
+      const aadhaarQuery = await db.collection('users').where('aadhaarNumber', '==', aadhaarNumber).limit(1).get();
+      if (!aadhaarQuery.empty && aadhaarQuery.docs[0].id !== uid) {
+        throw new ValidationError("Aadhaar Number already registered.");
+      }
+      updateData.aadhaarNumber = aadhaarNumber;
+    }
     if (zone !== undefined) updateData.zone = zone;
     if (division !== undefined) updateData.division = division;
     if (depot !== undefined) updateData.depot = depot;
