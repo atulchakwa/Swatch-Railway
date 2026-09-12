@@ -336,7 +336,7 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                               child: _buildDropdown(
                                 'Contract Type',
                                 'Select type',
-                                ['Station Cleaning', 'OBHS'],
+                                ['Station Cleaning'],
                                 selectedContractType,
                                 (v) {
                                   setState(() {
