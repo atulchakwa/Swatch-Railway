@@ -6,10 +6,14 @@ import 'package:crm_train/utills/app_colors.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'attendance/station_supervisor_attendance_screen.dart';
 import 'billing/billing_support_pack_screen.dart';
+import 'feedback/feedback_qr_screen.dart';
+import 'feedback/passenger_feedback_form_screen.dart';
+import 'feedback/passenger_feedback_list_screen.dart';
 import 'inspection/inspection_list_screen.dart';
 import 'reporting/report_list_screen.dart';
 import 'supervisor_log/supervisor_daily_log_screen.dart';
 import '../common_railways/station_management/area_config_screen.dart';
+import '../common_railways/station_management/station_feedback_list_screen.dart';
 import '../common_railways/station_management/task_generation_screen.dart';
 
 class StationCleaningHubScreen extends StatefulWidget {
@@ -82,6 +86,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.receipt, 'Billing', Colors.deepOrange, () => _openBilling(context)),
       _moduleCard(context, Icons.book, 'Daily\nAudit Log', Colors.blue, () => _openDailyLog(context)),
       _moduleCard(context, Icons.map, 'Area\nArrangement', Colors.lightGreen, () => _openAreaConfig(context)),
+      _moduleCard(context, Icons.feedback, 'Passenger\nFeedback', Colors.amber.shade700, () => _openFeedback(context)),
     ];
 
     final titleWidget = _loadingStations
@@ -171,5 +176,58 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
 
   void _openTaskGen(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => TaskGenerationScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
+  }
+
+  void _openFeedback(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(padding: EdgeInsets.all(16), child: Text('Feedback Options', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+            ListTile(
+              leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.edit_note, color: Colors.white)),
+              title: const Text('Submit Passenger Feedback'),
+              subtitle: const Text('Ask a passenger, record PNR + ratings'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackFormScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list_alt, color: Colors.white)),
+              title: const Text('View PNR Feedback'),
+              subtitle: const Text('Browse feedback recorded against PNRs'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackListScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.qr_code, color: Colors.white)),
+              title: const Text('Generate QR Code'),
+              subtitle: const Text('Print & display for passenger feedback'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => FeedbackQrScreen(stationId: _selectedStationId, stationName: _selectedStationName)));
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(backgroundColor: Colors.teal, child: Icon(Icons.list, color: Colors.white)),
+              title: const Text('View Feedback'),
+              subtitle: const Text('Browse submitted passenger feedback'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => StationFeedbackListScreen(stationId: _selectedStationId)));
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 }
