@@ -6,6 +6,8 @@ import * as evidence from '../evidence_manager.js';
 import logger from './logger/index.js';
 import { taskManagementService } from './services/taskManagementService.js';
 import { stationCleaningService } from './services/stationCleaningService.js';
+import { stationBillingService } from './services/stationBillingService.js';
+import { autoEmailService } from './services/autoEmailService.js';
 
 const CRON_TZ = 'Asia/Kolkata';
 
@@ -341,7 +343,41 @@ cron.schedule('55 23 * * *', async () => {
     await getDailyReportData();
     logger.info('Cron', '--- Finished Automated Daily Reports Successfully ---');
   } catch (error) { logger.error('Cron', '--- Automated Daily Reports Failed ---', error); }
-});
+}); 
+
+// ─── Monthly (1st at 7 AM IST): Generate previous month's billing packs & dispatch Billing Support Report ───
+cron.schedule('0 7 1 * *', async () => {
+  logger.info('Cron', '--- Starting Monthly Billing Report Cron ---');
+  const now = new Date();
+  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const year = prev.getUTCFullYear();
+  const month = prev.getUTCMonth() + 1;
+  const sysUser = { uid: 'system', fullName: 'System', role: 'SUPER_ADMIN' };
+
+  try {
+    const gen = await stationBillingService.generateMonthlyBillingPacks(month, year, sysUser);
+    logger.info('Cron', ` [MonthlyBilling-Generate] Generated ${gen.generated} billing pack(s) for ${month}/${year}`);
+  } catch (e) {
+    logger.error('Cron', ` [MonthlyBilling-Generate] FAILED: ${e.message}`);
+  }
+
+  try {
+    const stationsSnap = await db.collection('stations').where('active', '==', true).limit(200).get();
+    let dispatched = 0;
+    for (const doc of stationsSnap.docs) {
+      try {
+        const res = await autoEmailService.dispatchMonthlyReport('monthly_billing', doc.id, month, year);
+        if (res.sent > 0) dispatched += res.sent;
+      } catch (e) {
+        logger.error('Cron', ` [MonthlyBilling-Email] Station ${doc.id} FAILED: ${e.message}`);
+      }
+    }
+    logger.info('Cron', ` [MonthlyBilling-Email] Dispatched Billing Support Report to ${dispatched} recipient(s)`);
+  } catch (e) {
+    logger.error('Cron', ` [MonthlyBilling-Email] Fetching stations FAILED: ${e.message}`);
+  }
+  logger.info('Cron', '--- Finished Monthly Billing Report Cron ---');
+}, { timezone: CRON_TZ });
 
 // ─── Daily 2 AM: Evidence archive ───
 cron.schedule('0 2 * * *', async () => {

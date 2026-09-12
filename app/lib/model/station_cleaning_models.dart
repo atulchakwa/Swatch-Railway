@@ -265,6 +265,7 @@ class StationBillingPack {
   final Map<String, dynamic> pettyIssueSummary;
   final Map<String, dynamic> evidenceSummary;
   final Map<String, dynamic> machineSummary;
+  final Map<String, dynamic> taskExecutionSummary;
   final Map<String, dynamic> executionSheetSummary;
   final Map<String, dynamic> inspectionBillingSummary;
   final Map<String, dynamic> penalties;
@@ -303,6 +304,7 @@ class StationBillingPack {
     this.pettyIssueSummary = const {},
     this.evidenceSummary = const {},
     required this.machineSummary,
+    this.taskExecutionSummary = const {},
     this.executionSheetSummary = const {},
     this.inspectionBillingSummary = const {},
     required this.penalties,
@@ -343,6 +345,7 @@ class StationBillingPack {
         pettyIssueSummary: json['pettyIssueSummary'] ?? {},
         evidenceSummary: json['evidenceSummary'] ?? {},
         machineSummary: json['machineSummary'] ?? {},
+        taskExecutionSummary: json['taskExecutionSummary'] ?? {},
         executionSheetSummary: json['executionSheetSummary'] ?? {},
         inspectionBillingSummary: json['inspectionBillingSummary'] ?? {},
         penalties: json['penalties'] ?? {},

@@ -171,6 +171,61 @@ class StationBillingService {
       logger.warn(`Execution sheet summary skipped for ${stationId} ${month}/${year}: ${err.message}`);
     }
 
+    // ── Task Execution (50% billing component, shift-wise on APPROVED shift summaries) ──
+    let shiftSummarySnap = null;
+    try {
+      shiftSummarySnap = await db.collection('stationShiftSummaries')
+        .where('stationId', '==', stationId)
+        .where('date', '>=', startDate)
+        .where('date', '<=', endDate)
+        .get();
+    } catch {
+      shiftSummarySnap = null;
+    }
+    const submittedShiftSummaries = [];
+    const approvedShiftSummaries = [];
+    if (shiftSummarySnap) {
+      shiftSummarySnap.forEach(d => {
+        const r = d.data();
+        if (!(r.date && r.date >= startDate && r.date <= endDate)) return;
+        if (r.status === 'approved') approvedShiftSummaries.push(r);
+        else if (r.status === 'submitted') submittedShiftSummaries.push(r);
+      });
+    }
+    const approvedAreas = approvedShiftSummaries.reduce((s, r) => s + (Array.isArray(r.areas) ? r.areas.length : 0), 0);
+    const approvedAreasWithPhoto = approvedShiftSummaries.reduce((s, r) => s + (Array.isArray(r.areas) ? r.areas.filter(a => a.photoUrl && String(a.photoUrl).trim()).length : 0), 0);
+    const shiftPhotoComplianceRate = approvedAreas > 0 ? Math.round(approvedAreasWithPhoto / approvedAreas * 100) : null;
+    const totalWorkDone = approvedShiftSummaries.reduce((s, r) => s + (r.totalWorkDone || 0), 0);
+    const totalTenderedArea = approvedShiftSummaries.reduce((s, r) => s + (r.totalTenderedArea || 0), 0);
+    const shiftExecutionRate = totalTenderedArea > 0 ? Math.round(Math.min(totalWorkDone / totalTenderedArea, 1) * 100) : null;
+    const approvedDayCount = new Set(approvedShiftSummaries.map(r => r.date)).size;
+    const submittedDayCount = new Set(submittedShiftSummaries.map(r => r.date)).size;
+    const executionParts = [];
+    if (shiftExecutionRate !== null) executionParts.push(shiftExecutionRate);
+    if (shiftPhotoComplianceRate !== null) executionParts.push(shiftPhotoComplianceRate);
+    const taskExecutionScore = executionParts.length > 0
+      ? Math.round((executionParts.reduce((s, v) => s + v, 0) / executionParts.length) * 100) / 100
+      : null;
+    const taskExecutionNetBase = Math.round(monthlyBase * 0.50);
+    const taskExecutionSummary = {
+      configured: taskExecutionScore !== null,
+      approvedShiftSummaries: approvedShiftSummaries.length,
+      submittedShiftSummaries: submittedShiftSummaries.length,
+      approvedDays: approvedDayCount,
+      submittedDays: submittedDayCount,
+      shiftExecutionRate,
+      totalWorkDone,
+      totalTenderedArea,
+      shiftAreasTotal: approvedAreas,
+      shiftAreasWithPhoto: approvedAreasWithPhoto,
+      shiftPhotoComplianceRate,
+      taskExecutionScore,
+      monthlyBase,
+      taskExecutionComponentNetBase: taskExecutionNetBase,
+      achievedAmount: taskExecutionScore !== null ? Math.round(taskExecutionNetBase * (taskExecutionScore / 100)) : 0,
+      shortfallDeduction: taskExecutionScore !== null ? Math.round(taskExecutionNetBase * (1 - taskExecutionScore / 100)) : 0,
+    };
+
     // ── Inspection Score (20% billing component) ──
     let inspectionBillingSummary = {
       configured: false,
@@ -201,12 +256,12 @@ class StationBillingService {
     const machines = []; machineSnap.forEach(d => machines.push(d.data()));
     const inMaintenanceCount = machines.filter(m => m.workingStatus === 'under_maintenance' || m.workingStatus === 'broken').length;
 
-    // ── OBHS-aligned overall score: 50% cleaning + 20% inspection + 30% passenger feedback ──
+    // ── Overall score: 50% task execution + 20% inspection + 30% passenger feedback ──
     const feedbackScore = feedbackRecords.length > 0
       ? Math.round(((feedbackSummary.averageRating / 5) * 100) * 100) / 100
       : null;
     const scoreBreakdown = [];
-    if (executionSheetSummary.configured) scoreBreakdown.push({ component: 'Cleaning', weight: 50, score: executionSheetSummary.executionScore });
+    if (taskExecutionSummary.configured) scoreBreakdown.push({ component: 'Task Execution', weight: 50, score: taskExecutionSummary.taskExecutionScore });
     if (inspectionBillingSummary.configured) scoreBreakdown.push({ component: 'Inspection', weight: 20, score: inspectionBillingSummary.inspectionScore });
     if (feedbackScore !== null) scoreBreakdown.push({ component: 'Passenger Feedback', weight: 30, score: feedbackScore });
 
@@ -221,8 +276,8 @@ class StationBillingService {
 
     // OBHS score-aligned bill: billable = monthlyBase × (1 − (deductionRate/100) × (1 − overallScore/100)).
     // Specific operational penalties (attendance, score, machine downtime, unapproved runs)
-    // are deducted on top; execution-sheet and inspection shortfalls are already reflected
-    // via the Cleaning and Inspection components of overallScore.
+    // are deducted on top; task-execution and inspection shortfalls are already reflected
+    // via the Task Execution and Inspection components of overallScore.
     const scoreBasedBill = Math.max(0, Math.round(monthlyBase * (1 - (deductionRate / 100) * ((100 - overallScore) / 100))));
     const scoreDeductionAmount = Math.max(0, monthlyBase - scoreBasedBill);
     const billableAmount = Math.max(0, scoreBasedBill - extraPenaltyAmount);
@@ -248,7 +303,7 @@ class StationBillingService {
       scorecardSummary, complaintSummary: cmpSummary, feedbackSummary, inspectionSummary,
       pettyIssueSummary, evidenceSummary,
       machineSummary: { total: machines.length, inMaintenance: inMaintenanceCount, deployed: machines.length - inMaintenanceCount, downtime: machineDowntimeSummary },
-      executionSheetSummary, inspectionBillingSummary,
+      taskExecutionSummary, executionSheetSummary, inspectionBillingSummary,
       overallScore, grade, deductionRate, scoreBreakdown, feedbackScore,
       penalties, billableAmount, status: 'DRAFT',
       paymentStatus: 'unpaid', paymentDate: null, paymentRef: null, paymentAmount: null,
@@ -339,7 +394,7 @@ class StationBillingService {
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Billing pack not found');
     if (!['DRAFT', 'REJECTED'].includes(doc.data().status)) throw new ValidationError('Only DRAFT or REJECTED packs can be edited');
-    const allowed = ['complianceChecklist', 'attendanceSummary', 'activitySummary', 'scorecardSummary', 'complaintSummary', 'feedbackSummary', 'machineSummary', 'penalties', 'billableAmount', 'overallScore', 'grade', 'deductionRate', 'scoreBreakdown', 'feedbackScore'];
+    const allowed = ['complianceChecklist', 'attendanceSummary', 'activitySummary', 'scorecardSummary', 'complaintSummary', 'feedbackSummary', 'machineSummary', 'penalties', 'billableAmount', 'overallScore', 'grade', 'deductionRate', 'scoreBreakdown', 'feedbackScore', 'taskExecutionSummary'];
     const updates = { updatedAt: new Date().toISOString() };
     for (const key of allowed) { if (data[key] !== undefined) updates[key] = data[key]; }
     await ref.update(updates);

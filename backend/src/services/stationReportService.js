@@ -706,9 +706,97 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const totalValue = inMonth.reduce((s, r) => s + (r.totalPayableWithGst || r.totalAmount || 0), 0);
     const totalGst = inMonth.reduce((s, r) => s + (r.gstAmount || 0), 0);
     const payments = inMonth.filter(r => r.paymentStatus === 'paid' || r.paymentStatus === 'partial').length;
+
+    const attendance = inMonth.reduce((acc, r) => {
+      const s = r.attendanceSummary || {};
+      acc.totalDaysRecorded += s.totalDaysRecorded || 0;
+      acc.totalAttendanceEntries += s.totalAttendanceEntries || 0;
+      acc.totalPresent += s.totalPresent || 0;
+      return acc;
+    }, { totalDaysRecorded: 0, totalAttendanceEntries: 0, totalPresent: 0 });
+    const attendancePercentage = attendance.totalAttendanceEntries > 0 ? Math.round(attendance.totalPresent / attendance.totalAttendanceEntries * 100) : 0;
+    const averageDailyManpower = attendance.totalDaysRecorded > 0 ? Math.round(attendance.totalPresent / attendance.totalDaysRecorded) : 0;
+
+    const tasks = inMonth.reduce((acc, r) => {
+      const s = r.activitySummary || {};
+      ['total', 'APPROVED', 'COMPLETED', 'REJECTED', 'RESUBMITTED', 'PENDING', 'IN_PROGRESS', 'PARTIALLY_COMPLETED'].forEach(k => acc[k] += s[k] || 0);
+      return acc;
+    }, { total: 0, APPROVED: 0, COMPLETED: 0, REJECTED: 0, RESUBMITTED: 0, PENDING: 0, IN_PROGRESS: 0, PARTIALLY_COMPLETED: 0 });
+    const taskCompletionRate = tasks.total > 0 ? Math.round((tasks.APPROVED + tasks.COMPLETED) / tasks.total * 100) : 0;
+
+    const evidence = inMonth.reduce((acc, r) => {
+      const s = r.evidenceSummary || {};
+      acc.totalForms += s.totalForms || 0;
+      acc.formsWithPhotos += s.formsWithPhotos || 0;
+      acc.totalPhotos += s.totalPhotos || 0;
+      return acc;
+    }, { totalForms: 0, formsWithPhotos: 0, totalPhotos: 0 });
+    const evidenceComplianceRate = evidence.totalForms > 0 ? Math.round(evidence.formsWithPhotos / evidence.totalForms * 100) : 0;
+
+    const feedback = inMonth.reduce((acc, r) => {
+      const s = r.feedbackSummary || {};
+      const n = s.totalFeedbacks || 0;
+      acc.totalFeedbacks += n;
+      acc.negativeFeedbacks += s.negativeFeedbacks || 0;
+      if (s.averageRating) { acc.ratingSum += s.averageRating * n; acc.ratedFeedbacks += n; }
+      return acc;
+    }, { totalFeedbacks: 0, negativeFeedbacks: 0, ratingSum: 0, ratedFeedbacks: 0 });
+    const averageRating = feedback.ratedFeedbacks > 0 ? Math.round(feedback.ratingSum / feedback.ratedFeedbacks * 10) / 10 : 0;
+
+    const inspection = inMonth.reduce((acc, r) => {
+      const s = r.inspectionSummary || {};
+      const n = s.totalInspections || 0;
+      acc.totalInspections += n;
+      acc.totalDeficiencies += s.totalDeficiencies || 0;
+      acc.openDeficiencies += s.openDeficiencies || 0;
+      if (s.averageScore) { acc.scoreSum += s.averageScore * n; acc.scoredInspections += n; }
+      return acc;
+    }, { totalInspections: 0, totalDeficiencies: 0, openDeficiencies: 0, scoreSum: 0, scoredInspections: 0 });
+    const averageInspectionScore = inspection.scoredInspections > 0 ? Math.round(inspection.scoreSum / inspection.scoredInspections) : 0;
+
+    const pettyIssues = inMonth.reduce((acc, r) => {
+      const s = r.pettyIssueSummary || {};
+      acc.total += s.total || 0;
+      acc.resolved += s.resolved || 0;
+      acc.open += s.open || 0;
+      return acc;
+    }, { total: 0, resolved: 0, open: 0 });
+
+    const taskExecution = inMonth.reduce((acc, r) => {
+      const s = r.taskExecutionSummary || {};
+      acc.approvedShiftSummaries += s.approvedShiftSummaries || 0;
+      acc.submittedShiftSummaries += s.submittedShiftSummaries || 0;
+      acc.totalWorkDone += s.totalWorkDone || 0;
+      acc.totalTenderedArea += s.totalTenderedArea || 0;
+      acc.shiftAreasTotal += s.shiftAreasTotal || 0;
+      acc.shiftAreasWithPhoto += s.shiftAreasWithPhoto || 0;
+      if (typeof s.taskExecutionScore === 'number') { acc.scoreSum += s.taskExecutionScore; acc.scored += 1; }
+      return acc;
+    }, { approvedShiftSummaries: 0, submittedShiftSummaries: 0, totalWorkDone: 0, totalTenderedArea: 0, shiftAreasTotal: 0, shiftAreasWithPhoto: 0, scoreSum: 0, scored: 0 });
+    const shiftExecutionRate = taskExecution.totalTenderedArea > 0 ? Math.round(Math.min(taskExecution.totalWorkDone / taskExecution.totalTenderedArea, 1) * 100) : null;
+    const shiftPhotoComplianceRate = taskExecution.shiftAreasTotal > 0 ? Math.round(taskExecution.shiftAreasWithPhoto / taskExecution.shiftAreasTotal * 100) : null;
+    const averageTaskExecutionScore = taskExecution.scored > 0 ? Math.round(taskExecution.scoreSum / taskExecution.scored * 100) / 100 : null;
+
+    const deductionRows = [];
+    inMonth.forEach(r => { ((r.penalties || {}).deductions || []).forEach(x => deductionRows.push({ reason: x.reason || '', amount: x.amount || 0 })); });
+    const totalDeductions = inMonth.reduce((s, r) => s + ((r.penalties || {}).totalPenaltyAmount || 0), 0);
+
+    const scoredPack = inMonth.find(r => typeof r.overallScore === 'number');
+
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_billing', month, year, date: startDate,
-      summary: { totalPacks: inMonth.length, submitted, approved, rejected: inMonth.filter(r => r.status === 'REJECTED').length, draft: inMonth.filter(r => r.status === 'DRAFT').length, totalValue, totalGst, paymentsReceived: payments, pendingPayment: inMonth.length - payments },
+      summary: {
+        totalPacks: inMonth.length, submitted, approved, rejected: inMonth.filter(r => r.status === 'REJECTED').length, draft: inMonth.filter(r => r.status === 'DRAFT').length, totalValue, totalGst, paymentsReceived: payments, pendingPayment: inMonth.length - payments,
+        attendanceEntries: attendance.totalAttendanceEntries, attendancePresent: attendance.totalPresent, attendancePercentage, averageDailyManpower, attendanceDaysRecorded: attendance.totalDaysRecorded,
+        tasksTotal: tasks.total, tasksCompleted: tasks.APPROVED + tasks.COMPLETED, tasksRejected: tasks.REJECTED, tasksResubmitted: tasks.RESUBMITTED, tasksPending: tasks.PENDING + tasks.IN_PROGRESS, taskCompletionRate,
+        evidenceForms: evidence.totalForms, formsWithPhotos: evidence.formsWithPhotos, totalPhotos: evidence.totalPhotos, evidenceComplianceRate,
+        feedbacks: feedback.totalFeedbacks, averageRating, negativeFeedbacks: feedback.negativeFeedbacks,
+        inspectionCount: inspection.totalInspections, deficienciesTotal: inspection.totalDeficiencies, deficienciesOpen: inspection.openDeficiencies, averageInspectionScore,
+        pettyIssuesTotal: pettyIssues.total, pettyIssuesResolved: pettyIssues.resolved, pettyIssuesOpen: pettyIssues.open,
+        totalDeductions, overallScore: scoredPack ? scoredPack.overallScore : 0, billingGrade: scoredPack ? scoredPack.grade : 'N/A',
+        totalApprovedShifts: taskExecution.approvedShiftSummaries, totalSubmittedShifts: taskExecution.submittedShiftSummaries, shiftExecutionRate, shiftPhotoComplianceRate, averageTaskExecutionScore,
+        verification: { attendance, tasks, evidence, feedback, inspection, pettyIssues, taskExecution, penalties: { totalDeductions, deductions: deductionRows } },
+      },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;

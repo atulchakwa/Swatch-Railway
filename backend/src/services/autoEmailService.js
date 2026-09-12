@@ -229,7 +229,7 @@ class AutoEmailService {
     }
 
     const summaryHtml = Object.entries(reportData.summary || {})
-      .filter(([k]) => !['records', 'inspections', 'missedActivities', 'overdueActivities', 'delayedActivities', 'modifications'].includes(k))
+      .filter(([k]) => !['records', 'inspections', 'missedActivities', 'overdueActivities', 'delayedActivities', 'modifications', 'verification'].includes(k))
       .map(([k, v]) => `<tr><td>${k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}</td><td>${JSON.stringify(v)}</td></tr>`)
       .join('');
 

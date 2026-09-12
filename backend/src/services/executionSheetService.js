@@ -11,6 +11,7 @@
 import { db, admin } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import { auditService } from './auditService.js';
+import { roundMoney, mulMoney, ratioSafe, clampPct } from '../utils/money.js';
 
 const STATUS_SET = new Set(['EXECUTED', 'PARTIAL', 'NOT_EXECUTED', 'N/A']);
 
@@ -108,7 +109,7 @@ class ExecutionSheetService {
 
   /* ---------- Daily execution logs ---------- */
 
-  _normalizeEntries(entries) {
+  _normalizeEntries(entries, itemsById = null) {
     if (!Array.isArray(entries)) throw new ValidationError('entries array is required');
     const byItem = {};
     for (const e of entries) {
@@ -116,12 +117,18 @@ class ExecutionSheetService {
       const status = (e.status || 'EXECUTED').toUpperCase();
       if (!itemNo) throw new ValidationError('Each entry needs a valid itemNo');
       if (!STATUS_SET.has(status)) throw new ValidationError(`Invalid status "${status}" for item ${itemNo}`);
-      byItem[itemNo] = {
+      const entry = {
         itemNo,
         status,
-        count: parseInt(e.count || (status === 'EXECUTED' ? 1 : 0)),
+        count: parseInt(e.count || (status === 'EXECUTED' ? 1 : 0), 10),
         remarks: e.remarks || '',
       };
+      const item = itemsById ? itemsById[itemNo] : null;
+      if (item) {
+        const enriched = computeEntryExecution(entry, item);
+        Object.assign(entry, enriched);
+      }
+      byItem[itemNo] = entry;
     }
     return byItem;
   }
@@ -131,7 +138,10 @@ class ExecutionSheetService {
     if (!contractId || !stationId || !date) {
       throw new ValidationError('contractId, stationId, and date are required');
     }
-    const entries = this._normalizeEntries(body.entries || []);
+    const itemsResult = stationId ? await this.getItems({ contractId, stationId }) : null;
+    const itemsById = {};
+    if (itemsResult) for (const it of itemsResult.items) itemsById[parseInt(it.itemNo, 10)] = it;
+    const entries = this._normalizeEntries(body.entries || [], itemsById);
 
     // Upsert the daily log document for the given (station, date, shift).
     let query = db.collection('execution_sheet_daily_logs')
@@ -165,7 +175,17 @@ class ExecutionSheetService {
 
     const ref = existing.docs[0].ref;
     const current = existing.docs[0].data();
+    if (current.status === 'VERIFIED') {
+      throw new ValidationError('Verified daily execution sheets are locked and cannot be modified');
+    }
     const mergeStatus = (current.status === 'SUBMITTED' && body.submit !== true) ? 'SUBMITTED' : payload.status;
+    if (mergeStatus === 'SUBMITTED' && !current.submittedBy) {
+      payload.submittedBy = userData.uid;
+      payload.submittedAt = now;
+    } else {
+      payload.submittedBy = current.submittedBy || null;
+      payload.submittedAt = current.submittedAt || null;
+    }
     payload.uid = current.uid || existing.docs[0].id;
     payload.status = mergeStatus;
     await ref.update(payload);
@@ -177,9 +197,32 @@ class ExecutionSheetService {
     const ref = db.collection('execution_sheet_daily_logs').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Daily execution sheet not found');
+    if (doc.data().status === 'VERIFIED') {
+      throw new ValidationError('A verified daily execution sheet cannot be resubmitted');
+    }
     await ref.update({ status: 'SUBMITTED', submittedBy: userData.uid, submittedAt: new Date().toISOString() });
     await auditService.logAudit('EXECUTION_SHEET_DAILY_SUBMITTED', userData.uid, userData.fullName || 'User', uid, 'execution_sheet_daily_logs', `Daily execution sheet submitted for ${doc.data().date}`);
     return { message: 'Daily execution sheet submitted', uid };
+  }
+
+  async verifyDailySheet(uid, userData) {
+    const ref = db.collection('execution_sheet_daily_logs').doc(uid);
+    const doc = await ref.get();
+    if (!doc.exists) throw new NotFoundError('Daily execution sheet not found');
+    const current = doc.data();
+    if (current.status === 'DRAFT') {
+      throw new ValidationError('Daily execution sheet must be submitted before it can be verified');
+    }
+    const now = new Date().toISOString();
+    await ref.update({
+      status: 'VERIFIED',
+      verifiedBy: userData.uid,
+      verifiedByName: userData.fullName || 'User',
+      verifiedAt: now,
+      updatedAt: now,
+    });
+    await auditService.logAudit('EXECUTION_SHEET_DAILY_VERIFIED', userData.uid, userData.fullName || 'User', uid, 'execution_sheet_daily_logs', `Daily execution sheet verified for ${current.date}`);
+    return { message: 'Daily execution sheet verified', uid, verifiedByName: userData.fullName || 'User', verifiedAt: now };
   }
 
   async getDailySheet({ contractId, stationId, date, shift } = {}) {
@@ -400,6 +443,40 @@ class ExecutionSheetService {
 
 function dayCount(summaries) {
   return new Set(summaries.map((s) => s.date)).size;
+}
+
+/* Compute the per-day scheduled/actual execution snapshot for a single log entry.
+ * This is a normalized information snapshot stored on the execution record; the
+ * authoritative monthly deduction is computed centrally per billing period.
+ */
+function computeEntryExecution(entry, item) {
+  const weightage = parseFloat(item.weightage) || 0;
+  const monthlyRequired = parseInt(item.requiredFrequencyPerMonth, 10) || 0;
+  const scheduled = Math.round((monthlyRequired / 30) * 10) / 10;
+  if (entry.status === 'N/A') {
+    return {
+      scheduled: roundMoney(scheduled),
+      actual: 0,
+      executionPercentage: 100,
+      achievedWeightage: weightage,
+      shortfall: 0,
+      notApplicable: true,
+    };
+  }
+  const actual = entry.status === 'EXECUTED'
+    ? (entry.count || 1)
+    : entry.status === 'PARTIAL'
+      ? (entry.count || 0) * 0.5
+      : 0;
+  const ratio = scheduled > 0 ? ratioSafe(actual, scheduled) : 1;
+  return {
+    scheduled: roundMoney(scheduled),
+    actual: Math.round(actual * 10) / 10,
+    executionPercentage: clampPct(ratio * 100),
+    achievedWeightage: roundMoney(weightage * Math.min(ratio, 1)),
+    shortfall: roundMoney(Math.max(scheduled - actual, 0)),
+    notApplicable: false,
+  };
 }
 
 function entriesForShifts(entryMap, itemNo) {

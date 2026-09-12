@@ -19,6 +19,7 @@ router.get('/api/execution-sheet/daily', verifyToken, requirePermission(PERMISSI
 router.get('/api/execution-sheet/daily/list', verifyToken, requirePermission(PERMISSIONS.VIEW_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.listDailyLogs(req.query))));
 router.post('/api/execution-sheet/daily', verifyToken, requirePermission(PERMISSIONS.MANAGE_EXECUTION), asyncHandler(async (req, res) => res.status(201).json(await executionSheetService.saveDailySheet(req.user, req.body))));
 router.post('/api/execution-sheet/daily/:uid/submit', verifyToken, requirePermission(PERMISSIONS.MANAGE_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.submitDailySheet(req.params.uid, req.user))));
+router.post('/api/execution-sheet/daily/:uid/verify', verifyToken, requirePermission(PERMISSIONS.APPROVE_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.verifyDailySheet(req.params.uid, req.user))));
 
 // ─── Monthly summary (50% billing component) ──────────────────────────────────
 router.get('/api/execution-sheet/monthly', verifyToken, requirePermission(PERMISSIONS.VIEW_BILLING), asyncHandler(async (req, res) => res.json(await executionSheetService.getMonthlySummary(req.query))));

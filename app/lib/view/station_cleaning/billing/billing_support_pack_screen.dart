@@ -389,6 +389,7 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
                                   _buildPettyIssueSection(),
                                   _buildEvidenceSection(),
                                   _buildMachineSection(),
+                                  _buildTaskExecutionSection(),
                                   _buildExecutionSheetSection(),
                                   _buildInspectionBillingSection(),
                                   _buildObhsScoreSection(),
@@ -575,6 +576,31 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
     ]);
   }
 
+  Widget _buildTaskExecutionSection() {
+    final s = _billingPack!.taskExecutionSummary;
+    if (s.isEmpty || s['configured'] != true) return const SizedBox.shrink();
+    final score = s['taskExecutionScore'] ?? 0;
+    final shortfall = s['shortfallDeduction'] ?? 0;
+    final achieved = s['achievedAmount'] ?? 0;
+    final componentBase = s['taskExecutionComponentNetBase'] ?? 0;
+    return _summaryCard('Task Execution (50% Billing Component)', [
+      _infoRow('Task Execution Score', '$score%',
+          valueColor: score >= 80 ? kSuccessGreen : score >= 50 ? kWarningOrange : kErrorRed),
+      _infoRow('Approved Shift Summaries', '${s['approvedShiftSummaries'] ?? 0}'),
+      _infoRow('Submitted (Awaiting Approval)', '${s['submittedShiftSummaries'] ?? 0}'),
+      _infoRow('Approved Days', '${s['approvedDays'] ?? 0}'),
+      _infoRow('Execution Rate (Work/Tendered)', '${s['shiftExecutionRate'] ?? 0}%',
+          valueColor: (s['shiftExecutionRate'] ?? 0) >= 80 ? kSuccessGreen : kWarningOrange),
+      _infoRow('Shift Photo Compliance', '${s['shiftPhotoComplianceRate'] ?? 0}%',
+          valueColor: (s['shiftPhotoComplianceRate'] ?? 0) >= 80 ? kSuccessGreen : kWarningOrange),
+      _divider(),
+      _infoRow('Component Base (50%)', '₹$componentBase'),
+      _infoRow('Achieved Amount', '₹$achieved', valueColor: kSuccessGreen),
+      if (shortfall > 0)
+        _infoRow('Shortfall Deduction', '₹$shortfall', valueColor: kErrorRed),
+    ]);
+  }
+
   Widget _buildExecutionSheetSection() {
     final s = _billingPack!.executionSheetSummary;
     if (s.isEmpty || s['configured'] != true) return const SizedBox.shrink();
@@ -583,7 +609,7 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
     final achieved = s['achievedAmount'] ?? 0;
     final componentBase = s['executionComponentNetBase'] ?? 0;
     final items = (s['itemScores'] as List<dynamic>?) ?? [];
-    return _summaryCard('Work Execution Sheet (50% Billing Component)', [
+    return _summaryCard('Work Execution Sheet (Annexure-AB, Reference)', [
       _infoRow('Execution Score', '$score%',
           valueColor: score >= 80 ? kSuccessGreen : score >= 50 ? kWarningOrange : kErrorRed),
       _infoRow('Items Configured', '${s['items'] ?? 0}'),
@@ -651,7 +677,7 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
     final os = p.overallScore;
     if (os == null) return const SizedBox.shrink();
     final components = p.scoreBreakdown as List<dynamic>? ?? [];
-    return _summaryCard('OBHS-Aligned Score (50% Cleaning + 20% Inspection + 30% Feedback)', [
+    return _summaryCard('OBHS-Aligned Score (50% Task Execution + 20% Inspection + 30% Feedback)', [
       _infoRow('Overall Score', '${os.toStringAsFixed(1)}%',
           valueColor: os >= 80 ? kSuccessGreen : os >= 60 ? kWarningOrange : kErrorRed),
       _infoRow('Grade', '${p.grade ?? 'N/A'}',
