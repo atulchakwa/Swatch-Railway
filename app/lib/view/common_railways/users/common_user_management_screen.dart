@@ -100,21 +100,16 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
       return [
         'All Roles',
         'Railway Admin',
-        'Railway Inspector',
         'Railway Supervisor',
-        'Railway Worker',
         'Contractor Admin',
         'Contractor Supervisor',
-        'Contractor Worker',
       ];
     }
     if (currentUser?.role == 'Railway Supervisor' || currentUser?.role == 'Contractor Supervisor') {
       return [
         'All Roles',
         'Railway Supervisor',
-        'Railway Worker',
         'Contractor Supervisor',
-        'Contractor Worker',
       ];
     }
     return [
@@ -123,13 +118,10 @@ class _CommonUserManagementScreenState extends State<CommonUserManagementScreen>
       'Company Master',
       'Railway Master',
       'Railway Admin',
-      'Railway Inspector',
       'Railway Supervisor',
-      'Railway Worker',
       'Contractor Master',
       'Contractor Admin',
       'Contractor Supervisor',
-      'Contractor Worker',
     ];
   }
 

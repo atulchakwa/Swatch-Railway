@@ -426,6 +426,15 @@ class UserService {
       }
     }
 
+    if (approverRole === 'CONTRACTOR_MASTER') {
+      if (targetRole !== 'CONTRACTOR_ADMIN') {
+        throw new ForbiddenError('Contractor Master can only approve Contractor Admin users.');
+      }
+      if (approverData.zone && userData.zone && approverData.zone !== userData.zone) {
+        throw new ForbiddenError('You can only approve Contractor Admin users under your own zone.');
+      }
+    }
+
     await userDocRef.update({
       status: 'APPROVED',
       approvedBy: approverId,
@@ -566,7 +575,7 @@ class UserService {
       'SUPER_ADMIN': 100, 'COMPANY_MASTER': 90, 'RAILWAY_MASTER': 80,
       'ADMIN': 70, 'RAILWAY_ADMIN': 60,
       'RAILWAY_INSPECTOR': 52,
-      'RAILWAY_SUPERVISOR': 50, 'CONTRACTOR_ADMIN': 45,
+      'RAILWAY_SUPERVISOR': 50, 'CONTRACTOR_MASTER': 47, 'CONTRACTOR_ADMIN': 45,
       'CONTRACTOR_SUPERVISOR': 40, 'CTS': 30,
       'WORKER': 10, 'RAILWAY_WORKER': 10, 'JANITOR': 10, 'ATTENDANT': 10, 'PASSENGER': 1
     };
@@ -577,7 +586,7 @@ class UserService {
     if (requesterLevel >= 70) {
       if (zone) query = query.where('zone', '==', zone);
       if (division) query = query.where('division', '==', division);
-    } else if (requesterLevel >= 60) {
+    } else if (requesterLevel >= 60 || userRole === 'CONTRACTOR_MASTER') {
       query = query.where('zone', '==', userZone);
       if (division) query = query.where('division', '==', division);
     } else {

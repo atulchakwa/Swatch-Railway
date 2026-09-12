@@ -312,6 +312,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
   bool _shouldShowStationSelection() {
     if (_selectedRole == null) return false;
+    if (_selectedRole!.toLowerCase().contains('master')) return false;
     if (_selectedRole!.toLowerCase().contains('worker')) return true;
     if (_selectedRole!.toLowerCase().contains('inspector')) return true;
     if (_selectedUserType == 'contractor' && _selectedCompany != null) return true;
@@ -1295,31 +1296,32 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
     if (userType == 'railway') {
       if (currentUser?.role == 'Railway Admin') {
-        return ['Railway Inspector', 'Railway Supervisor', 'Railway Worker'];
+        return ['Railway Supervisor'];
       }
       else if (currentUser?.role == 'Railway Master') {
         return [
           'Railway Admin',
-          'Railway Inspector',
           'Railway Supervisor',
-          'Railway Worker',
         ];
       }
       else {
-        return ['Railway Master', 'Railway Admin', 'Railway Inspector', 'Railway Supervisor', 'Railway Worker'];
+        return ['Railway Master', 'Railway Admin', 'Railway Supervisor'];
       }
     } else {
       if (currentUser?.role == 'Contractor Admin') {
-        return ['Contractor Supervisor', 'Contractor Worker'];
+        return ['Contractor Supervisor'];
       }
       else if (currentUser?.role == 'Contractor Master') {
-        return ['Contractor Admin', 'Contractor Supervisor', 'Contractor Worker'];
+        return ['Contractor Admin', 'Contractor Supervisor'];
       }
       else if (currentUser?.role == 'Railway Admin') {
-        return ['Contractor Supervisor', 'Contractor Worker'];
+        return ['Contractor Supervisor'];
+      }
+      else if (currentUser?.role == 'Railway Master') {
+        return ['Contractor Master', 'Contractor Admin', 'Contractor Supervisor'];
       }
       else {
-        return ['Contractor Master', 'Contractor Admin', 'Contractor Supervisor', 'Contractor Worker'];
+        return ['Contractor Admin', 'Contractor Supervisor'];
       }
     }
   }
