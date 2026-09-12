@@ -310,6 +310,11 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     return r == 'CONTRACTOR_ADMIN' || r == 'CONTRACTOR_SUPERVISOR';
   }
 
+  bool _isContractorMaster() {
+    if (_selectedRole == null) return false;
+    return _selectedRole!.toUpperCase().replaceAll(' ', '_') == 'CONTRACTOR_MASTER';
+  }
+
   bool _shouldShowStationSelection() {
     if (_selectedRole == null) return false;
     if (_selectedRole!.toLowerCase().contains('master')) return false;
@@ -707,7 +712,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  if (_selectedCompany != null)
+                  if (_selectedCompany != null && !_isContractorMaster())
                     ContractDropdown(
                       entityId: _selectedCompany,
                       onSelected: (contractId, contractData) {
@@ -733,7 +738,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                         });
                       },
                     ),
-                  if (_selectedContractData != null) ...[
+                  if (_selectedContractData != null && !_isContractorMaster()) ...[
                     const SizedBox(height: 12),
                     _buildContractStationDropdown(),
                   ],
