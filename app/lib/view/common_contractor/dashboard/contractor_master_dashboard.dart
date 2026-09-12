@@ -411,6 +411,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         "children": [
           {"title": "Coach Reports", "route": "coach_reports", "contractTypes": ["obhs"]},
           {"title": "Premise Reports", "route": "premise_reports", "contractTypes": ["obhs"]},
+          {"title": "CTS Reports", "route": "cts_reports", "contractTypes": ["obhs"]},
           {"title": "Station Reports", "route": "station_reports", "contractTypes": ["station_cleaning"]},
         ]
       },
@@ -538,6 +539,9 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "premise_reports":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 0)));
+        break;
+      case "cts_reports":
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const CommonReportScreen(initialIndex: 2)));
         break;
       case "station_reports":
         _navigateWithStation(context, (stationId, stationName) => ReportListScreen(

@@ -18,8 +18,6 @@ import '../station_management/area_performance_dashboard.dart';
 import '../../../services/pdf_report_service.dart';
 import '../../../repositories/worker_repo.dart';
 import 'package:printing/printing.dart';
-import 'package:crm_train/model/station_models.dart';
-import '../../station_cleaning/reporting/report_list_screen.dart';
 class CommonReportScreen extends StatefulWidget {
   final int initialIndex;
   const CommonReportScreen({super.key, this.initialIndex = 0});
@@ -84,23 +82,14 @@ class _CommonReportScreenState extends State<CommonReportScreen>
   Map<String, dynamic> obhsStats = {};
   bool isLoadingStats = true;
 
-  List<Station> _stnCleaningStations = [];
-  Station? _stnCleaningSelectedStation;
-
   String? selectedReportType;
   DateTime? selectedDepartureDate;
-
-  bool _isContractorOnly = false;
-  bool _contractorNoStationAssigned = false;
 
   @override
   void initState() {
     super.initState();
-    final role = (Provider.of<AuthProvider>(context, listen: false).currentUser?.role ?? '').toUpperCase().replaceAll(' ', '_');
-    _isContractorOnly = {'CONTRACTOR_ADMIN', 'CONTRACTOR_SUPERVISOR'}.contains(role);
-    _tabController = TabController(length: _isContractorOnly ? 1 : 4, vsync: this, initialIndex: _isContractorOnly ? 0 : widget.initialIndex);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialIndex < 3 ? widget.initialIndex : 0);
     _loadStatistics();
-    _loadStnCleaningStations();
   }
 
   Future<void> _loadStatistics() async {
@@ -1274,26 +1263,20 @@ class _CommonReportScreenState extends State<CommonReportScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
-          tabs: _isContractorOnly
-              ? const [Tab(text: "Stn Cleaning")]
-              : const [
+          tabs: const [
                   Tab(text: "Premises"),
                   Tab(text: "Coach"),
                   Tab(text: "CTS"),
-                  Tab(text: "Stn Cleaning"),
                 ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: _isContractorOnly
-            ? [_buildStnCleaningTab()]
-            : [
-                _buildPremisesCleaningTab(),
-                _buildCoachCleaningTab(),
-                _buildCTSTab(),
-                _buildStnCleaningTab(),
-              ],
+        children: [
+          _buildPremisesCleaningTab(),
+          _buildCoachCleaningTab(),
+          _buildCTSTab(),
+        ],
       ),
     );
   }
@@ -3200,143 +3183,5 @@ class _CommonReportScreenState extends State<CommonReportScreen>
         );
       }
     }
-  }
-
-  Future<void> _loadStnCleaningStations() async {
-    try {
-      final stationsList = await ApiService.getStations(active: true);
-      if (mounted) {
-        List<Station> available = stationsList;
-        if (_isContractorOnly) {
-          final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
-          final userStationIds = <String>{};
-          if (user?.stationId != null && user!.stationId!.isNotEmpty) {
-            userStationIds.add(user.stationId!);
-          }
-          if (user?.stations != null && user!.stations.isNotEmpty) {
-            userStationIds.addAll(user.stations);
-          }
-          if (userStationIds.isNotEmpty) {
-            available = stationsList
-                .where((s) => s.uid != null && userStationIds.contains(s.uid))
-                .toList();
-          } else {
-            available = [];
-          }
-        }
-
-        setState(() {
-          _stnCleaningStations = available;
-          _contractorNoStationAssigned =
-              _isContractorOnly && available.isEmpty;
-          _stnCleaningSelectedStation =
-              available.isNotEmpty ? available.first : null;
-        });
-
-        if (_contractorNoStationAssigned) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    "No station is assigned to your contract. Please contact the higher authority."),
-                backgroundColor: Colors.orange),
-          );
-        }
-      }
-    } catch (_) {}
-  }
-
-  Widget _buildStnCleaningTab() {
-    final user = Provider.of<AuthProvider>(context).currentUser;
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        if (_isContractorOnly)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: kRailwayBlue.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.location_on, size: 18, color: kRailwayBlue),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _stnCleaningSelectedStation?.stationName ?? 'No Station',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ),
-              ],
-            ),
-          )
-        else
-          DropdownButtonFormField<Station>(
-            value: _stnCleaningSelectedStation,
-            decoration: InputDecoration(
-              labelText: 'Station *',
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            items: _stnCleaningStations
-                .map(
-                  (s) => DropdownMenuItem(
-                    value: s,
-                    child:
-                        Text(s.stationName, style: const TextStyle(fontSize: 13)),
-                  ),
-                )
-                .toList(),
-            onChanged: (v) {
-              setState(() => _stnCleaningSelectedStation = v);
-            },
-          ),
-        const SizedBox(height: 12),
-        if (_contractorNoStationAssigned)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.orange, size: 40),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'No station is assigned to your contract. Please contact the higher authority.',
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          )
-        else if (_stnCleaningSelectedStation != null &&
-            _stnCleaningSelectedStation!.uid != null)
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: KeyedSubtree(
-              key: ValueKey('stn-report-${_stnCleaningSelectedStation!.uid}'),
-              child: ReportListScreen(
-                stationId: _stnCleaningSelectedStation!.uid!,
-                stationName: _stnCleaningSelectedStation!.stationName,
-                role: user?.role,
-                embedMode: true,
-              ),
-            ),
-          )
-        else
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 40),
-            child: Center(
-              child: Text('Select a station to view reports'),
-            ),
-          ),
-      ],
-    );
   }
 }
