@@ -16,13 +16,10 @@ import '../widgets/rolevise_dropdowns.dart';
 import '../report_excel_format/obhs_report_excel.dart';
 import '../station_management/area_performance_dashboard.dart';
 import '../../../services/pdf_report_service.dart';
-import '../../../services/station_cleaning_report_service.dart';
 import '../../../repositories/worker_repo.dart';
 import 'package:printing/printing.dart';
 import 'package:crm_train/model/station_models.dart';
-import 'package:crm_train/model/station_cleaning_models.dart';
-import 'package:crm_train/repositories/base_repository.dart';
-import 'package:crm_train/repositories/station_report_repository.dart';
+import '../../station_cleaning/reporting/report_list_screen.dart';
 class CommonReportScreen extends StatefulWidget {
   final int initialIndex;
   const CommonReportScreen({super.key, this.initialIndex = 0});
@@ -39,7 +36,6 @@ class _CommonReportScreenState extends State<CommonReportScreen>
   bool _isCoachFilterExpanded = true;
   bool _isCTSFilterExpanded = true;
   bool _isOBHSFilterExpanded = true;
-  bool _isStnCleaningFilterExpanded = true;
 
 
   final List<String> ares = [
@@ -86,7 +82,6 @@ class _CommonReportScreenState extends State<CommonReportScreen>
   Map<String, dynamic> coachStats = {};
   Map<String, dynamic> ctsStats = {};
   Map<String, dynamic> obhsStats = {};
-  Map<String, dynamic> stnCleaningStats = {};
   bool isLoadingStats = true;
 
   List<Station> _stnCleaningStations = [];
@@ -3250,447 +3245,98 @@ class _CommonReportScreenState extends State<CommonReportScreen>
     } catch (_) {}
   }
 
-  String? _stnCleaningSelectedReportType;
-
-  Future<void> _generateStnCleaningReport() async {
-    if (_contractorNoStationAssigned) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                "No station is assigned to your contract. Please contact the higher authority."),
-            backgroundColor: Colors.orange),
-      );
-      return;
-    }
-    if (_stnCleaningSelectedStation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a station *")));
-      return;
-    }
-    setState(() {
-      isLoading = true;
-      isLoadingStats = true;
-    });
-
-    try {
-      final path = '/api/station-runs?stationId=${_stnCleaningSelectedStation!.uid}';
-      
-      final result = await BaseRepository.apiCall(
-        method: 'GET',
-        path: path,
-        parser: (d) => d,
-      );
-
-      if (mounted) {
-        final runList = (result['data'] as List?) ?? (result['runs'] as List?) ?? [];
-        var runs = runList.cast<Map<String, dynamic>>();
-        final hasRange = startDate != null && endDate != null;
-        if (hasRange) {
-          final rangeStart = DateFormat('yyyy-MM-dd').format(startDate!);
-          final rangeEnd = DateFormat('yyyy-MM-dd').format(endDate!);
-          runs = runs.where((r) {
-            final d = (r['date'] ?? r['runDate'] ?? '').toString();
-            final day = d.length >= 10 ? d.substring(0, 10) : d;
-            return day.isNotEmpty && day.compareTo(rangeStart) >= 0 && day.compareTo(rangeEnd) <= 0;
-          }).toList();
-        }
-        int completed = 0;
-        int active = 0;
-        int approved = 0;
-        
-        for (var run in runs) {
-          if (run['status'] == 'completed') completed++;
-          else if (run['status'] == 'approved') approved++;
-          else active++;
-        }
-
-        setState(() {
-          stnCleaningStats = {
-            'totalRuns': runs.length,
-            'activeRuns': active,
-            'completedRuns': completed,
-            'approvedRuns': approved,
-          };
-          isLoadingStats = false;
-          isLoading = false;
-        });
-        _showStnCleaningReportGeneratedDialog(runs);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          isLoadingStats = false;
-          isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to fetch report data: $e"), backgroundColor: Colors.red));
-      }
-    }
-  }
-
-  void _showStnCleaningReportGeneratedDialog(List<dynamic> runs) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Success", style: TextStyle(color: Colors.green)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Report Generated Successfully!"),
-            const SizedBox(height: 8),
-            Text(
-              "${runs.length} record(s) found",
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text("Close"),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            icon: const Icon(Icons.table_chart, color: Colors.white, size: 18),
-            label: const Text("Excel", style: TextStyle(color: Colors.white)),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              _downloadStnCleaningExcel(runs);
-            },
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 18),
-            label: const Text("PDF", style: TextStyle(color: Colors.white)),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              _downloadStnCleaningPdf(runs);
-            },
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kRailwayBlue,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            icon: const Icon(Icons.send, color: Colors.white, size: 18),
-            label: const Text("Email", style: TextStyle(color: Colors.white)),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              _sendStnCleaningEmailToHigherAuthority(runs);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _downloadStnCleaningPdf(List<dynamic> runInstances) async {
-    setState(() => isDownloading = true);
-    try {
-      if (_contractorNoStationAssigned) {
-        throw Exception(
-            'No station is assigned to your contract. Please contact the higher authority.');
-      }
-      final station = _stnCleaningSelectedStation;
-      if (station == null || station.uid == null || station.uid!.isEmpty) {
-        throw Exception('Please select a station');
-      }
-
-      String backendType;
-      switch (_stnCleaningSelectedReportType) {
-        case 'Attendance Report':
-          backendType = 'daily_attendance';
-          break;
-        case 'Complaint Report':
-          backendType = 'daily_complaint';
-          break;
-        case 'Supervisor Activity Report':
-          backendType = 'daily_activity';
-          break;
-        case 'Station Run Report':
-        default:
-          backendType = 'daily_activity';
-          break;
-      }
-
-      final List<String> dateStrs;
-      if (startDate != null && endDate != null) {
-        dateStrs = [];
-        var day = DateTime(startDate!.year, startDate!.month, startDate!.day);
-        final last = DateTime(endDate!.year, endDate!.month, endDate!.day);
-        while (!day.isAfter(last)) {
-          dateStrs.add(DateFormat('yyyy-MM-dd').format(day));
-          day = day.add(const Duration(days: 1));
-        }
-      } else {
-        dateStrs = [DateFormat('yyyy-MM-dd').format(endDate ?? DateTime.now())];
-      }
-
-      final reports = <StationReport>[];
-      for (final dateStr in dateStrs) {
-        try {
-          final r = await StationReportRepository.generateDaily(backendType, station.uid!, dateStr);
-          reports.add(r);
-        } catch (_) {
-          // skip days without reportable data
-        }
-      }
-      if (reports.isEmpty) {
-        throw Exception('No data found for the selected date range');
-      }
-
-      Uint8List? pdfBytes;
-      if (reports.length == 1) {
-        pdfBytes = await StationCleaningReportService.generateStationReportPdf(reports.first);
-      } else {
-        pdfBytes = await StationCleaningReportService.generateStationReportRangePdf(reports);
-      }
-
-      setState(() => isDownloading = false);
-
-      if (pdfBytes != null) {
-        final typeSlug = (_stnCleaningSelectedReportType ?? 'report').toLowerCase().replaceAll(' ', '_');
-        final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-        await Printing.sharePdf(bytes: pdfBytes, filename: 'StationCleaning_${typeSlug}_$timestamp.pdf');
-      }
-    } catch (e) {
-      setState(() => isDownloading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to generate PDF: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _sendStnCleaningEmailToHigherAuthority(List<dynamic> runInstances) async {
-    setState(() => isDownloading = true);
-    int successCount = 0;
-    try {
-      for (final run in runInstances) {
-        final runId = run['runInstanceId']?.toString() ?? run['instanceId']?.toString() ?? run['id']?.toString() ?? '';
-        if (runId.isNotEmpty) {
-          String backendReportType = 'OPERATIONAL_AUDIT';
-          if (_stnCleaningSelectedReportType == 'Attendance Report') backendReportType = 'ATTENDANCE_AUDIT';
-          else if (_stnCleaningSelectedReportType == 'Supervisor Activity Report') backendReportType = 'WORKER_ACTIVITY_AUDIT';
-          else if (_stnCleaningSelectedReportType == 'Complaint Report') backendReportType = 'COMPLAINT_AUDIT';
-          
-          await ApiService.sendAuditReportEmail(backendReportType, runId, 'hirenkodwani@gmail.com');
-          successCount++;
-        }
-      }
-      setState(() => isDownloading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Email successfully sent to Higher Authority for $successCount run(s).'), backgroundColor: Colors.green),
-        );
-      }
-    } catch (e) {
-      setState(() => isDownloading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send email: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _downloadStnCleaningExcel(List<dynamic> runs) async {
-    if (runs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No data available to download")),
-      );
-      return;
-    }
-
-    setState(() => isDownloading = true);
-
-    try {
-      final workbook = xlsio.Workbook();
-      final sheet = workbook.worksheets[0];
-      sheet.name = 'Station Cleaning Report';
-
-      final headerStyle = workbook.styles.add('headerStyle')
-        ..bold = true
-        ..hAlign = xlsio.HAlignType.center
-        ..vAlign = xlsio.VAlignType.center
-        ..wrapText = true
-        ..borders.all.lineStyle = xlsio.LineStyle.thin;
-
-      final row1Headers = [
-        'Run ID', 'Date', 'Shift', 'Status', 'Completed At'
-      ];
-
-      for (int i = 0; i < row1Headers.length; i++) {
-        sheet.getRangeByIndex(1, i + 1).setText(row1Headers[i]);
-        sheet.getRangeByIndex(1, i + 1).cellStyle = headerStyle;
-      }
-
-      for (int i = 0; i < runs.length; i++) {
-        final run = runs[i];
-        final rowIndex = i + 2;
-
-        sheet.getRangeByIndex(rowIndex, 1).setText(run['id']?.toString() ?? '-');
-        sheet.getRangeByIndex(rowIndex, 2).setText(run['date']?.toString() ?? '-');
-        sheet.getRangeByIndex(rowIndex, 3).setText(run['shift']?.toString() ?? '-');
-        sheet.getRangeByIndex(rowIndex, 4).setText(run['status']?.toString() ?? '-');
-        sheet.getRangeByIndex(rowIndex, 5).setText(run['completedAt']?.toString() ?? '-');
-      }
-
-      final List<int> bytes = workbook.saveAsStream();
-      workbook.dispose();
-
-      final dir = await getApplicationDocumentsDirectory();
-      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final file = File('${dir.path}/Station_Cleaning_Report_$timestamp.xlsx');
-      await file.writeAsBytes(bytes);
-
-      setState(() => isDownloading = false);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Report downloaded successfully!"),
-            backgroundColor: Colors.green,
-            action: SnackBarAction(
-              label: 'Open',
-              textColor: Colors.white,
-              onPressed: () {
-                OpenFilex.open(file.path);
-              },
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() => isDownloading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to download report: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
   Widget _buildStnCleaningTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          _expandableFilterContainer(
-            title: "Filter Reports",
-            isExpanded: _isStnCleaningFilterExpanded,
-            onTap: () {
-              setState(() {
-                _isStnCleaningFilterExpanded = !_isStnCleaningFilterExpanded;
-              });
+    final user = Provider.of<AuthProvider>(context).currentUser;
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        if (_isContractorOnly)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: kRailwayBlue.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on, size: 18, color: kRailwayBlue),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _stnCleaningSelectedStation?.stationName ?? 'No Station',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          DropdownButtonFormField<Station>(
+            value: _stnCleaningSelectedStation,
+            decoration: InputDecoration(
+              labelText: 'Station *',
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            items: _stnCleaningStations
+                .map(
+                  (s) => DropdownMenuItem(
+                    value: s,
+                    child:
+                        Text(s.stationName, style: const TextStyle(fontSize: 13)),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) {
+              setState(() => _stnCleaningSelectedStation = v);
             },
-            children: [
-              DropdownButtonFormField<Station>(
-                value: _stnCleaningSelectedStation,
-                decoration: InputDecoration(
-                  labelText: _isContractorOnly ? 'Station (Locked)' : 'Station *',
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                items: _stnCleaningStations.map((s) => DropdownMenuItem(value: s, child: Text(s.stationName, style: const TextStyle(fontSize: 13)))).toList(),
-                onChanged: _isContractorOnly
-                    ? null
-                    : (v) {
-                        setState(() {
-                          _stnCleaningSelectedStation = v;
-                        });
-                      },
-              ),
-              const SizedBox(height: 12),
-              _dateRangePicker(),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _stnCleaningSelectedReportType,
-                decoration: InputDecoration(
-                  hint: Text('Select Report'),
-                  contentPadding: EdgeInsets.all(8),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey)),
-                  enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                items: [
-                  "Station Run Report",
-                  "Attendance Report",
-                  "Supervisor Activity Report",
-                  "Complaint Report"
-                ].map((type) => DropdownMenuItem(value: type, child: Text(type, style: TextStyle(fontWeight: FontWeight.normal, fontSize: 13)))).toList(),
-                onChanged: (value) {
-                  setState(() { _stnCleaningSelectedReportType = value; });
-                },
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: const Icon(Icons.assessment, color: Colors.white),
-                label: Text(
-                  _contractorNoStationAssigned
-                      ? "No Station Assigned"
-                      : "Generate Report",
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                ),
-                onPressed: (isLoading || _contractorNoStationAssigned)
-                    ? null
-                    : _generateStnCleaningReport,
-              ),
-            ],
           ),
-
-          const SizedBox(height: 25),
-
-          _summaryContainer(
-            title: "Comprehensive Performance Summary",
-            children: [
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.5,
+        const SizedBox(height: 12),
+        if (_contractorNoStationAssigned)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                 children: [
-                  _summaryCard(
-                    title: "Total Station Runs",
-                    value: isLoadingStats ? "..." : (stnCleaningStats['totalRuns']?.toString() ?? "0"),
-                    color: Colors.blue,
-                  ),
-                  _summaryCard(
-                    title: "Active Runs",
-                    value: isLoadingStats ? "..." : (stnCleaningStats['activeRuns']?.toString() ?? "0"),
-                    color: Colors.green,
-                  ),
-                  _summaryCard(
-                    title: "Completed Runs",
-                    value: isLoadingStats ? "..." : (stnCleaningStats['completedRuns']?.toString() ?? "0"),
-                    color: Colors.teal,
-                  ),
-                  _summaryCard(
-                    title: "Approved Runs",
-                    value: isLoadingStats ? "..." : (stnCleaningStats['approvedRuns']?.toString() ?? "0"),
-                    color: kSuccessGreen,
+                  Icon(Icons.error_outline, color: Colors.orange, size: 40),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'No station is assigned to your contract. Please contact the higher authority.',
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
-            ],
+            ),
+          )
+        else if (_stnCleaningSelectedStation != null &&
+            _stnCleaningSelectedStation!.uid != null)
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: KeyedSubtree(
+              key: ValueKey('stn-report-${_stnCleaningSelectedStation!.uid}'),
+              child: ReportListScreen(
+                stationId: _stnCleaningSelectedStation!.uid!,
+                stationName: _stnCleaningSelectedStation!.stationName,
+                role: user?.role,
+                embedMode: true,
+              ),
+            ),
+          )
+        else
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 40),
+            child: Center(
+              child: Text('Select a station to view reports'),
+            ),
           ),
-        ],
-      ),
+      ],
     );
   }
 }

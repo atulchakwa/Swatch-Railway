@@ -18,11 +18,13 @@ class ReportListScreen extends StatefulWidget {
   final String stationId;
   final String stationName;
   final String? role;
+  final bool embedMode;
   const ReportListScreen({
     super.key,
     required this.stationId,
     required this.stationName,
     this.role,
+    this.embedMode = false,
   });
 
   @override
@@ -818,6 +820,41 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   @override
   Widget build(BuildContext context) {
+    final tabBar = TabBar(
+      controller: _tabController,
+      indicatorColor: Colors.white,
+      labelColor: Colors.white,
+      unselectedLabelColor: Colors.white70,
+      tabs: _showLiveDashboard
+          ? const [
+              Tab(text: 'Overview'),
+              Tab(text: 'Generate'),
+              Tab(text: 'History'),
+            ]
+          : const [Tab(text: 'Generate'), Tab(text: 'History')],
+    );
+    final tabBarView = TabBarView(
+      controller: _tabController,
+      children: _showLiveDashboard
+          ? [_buildOverviewTab(), _buildGenerateTab(), _buildHistoryTab()]
+          : [_buildGenerateTab(), _buildHistoryTab()],
+    );
+    if (widget.embedMode) {
+      return Column(
+        children: [
+          Material(
+            color: kRailwayBlue,
+            child: tabBar,
+          ),
+          Expanded(
+            child: Container(
+              color: Colors.grey[50],
+              child: tabBarView,
+            ),
+          ),
+        ],
+      );
+    }
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -831,26 +868,9 @@ class _ReportListScreenState extends State<ReportListScreen>
         ),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          tabs: _showLiveDashboard
-              ? const [
-                  Tab(text: 'Overview'),
-                  Tab(text: 'Generate'),
-                  Tab(text: 'History'),
-                ]
-              : const [Tab(text: 'Generate'), Tab(text: 'History')],
-        ),
+        bottom: tabBar,
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: _showLiveDashboard
-            ? [_buildOverviewTab(), _buildGenerateTab(), _buildHistoryTab()]
-            : [_buildGenerateTab(), _buildHistoryTab()],
-      ),
+      body: tabBarView,
     );
   }
 
