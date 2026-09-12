@@ -31,8 +31,6 @@ import '../../common_railways/report/common_report_screen.dart';
 import '../../common_railways/ratings/admin_ratings_screen.dart';
 import '../../common_railways/station_management/area_list_screen.dart';
 import '../../common_railways/station_management/task_generation_screen.dart';
-import '../../common_railways/station_management/machine_master_list_screen.dart';
-import '../../common_railways/station_management/material_list_screen.dart';
 import '../../common_railways/station_management/area_performance_dashboard.dart';
 import '../../common_railways/station_management/supervisor_shift_assignment_screen.dart';
 import '../../station_cleaning/supervisor_task_screen.dart';
@@ -385,11 +383,8 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         "roles": ["Contractor Master", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"],
         "contractTypes": ["station_cleaning"],
         "children": [
-          {"title": "Dashboard", "route": "sc_dashboard"},
           {"title": "Area Management", "route": "sc_areas"},
           {"title": "Generate Tasks", "route": "sc_generate_tasks"},
-          {"title": "Machines", "route": "sc_machines"},
-          {"title": "Materials", "route": "sc_materials"},
           {"title": "Passenger Feedback", "route": "sc_passenger_feedback"},
           {"title": "Supervisor Attendance", "route": "sc_supervisor_attendance"},
           {"title": "Supervisor Shifts", "route": "sc_supervisor_shifts"},
@@ -529,20 +524,11 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       case "station_cleaning_runs":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const StationCleaningRunsListScreen()));
         break;
-      case "sc_dashboard":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const StationDashboardScreen()));
-        break;
       case "sc_areas":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AreaListScreen()));
         break;
       case "sc_generate_tasks":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const TaskGenerationScreen()));
-        break;
-      case "sc_machines":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const MachineMasterListScreen()));
-        break;
-      case "sc_materials":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const MaterialListScreen()));
         break;
       case "sc_performance":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AreaPerformanceDashboard()));

@@ -38,9 +38,8 @@ import '../widgets/status_tile.dart';
 import '../station_management/area_list_screen.dart';
 import '../station_management/task_generation_screen.dart';
 import '../../station_cleaning/shift_summary_approval_screen.dart';
+import '../../station_cleaning/attendance/station_supervisor_attendance_screen.dart';
 import '../../station_cleaning/reporting/report_list_screen.dart';
-import '../station_management/machine_master_list_screen.dart';
-import '../station_management/material_list_screen.dart';
 import '../station_management/area_performance_dashboard.dart';
 import '../station_management/supervisor_shift_assignment_screen.dart';
 import 'package:crm_train/view/common_railways/forms/common_form_screen.dart';
@@ -474,14 +473,10 @@ class _CommonDashboardState extends State<CommonDashboard> {
         "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector"],
         "children": [
           {"title": "Module Hub", "route": "sc_main", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector"]},
-          {"title": "Inspection", "route": "sc_inspection", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector"]},
-          {"title": "Petty Issues", "route": "sc_petty_issues", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]},
-          {"title": "Dashboard", "route": "sc_dashboard", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]},
           {"title": "Area Management", "route": "sc_areas", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
           {"title": "Generate Tasks", "route": "sc_generate_tasks", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]},
           {"title": "Shift Summary Approval", "route": "sc_shift_summary_approval", "roles": ["Super Admin", "Admin", "Railway Master", "Railway Admin", "Railway Supervisor", "Railway Inspector"]},
-          {"title": "Machines", "route": "sc_machines", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
-          {"title": "Materials", "route": "sc_materials", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
+          {"title": "Supervisor Attendance", "route": "sc_supervisor_attendance", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin", "Railway Supervisor"]},
           {"title": "Supervisor Shifts", "route": "sc_supervisor_shifts", "roles": ["Super Admin", "Company Master", "Contractor Admin", "Railway Master", "Railway Admin"]},
         ]
       },
@@ -641,12 +636,7 @@ class _CommonDashboardState extends State<CommonDashboard> {
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AuditLogScreen()));
         break;
       case "sc_main":
-      case "sc_inspection":
-      case "sc_petty_issues":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const StationCleaningMainScreen()));
-        break;
-      case "sc_dashboard":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const StationDashboardScreen()));
         break;
       case "sc_areas":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AreaListScreen()));
@@ -663,12 +653,18 @@ class _CommonDashboardState extends State<CommonDashboard> {
         Navigator.push(context, MaterialPageRoute(builder: (context) => ShiftSummaryApprovalScreen(stationId: stationId)));
         break;
       }
-      case "sc_machines":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const MachineMasterListScreen()));
+      case "sc_supervisor_attendance": {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final user = authProvider.currentUser;
+        final stationId = (user?.stationId != null && user!.stationId!.isNotEmpty)
+            ? user.stationId
+            : (user?.stations.isNotEmpty == true ? user!.stations.first : null);
+        Navigator.push(context, MaterialPageRoute(builder: (context) => StationSupervisorAttendanceScreen(
+          stationId: stationId ?? '',
+          stationName: '',
+        )));
         break;
-      case "sc_materials":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const MaterialListScreen()));
-        break;
+      }
       case "sc_supervisor_shifts": {
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
         final user = authProvider.currentUser;
