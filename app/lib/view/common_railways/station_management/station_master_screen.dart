@@ -1,3 +1,4 @@
+import 'package:crm_train/data/zone_database.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
@@ -17,11 +18,10 @@ class _StationMasterScreenState extends State<StationMasterScreen> {
 
   late TextEditingController _codeCtrl;
   late TextEditingController _nameCtrl;
-  late TextEditingController _zoneCtrl;
-  late TextEditingController _divisionCtrl;
-  late TextEditingController _latCtrl;
-  late TextEditingController _lngCtrl;
-  late TextEditingController _addrCtrl;
+
+  String? _zone;
+  String? _division;
+  List<String> _divisions = [];
 
   StationCategory _category = StationCategory.b;
   StationType _type = StationType.regular;
@@ -35,15 +35,33 @@ class _StationMasterScreenState extends State<StationMasterScreen> {
     final s = widget.existingStation;
     _codeCtrl = TextEditingController(text: s?.stationCode ?? '');
     _nameCtrl = TextEditingController(text: s?.stationName ?? '');
-    _zoneCtrl = TextEditingController(text: s?.zone ?? '');
-    _divisionCtrl = TextEditingController(text: s?.division ?? '');
-    _latCtrl = TextEditingController(text: s?.latitude.toString() ?? '');
-    _lngCtrl = TextEditingController(text: s?.longitude.toString() ?? '');
-    _addrCtrl = TextEditingController(text: s?.address ?? '');
     if (s != null) {
       _category = s.category;
       _type = s.stationType;
       _active = s.active;
+      _resolveZoneDivision(s);
+    }
+  }
+
+  void _resolveZoneDivision(Station s) {
+    final zones = DepotDatabase.zoneData.keys.toList();
+    for (final zKey in zones) {
+      if (zKey.toLowerCase() == s.zone.toLowerCase() ||
+          zKey.toLowerCase().contains(s.zone.toLowerCase()) ||
+          s.zone.toLowerCase().contains(zKey.toLowerCase())) {
+        _zone = zKey;
+        break;
+      }
+    }
+    if (_zone == null) return;
+    _divisions = DepotDatabase.zoneData[_zone]?.keys.toList() ?? [];
+    for (final dKey in _divisions) {
+      if (dKey.toLowerCase() == s.division.toLowerCase() ||
+          dKey.toLowerCase().contains(s.division.toLowerCase()) ||
+          s.division.toLowerCase().contains(dKey.toLowerCase())) {
+        _division = dKey;
+        break;
+      }
     }
   }
 
@@ -51,17 +69,7 @@ class _StationMasterScreenState extends State<StationMasterScreen> {
   void dispose() {
     _codeCtrl.dispose();
     _nameCtrl.dispose();
-    _zoneCtrl.dispose();
-    _divisionCtrl.dispose();
-    _latCtrl.dispose();
-    _lngCtrl.dispose();
-    _addrCtrl.dispose();
     super.dispose();
-  }
-
-  void _getLocation() {
-    _latCtrl.text = '12.9716';
-    _lngCtrl.text = '77.5946';
   }
 
   Future<void> _save() async {
@@ -71,14 +79,11 @@ class _StationMasterScreenState extends State<StationMasterScreen> {
       final data = {
         'stationCode': _codeCtrl.text.trim(),
         'stationName': _nameCtrl.text.trim(),
-        'zone': _zoneCtrl.text.trim(),
-        'division': _divisionCtrl.text.trim(),
+        'zone': _zone ?? '',
+        'division': _division ?? '',
         'category': _category.name,
         'stationType': _type.name,
         'active': _active,
-        'latitude': double.tryParse(_latCtrl.text) ?? 0,
-        'longitude': double.tryParse(_lngCtrl.text) ?? 0,
-        'address': _addrCtrl.text.trim(),
       };
       if (isEdit) {
         await ApiService.updateStation(widget.existingStation!.uid!, data);
@@ -170,16 +175,24 @@ class _StationMasterScreenState extends State<StationMasterScreen> {
                         const Text('Classification', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                       ]),
                       const Divider(height: 20),
-                      TextFormField(
-                        controller: _zoneCtrl,
+                      DropdownButtonFormField<String>(
+                        value: (_zone != null && DepotDatabase.zoneData.containsKey(_zone)) ? _zone : null,
                         decoration: const InputDecoration(labelText: 'Zone *', border: OutlineInputBorder(), prefixIcon: Icon(Icons.map)),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                        items: DepotDatabase.zoneData.keys.map((z) => DropdownMenuItem(value: z, child: Text(z))).toList(),
+                        validator: (v) => v == null ? 'Required' : null,
+                        onChanged: (v) => setState(() {
+                          _zone = v;
+                          _division = null;
+                          _divisions = v != null ? (DepotDatabase.zoneData[v]?.keys.toList() ?? []) : [];
+                        }),
                       ),
                       const SizedBox(height: 14),
-                      TextFormField(
-                        controller: _divisionCtrl,
+                      DropdownButtonFormField<String>(
+                        value: (_division != null && _divisions.contains(_division)) ? _division : null,
                         decoration: const InputDecoration(labelText: 'Division *', border: OutlineInputBorder(), prefixIcon: Icon(Icons.map_outlined)),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                        items: _divisions.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                        validator: (v) => v == null ? 'Required' : null,
+                        onChanged: (v) => setState(() => _division = v),
                       ),
                       const SizedBox(height: 14),
                       DropdownButtonFormField<StationCategory>(
@@ -203,84 +216,6 @@ class _StationMasterScreenState extends State<StationMasterScreen> {
                         onChanged: (v) => setState(() => _active = v),
                         activeColor: kSuccessGreen,
                         contentPadding: EdgeInsets.zero,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: kWarningOrange.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                          child: const Icon(Icons.location_on, color: kWarningOrange, size: 20),
-                        ),
-                        const SizedBox(width: 10),
-                        const Text('GPS Location', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                      ]),
-                      const Divider(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _latCtrl,
-                              decoration: const InputDecoration(labelText: 'Latitude', border: OutlineInputBorder(), prefixIcon: Icon(Icons.explore)),
-                              keyboardType: TextInputType.number,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _lngCtrl,
-                              decoration: const InputDecoration(labelText: 'Longitude', border: OutlineInputBorder(), prefixIcon: Icon(Icons.explore)),
-                              keyboardType: TextInputType.number,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _getLocation,
-                        icon: const Icon(Icons.my_location),
-                        label: const Text('Get Location'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: kInfo.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                          child: const Icon(Icons.home, color: kInfo, size: 20),
-                        ),
-                        const SizedBox(width: 10),
-                        const Text('Address', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                      ]),
-                      const Divider(height: 20),
-                      TextFormField(
-                        controller: _addrCtrl,
-                        decoration: const InputDecoration(labelText: 'Address', border: OutlineInputBorder(), prefixIcon: Icon(Icons.location_city)),
-                        maxLines: 3,
                       ),
                     ],
                   ),

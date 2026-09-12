@@ -465,7 +465,6 @@ class _CommonDashboardState extends State<CommonDashboard> {
           {"title": "Coach Cleaning", "route": "coach_cleaning", "contractTypes": ["coach"]},
           {"title": "Premise Cleaning", "route": "premise_cleaning", "contractTypes": ["premises"]},
           {"title": "CTS Forms", "route": "cts_cleaning", "contractTypes": ["cts"]},
-          {"title": "Garbage Disposal", "route": "garbage", "contractTypes": ["station_cleaning"]},
         ]
       },
       {

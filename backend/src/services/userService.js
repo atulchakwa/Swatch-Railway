@@ -29,8 +29,9 @@ class UserService {
     }
 
     const roleUpper = role.toUpperCase();
+    const isContractorMaster = roleUpper === 'CONTRACTOR_MASTER';
 
-    if (normalizedUserType === 'contractor') {
+    if (normalizedUserType === 'contractor' && !isContractorMaster) {
       if (!contractId) {
         throw new ValidationError("Contract is mandatory for all Contractor users.");
       }
@@ -92,7 +93,7 @@ class UserService {
 
     let entityData = null;
     let resolvedContractType = null;
-    if (normalizedUserType === 'contractor') {
+    if (normalizedUserType === 'contractor' && !isContractorMaster) {
       const contractDoc = await db.collection('contracts').doc(contractId).get();
       if (!contractDoc.exists) {
         throw new NotFoundError("Contract not found.");

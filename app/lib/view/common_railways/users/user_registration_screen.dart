@@ -1321,7 +1321,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
         return ['Contractor Master', 'Contractor Admin', 'Contractor Supervisor'];
       }
       else {
-        return ['Contractor Admin', 'Contractor Supervisor'];
+        return ['Contractor Master', 'Contractor Admin', 'Contractor Supervisor'];
       }
     }
   }
