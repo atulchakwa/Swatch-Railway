@@ -32,13 +32,19 @@ class CommonNavBar extends StatelessWidget {
   bool get _isStationCleaning => contractType == 'station_cleaning';
   bool get _isContractorSupervisor =>
       userDisplayRole != null && userDisplayRole == 'Contractor Supervisor';
+  bool get _isContractorEmployee =>
+      userDisplayRole == 'Contractor Admin' ||
+          userDisplayRole == 'Contractor Supervisor';
 
   List<Widget> _contractorScreens() {
     final screens = <Widget>[
       ContractorMasterDashboard(contractType: contractType),
-      if (!_isContractorSupervisor) ContractorMasterFormsScreen(contractType: contractType),
-      if (!_isContractorSupervisor) ContractorMasterMyContractsScreen(),
-      ContractorReportScreen(contractType: contractType),
+      if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee))
+        ContractorMasterFormsScreen(contractType: contractType),
+      if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee))
+        ContractorMasterMyContractsScreen(),
+      if (!(_isStationCleaning && _isContractorEmployee))
+        ContractorReportScreen(contractType: contractType),
       if (!_isContractorSupervisor) CommonUserManagementScreen(),
     ];
     if (!_isStationCleaning) {
@@ -55,26 +61,27 @@ class CommonNavBar extends StatelessWidget {
         activeColorPrimary: Colors.blue,
         inactiveColorPrimary: Colors.grey,
       ),
-      if (!_isContractorSupervisor)
+      if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee))
         PersistentBottomNavBarItem(
           icon: const Icon(Icons.description_rounded),
           title: "Forms",
           activeColorPrimary: Colors.blue,
           inactiveColorPrimary: Colors.grey,
         ),
-      if (!_isContractorSupervisor)
+      if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee))
         PersistentBottomNavBarItem(
           icon: const Icon(Icons.file_copy_rounded),
           title: "My Contracts",
           activeColorPrimary: Colors.blue,
           inactiveColorPrimary: Colors.grey,
         ),
-      PersistentBottomNavBarItem(
-        icon: const Icon(Icons.bar_chart),
-        title: "Report",
-        activeColorPrimary: Colors.blue,
-        inactiveColorPrimary: Colors.grey,
-      ),
+      if (!(_isStationCleaning && _isContractorEmployee))
+        PersistentBottomNavBarItem(
+          icon: const Icon(Icons.bar_chart),
+          title: "Report",
+          activeColorPrimary: Colors.blue,
+          inactiveColorPrimary: Colors.grey,
+        ),
       if (!_isContractorSupervisor)
         PersistentBottomNavBarItem(
           icon: const Icon(Icons.people),

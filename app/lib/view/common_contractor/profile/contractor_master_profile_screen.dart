@@ -87,8 +87,17 @@ class _ContractorMasterProfileScreenState
   // The common nav bar hides Forms/Contracts/Users and keeps only
   // [Dashboard, Report] (0,1) for Contractor Supervisors, while full
   // contractors get the full list where Report sits at index 3.
+  // For station cleaning contractors, Forms/Contracts/Report tabs are
+  // removed entirely, so those profile actions are hidden too.
   bool get _isContractorSupervisor =>
       _getUserField('role') == 'Contractor Supervisor';
+
+  bool get _isStationCleaning =>
+      _getUserField('contractType') == 'station_cleaning';
+
+  bool get _isContractorEmployee =>
+      _getUserField('role') == 'Contractor Admin' ||
+          _getUserField('role') == 'Contractor Supervisor';
 
   int get _reportsTabIndex => _isContractorSupervisor ? 1 : 3;
 
@@ -434,7 +443,7 @@ class _ContractorMasterProfileScreenState
 
             const SizedBox(height: 20),
 
-            if (!_isContractorSupervisor) ...[
+            if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee)) ...[
               _actionTile(Icons.description_outlined, 'My Forms',
                   Colors.blue.shade50, Colors.blue, () {
                     final navController = Get.find<ContractorNavController>();
@@ -443,13 +452,15 @@ class _ContractorMasterProfileScreenState
                   }),
               const SizedBox(height: 10),
             ],
-            _actionTile(Icons.bar_chart_outlined, 'My Reports',
-                Colors.purple.shade50, Colors.purple, () {
-                  final navController = Get.find<ContractorNavController>();
-                  navController.changeTab(_reportsTabIndex);
-                  Navigator.pop(context);
-                }),
-            const SizedBox(height: 10),
+            if (!_isContractorEmployee) ...[
+              _actionTile(Icons.bar_chart_outlined, 'My Reports',
+                  Colors.purple.shade50, Colors.purple, () {
+                    final navController = Get.find<ContractorNavController>();
+                    navController.changeTab(_reportsTabIndex);
+                    Navigator.pop(context);
+                  }),
+              const SizedBox(height: 10),
+            ],
             _actionTile(Icons.notifications_outlined, 'Notifications',
                 Colors.orange.shade50, Colors.orange, () {
                   Navigator.pop(context);
