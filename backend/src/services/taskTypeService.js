@@ -5,17 +5,20 @@ import logger from '../logger/index.js';
 const DEFAULT_TASK_TYPES = [
   'sweeping', 'mopping', 'washing', 'toilet_cleaning', 'rag_picking',
   'garbage_collection', 'garbage_disposal', 'drain_cleaning',
-  'consumable_refill', 'cobweb_removal', 'deep_cleaning'
+  'consumable_refill', 'cobweb_removal', 'deep_cleaning',
+  'pest_control', 'rodent_control'
 ];
 
 class TaskTypeService {
   async seedDefaultTaskTypes() {
-    const existing = await db.collection('taskTypes').limit(1).get();
-    if (!existing.empty) return { message: 'Task types already seeded' };
+    const snapshot = await db.collection('taskTypes').get();
+    const existing = new Map(snapshot.docs.map(d => [d.data().name, d]));
 
     const batch = db.batch();
     let count = 0;
+    const created = [];
     for (const type of DEFAULT_TASK_TYPES) {
+      if (existing.has(type)) continue;
       const ref = db.collection('taskTypes').doc();
       batch.set(ref, {
         uid: ref.id,
@@ -27,10 +30,12 @@ class TaskTypeService {
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
       count++;
+      created.push(type);
     }
+    if (count === 0) return { message: 'Task types already seeded' };
     await batch.commit();
-    logger.info('TaskTypeService', `Seeded ${count} default task types`);
-    return { message: `Seeded ${count} default task types`, count };
+    logger.info('TaskTypeService', `Seeded ${count} task types: ${created.join(', ')}`);
+    return { message: `Seeded ${count} task types`, count, created };
   }
 
   async createTaskType(data) {
