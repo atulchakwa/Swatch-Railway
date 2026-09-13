@@ -6,6 +6,8 @@ import 'package:crm_train/utills/app_colors.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'attendance/station_supervisor_attendance_screen.dart';
 import 'billing/billing_support_pack_screen.dart';
+import 'billing/contract_estimation_screen.dart';
+import 'billing/daily_task_billing_screen.dart';
 import 'feedback/feedback_qr_screen.dart';
 import 'feedback/passenger_feedback_form_screen.dart';
 import 'feedback/passenger_feedback_list_screen.dart';
@@ -84,6 +86,8 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.search, 'Inspection', Colors.indigo, () => _openInspection(context)),
       _moduleCard(context, Icons.assessment, 'Reports', Colors.purple, () => _openReports(context)),
       _moduleCard(context, Icons.receipt, 'Billing', Colors.deepOrange, () => _openBilling(context)),
+      _moduleCard(context, Icons.calendar_month, 'Daily\nBilling', Colors.teal, () => _openDailyBilling(context)),
+      _moduleCard(context, Icons.calculate, 'Estimation /\nVariation / SWO', Colors.orange, () => _openEstimation(context)),
       _moduleCard(context, Icons.book, 'Daily\nAudit Log', Colors.blue, () => _openDailyLog(context)),
       _moduleCard(context, Icons.map, 'Area\nArrangement', Colors.lightGreen, () => _openAreaConfig(context)),
       _moduleCard(context, Icons.feedback, 'Passenger\nFeedback', Colors.amber.shade700, () => _openFeedback(context)),
@@ -152,6 +156,22 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
   void _openBilling(BuildContext context) {
     if (widget.contractId != null) {
       Navigator.push(context, MaterialPageRoute(builder: (_) => BillingSupportPackScreen(contractId: widget.contractId!, stationId: _selectedStationId, stationName: _selectedStationName)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
+    }
+  }
+
+  void _openDailyBilling(BuildContext context) {
+    if (widget.contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => DailyTaskBillingScreen(contractId: widget.contractId!, stationId: _selectedStationId, stationName: _selectedStationName)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
+    }
+  }
+
+  void _openEstimation(BuildContext context) {
+    if (widget.contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ContractEstimationScreen(contractId: widget.contractId!, stationId: _selectedStationId, stationName: _selectedStationName)));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
     }

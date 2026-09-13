@@ -782,6 +782,9 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
     const totalDeductions = inMonth.reduce((s, r) => s + ((r.penalties || {}).totalPenaltyAmount || 0), 0);
 
     const scoredPack = inMonth.find(r => typeof r.overallScore === 'number');
+    const estimatePeriodTotal = inMonth.reduce((s, r) => s + ((r.estimateContribution || {}).total || 0), 0);
+    const swoTotal = inMonth.reduce((s, r) => s + (((r.amendedValue || {}).swo || {}).totalValue || 0), 0);
+    const amendedContractValue = inMonth.length > 0 ? (inMonth[inMonth.length - 1].amendedValue?.amendedContractValue ?? null) : null;
 
     const report = await this._storeReport({
       stationId, stationName, reportType: 'monthly_billing', month, year, date: startDate,
@@ -795,6 +798,7 @@ generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Da
         pettyIssuesTotal: pettyIssues.total, pettyIssuesResolved: pettyIssues.resolved, pettyIssuesOpen: pettyIssues.open,
         totalDeductions, overallScore: scoredPack ? scoredPack.overallScore : 0, billingGrade: scoredPack ? scoredPack.grade : 'N/A',
         totalApprovedShifts: taskExecution.approvedShiftSummaries, totalSubmittedShifts: taskExecution.submittedShiftSummaries, shiftExecutionRate, shiftPhotoComplianceRate, averageTaskExecutionScore,
+        estimatePeriodTotal, swoTotal, amendedContractValue,
         verification: { attendance, tasks, evidence, feedback, inspection, pettyIssues, taskExecution, penalties: { totalDeductions, deductions: deductionRows } },
       },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),

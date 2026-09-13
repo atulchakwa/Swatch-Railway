@@ -11,6 +11,8 @@ import { NotFoundError, ValidationError } from '../errors/index.js';
 import logger from '../logger/index.js';
 import { auditService } from './auditService.js';
 import { executionSheetService } from './executionSheetService.js';
+import { computeWeightedExecutionScore } from './taskExecutionBillingService.js';
+import { contractEstimationService } from './contractEstimationService.js';
 
 class StationBillingService {
   async generateBillingSupportPack(user, data) {
@@ -200,9 +202,25 @@ class StationBillingService {
     const shiftExecutionRate = totalTenderedArea > 0 ? Math.round(Math.min(totalWorkDone / totalTenderedArea, 1) * 100) : null;
     const approvedDayCount = new Set(approvedShiftSummaries.map(r => r.date)).size;
     const submittedDayCount = new Set(submittedShiftSummaries.map(r => r.date)).size;
+    // Area-wise weighted execution (railway-department-configurable weightages).
+    let areaWeightages = { weightages: [], totalWeightage: 0 };
+    try {
+      const weightageSnap = await db.collection('contract_area_weightages')
+        .where('contractId', '==', contractId)
+        .where('stationId', '==', stationId)
+        .where('status', '==', 'active')
+        .get();
+      const weightages = [];
+      weightageSnap.forEach(d => weightages.push(d.data()));
+      areaWeightages = { weightages, totalWeightage: weightages.reduce((s, w) => s + (parseFloat(w.weightage) || 0), 0) };
+    } catch { /* keep empty */ }
+    const weighted = computeWeightedExecutionScore(approvedShiftSummaries.flatMap(r => Array.isArray(r.areas) ? r.areas : []), areaWeightages.weightages);
     const executionParts = [];
     if (shiftExecutionRate !== null) executionParts.push(shiftExecutionRate);
     if (shiftPhotoComplianceRate !== null) executionParts.push(shiftPhotoComplianceRate);
+    // When per-area weightages are configured, prefer the weighted score; also
+    // blend it into the parts used for the final 50% task-execution score.
+    if (weighted.configured && weighted.weightedScore !== null) executionParts.push(weighted.weightedScore);
     const taskExecutionScore = executionParts.length > 0
       ? Math.round((executionParts.reduce((s, v) => s + v, 0) / executionParts.length) * 100) / 100
       : null;
@@ -220,6 +238,13 @@ class StationBillingService {
       shiftAreasWithPhoto: approvedAreasWithPhoto,
       shiftPhotoComplianceRate,
       taskExecutionScore,
+      weightedExecutionScore: weighted.configured ? weighted.weightedScore : shiftExecutionRate,
+      weightageConfigured: weighted.configured,
+      weightages: areaWeightages.weightages,
+      totalWeightageConfigured: areaWeightages.totalWeightage,
+      areaRows: weighted.areaRows,
+      executedAreaSqFt: weighted.executedSqFt,
+      expectedAreaSqFt: weighted.expectedSqFt,
       monthlyBase,
       taskExecutionComponentNetBase: taskExecutionNetBase,
       achievedAmount: taskExecutionScore !== null ? Math.round(taskExecutionNetBase * (taskExecutionScore / 100)) : 0,
@@ -288,6 +313,20 @@ class StationBillingService {
     deductions.sort((a, b) => b.amount - a.amount);
     const penalties = { deductions, totalPenaltyAmount: Math.round(Math.max(0, monthlyBase - billableAmount)) };
 
+    // Estimation / variation / SWO transparency layer (traceability).
+    let estimateContribution = { total: 0, rows: [] };
+    let amendedValue = null;
+    try {
+      estimateContribution = await contractEstimationService.getPeriodContribution({ contractId, stationId, month, year });
+    } catch (e) {
+      logger.warn(`Estimate contribution skipped for ${stationId} ${month}/${year}: ${e.message}`);
+    }
+    try {
+      amendedValue = await contractEstimationService.getAmendedContractValue({ contractId });
+    } catch (e) {
+      logger.warn(`Amended value skipped for ${contractId}: ${e.message}`);
+    }
+
     const ref = db.collection('station_billing_packs').doc();
     const now = new Date().toISOString();
     const pack = {
@@ -306,6 +345,7 @@ class StationBillingService {
       taskExecutionSummary, executionSheetSummary, inspectionBillingSummary,
       overallScore, grade, deductionRate, scoreBreakdown, feedbackScore,
       penalties, billableAmount, status: 'DRAFT',
+      estimateContribution, amendedValue,
       paymentStatus: 'unpaid', paymentDate: null, paymentRef: null, paymentAmount: null,
       complianceChecklist: { attendanceSheetAttached: false, wagesheetAttached: false, bankStatementAttached: false, policeVerificationAttached: false, medicalCertificateAttached: false, biometricSheetAttached: false, scorecardAttached: scorecardSummary.daysWithScorecard > 0, gstInvoiceAttached: false },
       generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: now, createdAt: now, updatedAt: now,

@@ -51,6 +51,8 @@ import passengerFeedbackRoutes from './routes/passengerFeedback.js';
 import stationAttendanceRoutes from './routes/stationAttendance.js';
 import dailyActivitiesRoutes from './routes/dailyActivities.js';
 import stationBillingRoutes from './routes/stationBilling.js';
+import taskExecutionBillingRoutes from './routes/taskExecutionBilling.js';
+import contractEstimationRoutes from './routes/contractEstimation.js';
 import supervisorDailyLogRoutes from './routes/supervisorDailyLog.js';
 import stationArchiveRoutes from './routes/stationArchive.js';
 import stationReportRoutes from './routes/stationReport.js';
@@ -143,6 +145,8 @@ app.use(passengerFeedbackRoutes);                 // /api/passenger-feedback/* (
 app.use(stationAttendanceRoutes);                 // /api/station-attendance/*
 app.use(dailyActivitiesRoutes);                   // /api/station-activities/*
 app.use(stationBillingRoutes);                    // /api/station-billing/*
+app.use(taskExecutionBillingRoutes);              // /api/task-execution-billing/*
+app.use(contractEstimationRoutes);                // /api/contract-estimation/*
 app.use(supervisorDailyLogRoutes);                // /api/supervisor-logs/*
 app.use(stationArchiveRoutes);                    // /api/station-archives/*
 app.use(stationReportRoutes);                     // /api/station-reports/*
