@@ -219,6 +219,9 @@ class TaskExecutionBillingService {
         stationName: body.stationName || contractDoc.data().stationName || '',
         areaName: String(areaName).trim(),
         mainArea: body.mainArea || '',
+        annexureItemNo: body.annexureItemNo !== undefined && body.annexureItemNo !== null && body.annexureItemNo !== ''
+          ? parseInt(body.annexureItemNo, 10) || null
+          : null,
         weightage: weightageValue,
         tenderedAreaSqFt,
         cleaningFrequency: body.cleaningFrequency || 'daily',
@@ -257,6 +260,7 @@ class TaskExecutionBillingService {
     };
     if (tenderedAreaSqFt > 0) updates.tenderedAreaSqFt = tenderedAreaSqFt;
     if (body.mainArea !== undefined) updates.mainArea = body.mainArea || '';
+    if (body.annexureItemNo !== undefined) updates.annexureItemNo = body.annexureItemNo === null || body.annexureItemNo === '' ? null : (parseInt(body.annexureItemNo, 10) || null);
     if (body.cleaningFrequency !== undefined) updates.cleaningFrequency = body.cleaningFrequency;
     if (parseInt(body.boqTimesPerPeriod, 10) > 0) updates.boqTimesPerPeriod = parseInt(body.boqTimesPerPeriod, 10);
     if (ratePerSqFt !== null) updates.ratePerSqFt = ratePerSqFt;

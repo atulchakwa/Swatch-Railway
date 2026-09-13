@@ -9,7 +9,8 @@ import 'package:crm_train/utills/app_colors.dart';
 import 'area_form_screen.dart';
 
 class AreaConfigScreen extends StatefulWidget {
-  const AreaConfigScreen({super.key});
+  final Station? initialStation;
+  const AreaConfigScreen({super.key, this.initialStation});
 
   @override
   State<AreaConfigScreen> createState() => _AreaConfigScreenState();
@@ -32,15 +33,27 @@ class _AreaConfigScreenState extends State<AreaConfigScreen> {
   Future<void> _loadStations() async {
     setState(() => _isLoadingStations = true);
     try {
-      _stations = await ApiService.getStations(active: true);
-      if (_stations.isNotEmpty) {
-        final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
-        if (user?.stationId != null && user!.stationId!.isNotEmpty) {
-          final match = _stations.where((s) => s.uid == user!.stationId).firstOrNull;
-          if (match != null) _selectedStation = match;
+      _stations = await ApiService.getStations();
+      final initial = widget.initialStation;
+      if (initial != null && initial.uid != null && initial.uid!.isNotEmpty) {
+        final match = _stations.where((s) => s.uid == initial.uid).firstOrNull;
+        if (match != null) {
+          _selectedStation = match;
+        } else {
+          _stations = [initial, ..._stations];
+          _selectedStation = initial;
         }
-        _selectedStation ??= _stations.first;
         _loadAreas();
+      } else {
+        if (_stations.isNotEmpty) {
+          final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+          if (user?.stationId != null && user!.stationId!.isNotEmpty) {
+            final match = _stations.where((s) => s.uid == user!.stationId).firstOrNull;
+            if (match != null) _selectedStation = match;
+          }
+          _selectedStation ??= _stations.first;
+          _loadAreas();
+        }
       }
     } catch (e) {
       _error = e.toString();

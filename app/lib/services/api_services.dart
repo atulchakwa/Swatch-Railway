@@ -876,6 +876,31 @@ class ApiService {
     }
   }
 
+  static Future<List<ContractModel>> getStationContracts(
+    String stationId, {
+    String? contractType,
+  }) async {
+    final token = await getToken();
+    final params = <String, String>{
+      'stationId': stationId,
+    };
+    if (contractType != null) params['contractType'] = contractType;
+    final uri = Uri.parse('$baseUrl/api/contracts').replace(queryParameters: params);
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final List contracts = data['contracts'] ?? [];
+      return contracts.map((e) => ContractModel.fromJson(e)).toList();
+    }
+    throw Exception('Failed to load contracts for station');
+  }
+
   //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Train APis>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
   static Future<Map<String, dynamic>> sendPassengerOtp({

@@ -182,7 +182,7 @@ class StationBillingService {
         .where('date', '<=', endDate)
         .get();
     } catch {
-      shiftSummarySnap = null;
+      shiftSummarySnap = await db.collection('stationShiftSummaries').where('stationId', '==', stationId).get();
     }
     const submittedShiftSummaries = [];
     const approvedShiftSummaries = [];

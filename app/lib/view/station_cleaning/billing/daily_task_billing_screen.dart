@@ -2,6 +2,7 @@ import 'package:crm_train/model/task_billing_models.dart';
 import 'package:crm_train/repositories/task_billing_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
+import 'area_weightage_screen.dart';
 
 class DailyTaskBillingScreen extends StatefulWidget {
   final String contractId;
@@ -94,69 +95,19 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     }
   }
 
-  Future<void> _manageWeightage({AreaWeightage? existing}) async {
-    final nameCtrl = TextEditingController(text: existing?.areaName ?? '');
-    final wtCtrl = TextEditingController(text: existing?.weightage.toString() ?? '');
-    final areaCtrl = TextEditingController(text: existing?.tenderedAreaSqFt.toString() ?? '');
-    final rateCtrl = TextEditingController(text: existing?.ratePerSqFt?.toString() ?? '');
-    final freqCtrl = TextEditingController(text: existing?.cleaningFrequency ?? 'daily');
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(existing == null ? 'Add Area Weightage' : 'Update Area Weightage (v${existing.version})'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _field(nameCtrl, 'Area name *'),
-              _field(wtCtrl, 'Weightage (%) *'),
-              _field(areaCtrl, 'Tendered area (sq.ft.)'),
-              _field(rateCtrl, 'Rate per sq.ft. (override, optional)'),
-              _field(freqCtrl, 'Cleaning frequency (daily/weekly/monthly)'),
-              const SizedBox(height: 8),
-              const Text('Every save is versioned and audited — the department can increase or decrease weightage safely.', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            ],
-          ),
+  Future<void> _manageWeightage() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AreaWeightageScreen(
+          contractId: widget.contractId,
+          stationId: widget.stationId,
+          stationName: widget.stationName,
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-        ],
       ),
     );
-    if (ok != true) return;
-
-    try {
-      setState(() => _loading = true);
-      await TaskBillingRepository.upsertWeightage({
-        'contractId': widget.contractId,
-        'stationId': widget.stationId,
-        'areaName': nameCtrl.text.trim(),
-        'weightage': double.tryParse(wtCtrl.text) ?? 0,
-        'tenderedAreaSqFt': double.tryParse(areaCtrl.text) ?? 0,
-        if (rateCtrl.text.trim().isNotEmpty) 'ratePerSqFt': double.tryParse(rateCtrl.text),
-        'cleaningFrequency': freqCtrl.text.trim().isEmpty ? 'daily' : freqCtrl.text.trim(),
-      });
-      _status = 'Area weightage saved.';
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _status = e.toString();
-        _loading = false;
-      });
-    }
+    _load();
   }
-
-  Widget _field(TextEditingController c, String label) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: TextField(
-          controller: c,
-          keyboardType: TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true),
-        ),
-      );
 
   @override
   Widget build(BuildContext context) {
@@ -241,23 +192,17 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                 contentPadding: EdgeInsets.zero,
                 title: Text(w.areaName, style: const TextStyle(fontSize: 13)),
                 subtitle: Text('${w.tenderedAreaSqFt.toStringAsFixed(0)} sq.ft. · ${w.cleaningFrequency} · rate ${w.ratePerSqFt?.toStringAsFixed(3) ?? 'derived'}/sq.ft.', style: const TextStyle(fontSize: 11)),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('${w.weightage}%', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    IconButton(icon: const Icon(Icons.edit, size: 18), onPressed: () => _manageWeightage(existing: w)),
-                  ],
-                ),
+                trailing: Text('${w.weightage}%', style: const TextStyle(fontWeight: FontWeight.bold)),
               ),
             if (_weightages.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 6),
-                child: Text('No weightages configured. Add one — otherwise a flat sq.ft. ratio is used.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                child: Text('No weightages configured — the daily bill falls back to a flat sq.ft. ratio.', style: TextStyle(fontSize: 12, color: Colors.grey)),
               ),
             TextButton.icon(
               onPressed: () => _manageWeightage(),
-              icon: const Icon(Icons.add),
-              label: const Text('Add / Update Area Weightage'),
+              icon: const Icon(Icons.tune),
+              label: const Text('Manage Area Weightage'),
             ),
           ],
         ),

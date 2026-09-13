@@ -9,6 +9,7 @@ class AreaWeightage {
   final int boqTimesPerPeriod;
   final double? ratePerSqFt;
   final int version;
+  final int? annexureItemNo;
 
   AreaWeightage({
     required this.uid,
@@ -21,6 +22,7 @@ class AreaWeightage {
     this.boqTimesPerPeriod = 0,
     this.ratePerSqFt,
     this.version = 1,
+    this.annexureItemNo,
   });
 
   factory AreaWeightage.fromJson(Map<String, dynamic> json) => AreaWeightage(
@@ -34,6 +36,7 @@ class AreaWeightage {
         boqTimesPerPeriod: (json['boqTimesPerPeriod'] ?? 0) as int,
         ratePerSqFt: json['ratePerSqFt'] == null ? null : (json['ratePerSqFt'] as num).toDouble(),
         version: (json['version'] ?? 1) as int,
+        annexureItemNo: json['annexureItemNo'] == null ? null : (json['annexureItemNo'] as num).toInt(),
       );
 
   Map<String, dynamic> toJson() => {

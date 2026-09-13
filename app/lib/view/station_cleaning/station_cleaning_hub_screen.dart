@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
+import 'package:crm_train/model/contracts_model.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'attendance/station_supervisor_attendance_screen.dart';
+import 'billing/area_weightage_screen.dart';
 import 'billing/billing_support_pack_screen.dart';
 import 'billing/contract_estimation_screen.dart';
 import 'billing/daily_task_billing_screen.dart';
@@ -39,6 +41,8 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
   String _selectedStationName = '';
   List<Station> _availableStations = [];
   bool _loadingStations = true;
+  ContractModel? _stationContract;
+  bool _loadingContract = false;
 
   @override
   void initState() {
@@ -46,9 +50,43 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     _selectedStationId = widget.stationId;
     _selectedStationName = widget.stationName;
     _loadStations();
+    _resolveStationContract();
   }
 
-  Future<void> _loadStations() async {
+  Future<void> _resolveStationContract() async {
+    if (_selectedStationId.isEmpty) return;
+    setState(() => _loadingContract = true);
+    try {
+      final contracts = await ApiService.getStationContracts(_selectedStationId, contractType: 'station_cleaning');
+      ContractModel? match;
+      if (widget.contractId != null) {
+        match = contracts.where((c) => c.uid == widget.contractId).firstOrNull;
+      }
+      match ??= contracts.where((c) => c.isActive ?? false).firstOrNull;
+      match ??= contracts.isNotEmpty ? contracts.first : null;
+      if (!mounted) return;
+      setState(() {
+        _stationContract = match;
+        _loadingContract = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _stationContract = null;
+        _loadingContract = false;
+      });
+    }
+  }
+
+  String? _effectiveContractId() {
+    final resolved = _stationContract?.uid;
+    if (resolved != null && resolved.isNotEmpty) return resolved;
+    final own = widget.contractId;
+    if (own != null && own.isNotEmpty) return own;
+    return null;
+  }
+
+  void _loadStations() async {
     setState(() => _loadingStations = true);
     try {
       final all = await ApiService.getStations();
@@ -67,7 +105,9 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     setState(() {
       _selectedStationId = uid;
       _selectedStationName = station.stationName;
+      _stationContract = null;
     });
+    _resolveStationContract();
   }
 
   bool _canSwitchStation(String role) {
@@ -87,6 +127,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.assessment, 'Reports', Colors.purple, () => _openReports(context)),
       _moduleCard(context, Icons.receipt, 'Billing', Colors.deepOrange, () => _openBilling(context)),
       _moduleCard(context, Icons.calendar_month, 'Daily\nBilling', Colors.teal, () => _openDailyBilling(context)),
+      _moduleCard(context, Icons.tune, 'Area\nWeightage', Colors.brown, () => _openAreaWeightage(context)),
       _moduleCard(context, Icons.calculate, 'Estimation /\nVariation / SWO', Colors.orange, () => _openEstimation(context)),
       _moduleCard(context, Icons.book, 'Daily\nAudit Log', Colors.blue, () => _openDailyLog(context)),
       _moduleCard(context, Icons.map, 'Area\nArrangement', Colors.lightGreen, () => _openAreaConfig(context)),
@@ -154,24 +195,52 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
   }
 
   void _openBilling(BuildContext context) {
-    if (widget.contractId != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => BillingSupportPackScreen(contractId: widget.contractId!, stationId: _selectedStationId, stationName: _selectedStationName)));
+    if (_loadingContract) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checking contract for this station…')));
+      return;
+    }
+    final contractId = _effectiveContractId();
+    if (contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => BillingSupportPackScreen(contractId: contractId, stationId: _selectedStationId, stationName: _selectedStationName)));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
     }
   }
 
   void _openDailyBilling(BuildContext context) {
-    if (widget.contractId != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => DailyTaskBillingScreen(contractId: widget.contractId!, stationId: _selectedStationId, stationName: _selectedStationName)));
+    if (_loadingContract) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checking contract for this station…')));
+      return;
+    }
+    final contractId = _effectiveContractId();
+    if (contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => DailyTaskBillingScreen(contractId: contractId, stationId: _selectedStationId, stationName: _selectedStationName)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
+    }
+  }
+
+  void _openAreaWeightage(BuildContext context) {
+    if (_loadingContract) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checking contract for this station…')));
+      return;
+    }
+    final contractId = _effectiveContractId();
+    if (contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => AreaWeightageScreen(contractId: contractId, stationId: _selectedStationId, stationName: _selectedStationName)));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
     }
   }
 
   void _openEstimation(BuildContext context) {
-    if (widget.contractId != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ContractEstimationScreen(contractId: widget.contractId!, stationId: _selectedStationId, stationName: _selectedStationName)));
+    if (_loadingContract) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checking contract for this station…')));
+      return;
+    }
+    final contractId = _effectiveContractId();
+    if (contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ContractEstimationScreen(contractId: contractId, stationId: _selectedStationId, stationName: _selectedStationName)));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
     }
@@ -191,7 +260,14 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
   }
 
   void _openAreaConfig(BuildContext context) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const AreaConfigScreen()));
+    final matched = _selectedStationId.isNotEmpty
+        ? _availableStations.where((s) => s.uid == _selectedStationId).firstOrNull
+        : null;
+    final station = matched ??
+        (_selectedStationId.isEmpty
+            ? null
+            : Station(uid: _selectedStationId, stationCode: _selectedStationId, stationName: _selectedStationName, zone: '', division: ''));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => AreaConfigScreen(initialStation: station)));
   }
 
   void _openTaskGen(BuildContext context) {
