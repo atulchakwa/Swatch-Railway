@@ -3,6 +3,9 @@ import 'package:crm_train/view/common_contractor/form_screen/forms/cts_form_scre
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
+import 'package:get/get.dart';
+import '../../../controller/contractor_nav_controller.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/station_cleaning_provider.dart';
 import '../../../services/api_services.dart';
@@ -120,8 +123,33 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
   @override
   void initState() {
     super.initState();
+    _subscribeToDashboardRefresh();
     _loadAllData();
   }
+
+  // The dashboard tab stays alive inside the persistent bottom nav bar, so
+  // switching tabs never re-runs initState. Listen to the nav controller and
+  // reload whenever the user returns to the Dashboard tab (e.g. after adding
+  // a contractor supervisor on the Users tab) so the UI stays fresh.
+  void _subscribeToDashboardRefresh() {
+    try {
+      final nav = Get.find<ContractorNavController>();
+      _navSub = nav.dashboardRefreshTick.listen((_) {
+        if (mounted) _loadAllData();
+      });
+    } catch (_) {
+      // Controller not registered (dashboard used outside the nav bar): refresh
+      // is only available via the existing pull-to-refresh.
+    }
+  }
+
+  @override
+  void dispose() {
+    _navSub?.cancel();
+    super.dispose();
+  }
+
+  StreamSubscription<int>? _navSub;
 
   int _getDaysFromRange() {
     switch (dateRange) {

@@ -7,6 +7,13 @@ class ContractorNavController extends GetxController {
   var formStatusFilter = Rx<String?>(null);
   var formsInnerTabIndex = Rx<int?>(null);
 
+  // Increments every time the Dashboard tab (index 0) is (re)selected from a
+  // different tab, so the dashboard can reload its data when it becomes
+  // visible again.
+  var dashboardRefreshTick = Rx<int>(0);
+
+  int _lastTabIndex = 0;
+
   @override
   void onInit() {
     tabController = PersistentTabController(initialIndex: 0);
@@ -14,20 +21,31 @@ class ContractorNavController extends GetxController {
   }
 
   void changeTab(int index) {
+    _setTab(index);
+  }
+
+  void onTabSelected(int index) {
+    _setTab(index);
+  }
+
+  void _setTab(int index) {
+    final wasDashboard = _lastTabIndex == 0;
     tabController.index = index;
+    _lastTabIndex = index;
+    if (index == 0 && !wasDashboard) {
+      dashboardRefreshTick.value++;
+    }
     update();
   }
 
   void navigateToFormsWithStatus(String status) {
     formStatusFilter.value = status;
-    tabController.index = 1;
-    update();
+    _setTab(1);
   }
 
   void navigateToFormsTab(int innerTabIndex) {
     formsInnerTabIndex.value = innerTabIndex; // Set CTS tab index
-    tabController.index = 1; // Navigate to Forms screen
-    update();
+    _setTab(1);
   }
 
   void clearFormStatusFilter() {

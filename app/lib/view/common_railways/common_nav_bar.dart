@@ -174,6 +174,7 @@ class CommonNavBar extends StatelessWidget {
           controller: controller.tabController,
           screens: screens,
           items: items,
+          onItemSelected: controller.onTabSelected,
           confineToSafeArea: true,
           backgroundColor: Colors.white,
           handleAndroidBackButtonPress: true,
