@@ -227,13 +227,60 @@ const checkContractExpiry = async () => {
   } catch (e) { logger.error('Cron', ' [Cron Error] Contract Expiry:', e.message); }
 };
 
+// Shared pipeline: reconcile shift schedules, then generate station-cleaning
+// tasks from every active schedule for the given IST business date. Idempotent,
+// so extra runs only fill in missing tasks (see generateTasksFromSchedule).
+async function runStationCleaningGeneration(generateForDays = 3) {
+  try {
+    await stationCleaningService.ensureShiftSchedulesForAllStations();
+  } catch (reconcileErr) {
+    logger.error('Cron', ` [ShiftSchedule] Reconcile failed: ${reconcileErr.message}`);
+  }
+
+  const today = getISTDate();
+  const dayName = getISTDayName(today);
+  const scheduleSnap = await db.collection('stationSchedules')
+    .where('status', '==', 'active').get();
+  let totalSchedules = 0;
+  let totalTasks = 0;
+
+  for (const doc of scheduleSnap.docs) {
+    const s = doc.data();
+    if (s.daysOfWeek && Array.isArray(s.daysOfWeek) && s.daysOfWeek.length > 0) {
+      if (!s.daysOfWeek.includes(dayName)) continue;
+    }
+    if (s.effectiveFrom && s.effectiveTo) {
+      const from = new Date(s.effectiveFrom);
+      const to = new Date(s.effectiveTo);
+      const now = new Date();
+      if (now < from || now > to) continue;
+    }
+
+    try {
+      const result = await stationCleaningService.generateTasksFromSchedule({
+        scheduleId: doc.id,
+        date: today,
+        generateForDays,
+      });
+      totalSchedules++;
+      totalTasks += result.count || 0;
+    } catch (err) {
+      logger.error('Cron', ` [StationSchedule] Error processing ${doc.id}: ${err.message}`);
+    }
+  }
+
+  if (totalSchedules > 0) {
+    logger.info('Cron', ` [StationSchedule] Generated ${totalTasks} tasks across ${totalSchedules} schedule(s)`);
+  }
+  return { totalSchedules, totalTasks };
+}
+
 // ─── Daily midnight: Check contract expiry & generate daily cleaning tasks ───
 cron.schedule('0 0 * * *', async () => {
   logger.info('Cron', ' Running Midnight Cron Job...');
   try {
     await checkContractExpiry();
     const today = getISTDate();
-    const dayName = getISTDayName(today);
 
     try {
       const legacyResult = await taskManagementService.generateFrequencyBasedTasks(today);
@@ -242,45 +289,7 @@ cron.schedule('0 0 * * *', async () => {
       logger.error('Cron', ` [TaskGen-Legacy] FAILED: ${legacyErr.message}`);
     }
 
-    try {
-      await stationCleaningService.ensureShiftSchedulesForAllStations();
-    } catch (reconcileErr) {
-      logger.error('Cron', ` [ShiftSchedule] Reconcile failed: ${reconcileErr.message}`);
-    }
-
-    const scheduleSnap = await db.collection('stationSchedules')
-      .where('status', '==', 'active').get();
-    let totalSchedules = 0;
-    let totalTasks = 0;
-
-    for (const doc of scheduleSnap.docs) {
-      const s = doc.data();
-      if (s.daysOfWeek && Array.isArray(s.daysOfWeek) && s.daysOfWeek.length > 0) {
-        if (!s.daysOfWeek.includes(dayName)) continue;
-      }
-      if (s.effectiveFrom && s.effectiveTo) {
-        const from = new Date(s.effectiveFrom);
-        const to = new Date(s.effectiveTo);
-        const now = new Date();
-        if (now < from || now > to) continue;
-      }
-
-      try {
-        const result = await stationCleaningService.generateTasksFromSchedule({
-          scheduleId: doc.id,
-          date: today,
-          generateForDays: 3,
-        });
-        totalSchedules++;
-        totalTasks += result.count || 0;
-      } catch (err) {
-        logger.error('Cron', ` [StationSchedule] Error processing ${doc.id}: ${err.message}`);
-      }
-    }
-
-    if (totalSchedules > 0) {
-      logger.info('Cron', ` [StationSchedule] Generated ${totalTasks} tasks across ${totalSchedules} schedule(s)`);
-    }
+    await runStationCleaningGeneration(3);
   } catch (e) { logger.error('Cron', ' [Cron Error] Midnight tasks:', e.message); }
 }, { timezone: CRON_TZ });
 
@@ -288,7 +297,6 @@ cron.schedule('0 0 * * *', async () => {
 cron.schedule('0 6,18 * * *', async () => {
   try {
     const today = getISTDate();
-    const dayName = getISTDayName(today);
 
     try {
       const result = await taskManagementService.generateFrequencyBasedTasks(today);
@@ -297,42 +305,7 @@ cron.schedule('0 6,18 * * *', async () => {
       logger.error('Cron', ` [TaskGen-Refresh] Legacy generation failed: ${e.message}`);
     }
 
-    try {
-      await stationCleaningService.ensureShiftSchedulesForAllStations();
-    } catch (reconcileErr) {
-      logger.error('Cron', ` [ShiftSchedule-Refresh] Reconcile failed: ${reconcileErr.message}`);
-    }
-
-    const scheduleSnap = await db.collection('stationSchedules')
-      .where('status', '==', 'active').get();
-    let totalSchedules = 0;
-    let totalTasks = 0;
-    for (const doc of scheduleSnap.docs) {
-      const s = doc.data();
-      if (s.daysOfWeek && Array.isArray(s.daysOfWeek) && s.daysOfWeek.length > 0) {
-        if (!s.daysOfWeek.includes(dayName)) continue;
-      }
-      if (s.effectiveFrom && s.effectiveTo) {
-        const from = new Date(s.effectiveFrom);
-        const to = new Date(s.effectiveTo);
-        const now = new Date();
-        if (now < from || now > to) continue;
-      }
-      try {
-        const result = await stationCleaningService.generateTasksFromSchedule({
-          scheduleId: doc.id,
-          date: today,
-          generateForDays: 1,
-        });
-        totalSchedules++;
-        totalTasks += result.count || 0;
-      } catch (err) {
-        logger.error('Cron', ` [StationSchedule-Refresh] Error processing ${doc.id}: ${err.message}`);
-      }
-    }
-    if (totalSchedules > 0) {
-      logger.info('Cron', ` [StationSchedule-Refresh] Generated ${totalTasks} tasks across ${totalSchedules} schedule(s)`);
-    }
+    await runStationCleaningGeneration(1);
   } catch (e) { logger.error('Cron', ' [Cron Error] Task refresh:', e.message); }
 }, { timezone: CRON_TZ });
 
@@ -391,12 +364,21 @@ cron.schedule('0 2 * * *', async () => {
 });
 
 // ─── Every 10 minutes: Check forms and contracts as fallback ───
-setInterval(() => {
+// node-cron v4 SKIPS (never re-runs) any execution whose tick was delayed while
+// the event loop was busy ("missed execution at ..."). On busy hosts this has
+// been observed to skip the midnight/6AM/6PM jobs entirely, so also run the
+// same station-cleaning generation here. It is idempotent (generateTasksFromSchedule
+// reconciles to the existing task set), so extra runs are safe and cheap.
+const stationCleaningFallbackTimer = setInterval(() => {
   checkAndApprove('coachForms');
   checkAndApprove('premisesForms');
   checkAndApprove('ctsForms');
   checkContractExpiry();
+  runStationCleaningGeneration(1).catch(e => {
+    logger.error('Cron', ` [StationSchedule-Fallback] FAILED: ${e.message}`);
+  });
 }, 600000);
+stationCleaningFallbackTimer.unref?.();
 
 // ─── Every 15 minutes: Update task statuses based on time ───
 cron.schedule('*/15 * * * *', async () => {

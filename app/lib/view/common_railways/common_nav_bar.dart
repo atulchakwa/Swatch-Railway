@@ -160,13 +160,20 @@ class CommonNavBar extends StatelessWidget {
     final isContractor = userRole.toLowerCase() == "contractor" ||
         (userDisplayRole != null && (userDisplayRole!.contains("Contractor") || userDisplayRole == "Company Master"));
 
+    final screens = isContractor ? _contractorScreens() : _commonScreens();
+    final items = isContractor ? _contractorNavItems() : _commonNavItems();
+
+    if (items.length < 2 || screens.length < 2) {
+      return Scaffold(body: screens.isNotEmpty ? screens.first : const SizedBox.shrink());
+    }
+
     return GetBuilder<ContractorNavController>(
       builder: (controller) {
         return PersistentTabView(
           context,
           controller: controller.tabController,
-          screens: isContractor ? _contractorScreens() : _commonScreens(),
-          items: isContractor ? _contractorNavItems() : _commonNavItems(),
+          screens: screens,
+          items: items,
           confineToSafeArea: true,
           backgroundColor: Colors.white,
           handleAndroidBackButtonPress: true,
