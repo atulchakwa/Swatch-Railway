@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:crm_train/model/billing_models.dart';
 import 'package:crm_train/model/cleaning_form_models.dart';
 import 'package:crm_train/model/contracts_model.dart';
+import 'package:crm_train/model/performance_billing_models.dart';
 import 'package:crm_train/model/user_registeration_model.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'package:http/http.dart' as http;
@@ -4626,6 +4627,151 @@ class ApiService {
     final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
     if (response.statusCode == 200) return jsonDecode(response.body)['data'] ?? [];
     throw Exception('Failed to load garbage records');
+  }
+
+  //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Performance Billing APIs (weightage/score based) >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  static Future<BillingConfig> getPerformanceBillingConfig(String contractId) async {
+    final token = await getToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/performance-billing/config/$contractId'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return BillingConfig.fromJson(data['config']);
+    }
+    throw Exception(jsonDecode(response.body)['error'] ?? 'Failed to load billing config');
+  }
+
+  static Future<BillingConfig> savePerformanceBillingConfig(String contractId, Map<String, dynamic> payload) async {
+    final token = await getToken();
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/performance-billing/config/$contractId'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return BillingConfig.fromJson(data['config']);
+    }
+    throw Exception(jsonDecode(response.body)['error'] ?? 'Failed to save billing config');
+  }
+
+  static Future<PerformanceScorecard> getPerformanceScorecard({
+    required String contractId,
+    required String stationId,
+    required int month,
+    required int year,
+  }) async {
+    final token = await getToken();
+    final uri = Uri.parse('$baseUrl/api/performance-billing/scorecard').replace(queryParameters: {
+      'contractId': contractId,
+      'stationId': stationId,
+      'month': '$month',
+      'year': '$year',
+    });
+    final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return PerformanceScorecard.fromJson(data['scorecard']);
+    }
+    throw Exception(jsonDecode(response.body)['error'] ?? 'Failed to load scorecard');
+  }
+
+  static Future<PerformanceBill> generatePerformanceBill({
+    required String contractId,
+    required String stationId,
+    required int month,
+    required int year,
+  }) async {
+    final token = await getToken();
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/performance-billing/bills'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      body: jsonEncode({'contractId': contractId, 'stationId': stationId, 'month': month, 'year': year}),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final data = jsonDecode(response.body);
+      return PerformanceBill.fromJson(data['bill'] ?? data);
+    }
+    throw Exception(jsonDecode(response.body)['error'] ?? 'Failed to create bill');
+  }
+
+  static Future<List<PerformanceBill>> listPerformanceBills({
+    String? contractId,
+    String? stationId,
+    int? month,
+    int? year,
+    String? status,
+  }) async {
+    final token = await getToken();
+    final params = <String, String>{
+      if (contractId != null) 'contractId': contractId,
+      if (stationId != null) 'stationId': stationId,
+      if (month != null) 'month': '$month',
+      if (year != null) 'year': '$year',
+      if (status != null) 'status': status,
+    };
+    final uri = Uri.parse('$baseUrl/api/performance-billing/bills').replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return (data['bills'] as List<dynamic>? ?? [])
+          .map((e) => PerformanceBill.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('Failed to load bills');
+  }
+
+  static Future<PerformanceBill> getPerformanceBill(String uid) async {
+    final token = await getToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/performance-billing/bills/$uid'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return PerformanceBill.fromJson(data['bill']);
+    }
+    throw Exception('Failed to load bill');
+  }
+
+  static Future<PerformanceBill> performanceBillAction(String uid, String action, {Map<String, dynamic>? body}) async {
+    final token = await getToken();
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/performance-billing/bills/$uid/$action'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      body: body == null ? null : jsonEncode(body),
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return PerformanceBill.fromJson(data['bill']);
+    }
+    throw Exception(jsonDecode(response.body)['error'] ?? 'Failed to run bill action: $action');
+  }
+
+  static Future<bool> deletePerformanceBill(String uid) async {
+    final token = await getToken();
+    final response = await http.delete(
+      Uri.parse('$baseUrl/api/performance-billing/bills/$uid'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) return true;
+    throw Exception('Failed to delete bill');
+  }
+
+  static Future<PerformanceBillingDashboard> getPerformanceBillingDashboard({String? contractId, String? stationId}) async {
+    final token = await getToken();
+    final params = <String, String>{
+      if (contractId != null) 'contractId': contractId,
+      if (stationId != null) 'stationId': stationId,
+    };
+    final uri = Uri.parse('$baseUrl/api/performance-billing/dashboard').replace(queryParameters: params.isNotEmpty ? params : null);
+    final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
+    if (response.statusCode == 200) {
+      return PerformanceBillingDashboard.fromJson(jsonDecode(response.body));
+    }
+    throw Exception('Failed to load billing dashboard');
   }
 
 }

@@ -10,6 +10,7 @@ import 'billing/area_weightage_screen.dart';
 import 'billing/billing_support_pack_screen.dart';
 import 'billing/contract_estimation_screen.dart';
 import 'billing/daily_task_billing_screen.dart';
+import 'billing/performance_billing_screen.dart';
 import 'feedback/feedback_qr_screen.dart';
 import 'feedback/passenger_feedback_form_screen.dart';
 import 'feedback/passenger_feedback_list_screen.dart';
@@ -127,6 +128,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.assessment, 'Reports', Colors.purple, () => _openReports(context)),
       _moduleCard(context, Icons.receipt, 'Billing', Colors.deepOrange, () => _openBilling(context)),
       _moduleCard(context, Icons.calendar_month, 'Daily\nBilling', Colors.teal, () => _openDailyBilling(context)),
+      _moduleCard(context, Icons.payments, 'Performance\nBilling', Colors.redAccent, () => _openPerformanceBilling(context)),
       _moduleCard(context, Icons.tune, 'Area\nWeightage', Colors.brown, () => _openAreaWeightage(context)),
       _moduleCard(context, Icons.calculate, 'Estimation /\nVariation / SWO', Colors.orange, () => _openEstimation(context)),
       _moduleCard(context, Icons.book, 'Daily\nAudit Log', Colors.blue, () => _openDailyLog(context)),
@@ -215,6 +217,20 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     final contractId = _effectiveContractId();
     if (contractId != null) {
       Navigator.push(context, MaterialPageRoute(builder: (_) => DailyTaskBillingScreen(contractId: contractId, stationId: _selectedStationId, stationName: _selectedStationName)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
+    }
+  }
+
+  void _openPerformanceBilling(BuildContext context) {
+    if (_loadingContract) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checking contract for this station…')));
+      return;
+    }
+    final contractId = _effectiveContractId();
+    if (contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => PerformanceBillingScreen(
+          contractId: contractId, stationId: _selectedStationId, stationName: _selectedStationName)));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
     }
