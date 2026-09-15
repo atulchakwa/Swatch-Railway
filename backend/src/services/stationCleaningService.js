@@ -1944,6 +1944,17 @@ class StationCleaningService {
     }
 
     const ref = db.collection('stationSupervisorShifts').doc(supervisorId);
+
+    // Read the current shift before overwriting so we can migrate tasks if it changes.
+    let oldShift = null;
+    try {
+      const existingDoc = await ref.get();
+      if (existingDoc.exists) {
+        const existingData = existingDoc.data();
+        oldShift = existingData.shift ? String(existingData.shift).trim().toLowerCase() : null;
+      }
+    } catch (_) {}
+
     if (shift === 'none') {
       await ref.delete();
     } else {
@@ -1958,7 +1969,72 @@ class StationCleaningService {
     if (shift !== 'none') {
       await this._ensureShiftSchedule(stationId, shift, contract.uid, supervisorId, supData.fullName || '');
     }
+
+    // If the shift actually changed, migrate today's pending tasks from the old
+    // shift-holder to the supervisor now holding the old shift window so tasks
+    // remain visible to the correct person.
+    if (oldShift && oldShift !== shift && shift !== 'none') {
+      try {
+        await this._migrateShiftTasksOnReassign(supervisorId, stationId, oldShift);
+      } catch (err) {
+        console.error('[assignSupervisorShift] task migration failed:', err.message);
+      }
+    }
+
     return { uid: supervisorId, shift: shift === 'none' ? null : shift, stationId };
+  }
+
+  // After a supervisor is moved to a different shift, reassign that supervisor's
+  // today tasks (still pending/assigned/in_progress) that belong to the OLD
+  // shift window to the supervisor(s) now holding that window. Keeps the rule
+  // 'supervisor only sees tasks of their own shift' from hiding their tasks.
+  // When several supervisors share the old shift, tasks are distributed evenly
+  // so a single holder does not end up with everything.
+  async _migrateShiftTasksOnReassign(supervisorId, stationId, oldShift) {
+    const todayIST = getISTDate();
+
+    // Candidates currently holding the old shift at this station (excluding the
+    // supervisor being reassigned). If none, the old window is unstaffed for now
+    // and there is no valid destination to move tasks to.
+    const candidates = [];
+    try {
+      const shiftSnap = await db.collection('stationSupervisorShifts')
+        .where('stationId', '==', stationId).get();
+      shiftSnap.forEach(doc => {
+        const d = doc.data();
+        const s = d.shift ? String(d.shift).trim().toLowerCase() : '';
+        if (doc.id !== supervisorId && s === oldShift) {
+          candidates.push({ uid: doc.id, fullName: d.supervisorName || '' });
+        }
+      });
+    } catch (_) {}
+    if (candidates.length === 0) return 0;
+
+    const terminal = new Set(['completed', 'approved', 'rejected']);
+    const toMigrate = [];
+    const taskSnap = await db.collection('cleaningTasks')
+      .where('supervisorId', '==', supervisorId).get();
+    taskSnap.forEach(doc => {
+      const t = doc.data();
+      const taskDate = t.date || t.scheduledDate || '';
+      const taskShift = t.shift ? String(t.shift).trim().toLowerCase() : '';
+      if (taskDate === todayIST && taskShift === oldShift && !terminal.has(t.status || '')) {
+        toMigrate.push(doc);
+      }
+    });
+    if (toMigrate.length === 0) return 0;
+
+    const batch = db.batch();
+    toMigrate.forEach((doc, i) => {
+      const target = candidates[i % candidates.length];
+      batch.update(doc.ref, {
+        supervisorId: target.uid,
+        supervisorName: target.fullName,
+      });
+    });
+    await batch.commit();
+    console.log(`[assignSupervisorShift] migrated ${toMigrate.length} ${oldShift} tasks from ${supervisorId} to ${candidates.length} holder(s)`);
+    return toMigrate.length;
   }
 
   // Guarantees a default schedule exists for a station+shift window so the
