@@ -24,6 +24,8 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
   int _selectedYear = DateTime.now().year;
 
   StationBillingPack? _billingPack;
+  List<StationBillingPack> _historyPacks = [];
+  bool _historyLoading = false;
   String? _errorMessage;
   final TextEditingController _rejectionReasonCtrl = TextEditingController();
   String? _resolvedContractId;
@@ -34,6 +36,28 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
     _resolvedContractId = widget.contractId;
     if (_resolvedContractId == null || _resolvedContractId!.isEmpty) {
       _resolveContractId();
+    } else {
+      _loadHistory();
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    if (_resolvedContractId == null || _resolvedContractId!.isEmpty) return;
+    setState(() => _historyLoading = true);
+    try {
+      final packs = await StationBillingRepository.list({
+        'contractId': _resolvedContractId!,
+        'stationId': widget.stationId,
+        'limit': '100',
+      });
+      if (!mounted) return;
+      setState(() {
+        _historyPacks = packs;
+        _historyLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _historyLoading = false);
     }
   }
 
@@ -49,6 +73,7 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
         _resolvedContractId = contract.uid;
         _isLoading = false;
       });
+      _loadHistory();
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -66,21 +91,47 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
   }
 
   Future<void> _fetchOrGenerate() async {
+    if (!mounted) return;
     if (_resolvedContractId == null || _resolvedContractId!.isEmpty) {
       await _resolveContractId();
     }
+    if (!mounted) return;
     if (_resolvedContractId == null || _resolvedContractId!.isEmpty) return;
 
     setState(() { _isLoading = true; _errorMessage = null; });
     try {
-      final pack = await StationBillingRepository.generate(
-        _resolvedContractId!,
-        widget.stationId,
-        _selectedMonth,
-        _selectedYear,
-      );
+      StationBillingPack pack;
+      if (_can('GENERATE')) {
+        pack = await StationBillingRepository.generate(
+          _resolvedContractId!,
+          widget.stationId,
+          _selectedMonth,
+          _selectedYear,
+        );
+      } else {
+        final existing = await StationBillingRepository.list({
+          'contractId': _resolvedContractId!,
+          'stationId': widget.stationId,
+          'month': '$_selectedMonth',
+          'year': '$_selectedYear',
+        });
+        if (existing.isEmpty) {
+          if (!mounted) return;
+          setState(() {
+            _billingPack = null;
+            _isLoading = false;
+            _errorMessage = 'No billing pack exists for ${_selectedMonth}/${_selectedYear}. '
+                'You have view-only access — generation is done by the contractor admin or railway. '
+                'Pick a month below that has a pack (see Previous Billing Packs).';
+          });
+          return;
+        }
+        pack = existing.first;
+      }
+      if (!mounted) return;
       setState(() => _billingPack = pack);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _errorMessage = e.toString());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -88,7 +139,7 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
         );
       }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -153,15 +204,16 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
   bool _can(String permission) {
     final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
     if (user == null) return false;
-    final r = (user.role ?? '').toUpperCase().replaceAll(' ', '_');
+    final r = user.role.toUpperCase().replaceAll(' ', '_');
     const perms = {
-      'SUPER_ADMIN': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
-      'COMPANY_MASTER': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
+      'SUPER_ADMIN': {'VIEW', 'GENERATE', 'MANAGE', 'APPROVE', 'PAY'},
+      'COMPANY_MASTER': {'VIEW', 'GENERATE', 'MANAGE', 'APPROVE', 'PAY'},
       'RAILWAY_MASTER': {'VIEW'},
-      'ADMIN': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
-      'RAILWAY_ADMIN': {'VIEW', 'MANAGE', 'APPROVE', 'PAY'},
+      'ADMIN': {'VIEW', 'GENERATE', 'MANAGE', 'APPROVE', 'PAY'},
+      'RAILWAY_ADMIN': {'VIEW', 'GENERATE', 'MANAGE', 'APPROVE', 'PAY'},
       'CONTRACTOR_MASTER': {'VIEW'},
-      'CONTRACTOR_ADMIN': {'VIEW', 'MANAGE', 'APPROVE'},
+      'CONTRACTOR_ADMIN': {'VIEW', 'GENERATE', 'MANAGE', 'APPROVE'},
+      'CONTRACTOR_SUPERVISOR': {'VIEW'},
     };
     return (perms[r] ?? <String>{}).contains(permission);
   }
@@ -342,14 +394,15 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
                 SizedBox(
                   height: 44,
                   child: ElevatedButton(
-                    onPressed: _fetchOrGenerate,
+                    onPressed: _isLoading ? null : _fetchOrGenerate,
                     style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue, foregroundColor: Colors.white),
-                    child: const Text('Go'),
+                    child: Text(_can('GENERATE') ? 'Go' : 'View'),
                   ),
                 ),
               ],
             ),
           ),
+          _buildHistoryCard(),
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -404,6 +457,105 @@ class _BillingSupportPackScreenState extends State<BillingSupportPackScreen> {
                           ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openHistoryPack(StationBillingPack p) async {
+    if (!mounted) return;
+    setState(() {
+      _selectedMonth = p.month;
+      _selectedYear = p.year;
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final fresh = await StationBillingRepository.getById(p.uid);
+      if (!mounted) return;
+      setState(() {
+        _billingPack = fresh;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _billingPack = p;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Widget _buildHistoryCard() {
+    if (_historyLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 10),
+        child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+      );
+    }
+    if (_historyPacks.isEmpty) return const SizedBox.shrink();
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.history, size: 16, color: kRailwayBlue),
+                SizedBox(width: 6),
+                Text('Previous Billing Packs', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_historyPacks.length} month${_historyPacks.length != 1 ? 's' : ''} billed. Tap a month to view it.',
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 46,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _historyPacks.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final p = _historyPacks[i];
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _openHistoryPack(p),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: p.uid == _billingPack?.uid ? kRailwayBlue.withOpacity(0.12) : Colors.white,
+                        border: Border.all(color: p.uid == _billingPack?.uid ? kRailwayBlue : Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${p.month}/${p.year}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          Row(
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(color: _statusColor(p.status), shape: BoxShape.circle),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(p.status, style: TextStyle(fontSize: 9, color: Colors.grey[600])),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -10,6 +10,7 @@ class AreaConfig {
   final String defaultShift;
   final int defaultWorkers;
   final int priority;
+  final double? tenderedAreaSqFt;
   final String? qrCode;
   final String status;
 
@@ -25,6 +26,7 @@ class AreaConfig {
     this.defaultShift = 'morning',
     this.defaultWorkers = 1,
     this.priority = 3,
+    this.tenderedAreaSqFt,
     this.qrCode,
     this.status = 'active',
   });
@@ -41,6 +43,9 @@ class AreaConfig {
     defaultShift: json['defaultShift'] ?? 'morning',
     defaultWorkers: json['defaultWorkers'] ?? 1,
     priority: json['priority'] ?? 3,
+    tenderedAreaSqFt: (json['tenderedAreaPerDay'] ?? json['basicAreaSqFt'] ?? json['tenderedAreaSqFt']).toString().isNotEmpty
+        ? double.tryParse((json['tenderedAreaPerDay'] ?? json['basicAreaSqFt'] ?? json['tenderedAreaSqFt']).toString())
+        : null,
     qrCode: json['qrCode'],
     status: json['status'] ?? 'active',
   );

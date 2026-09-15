@@ -1,5 +1,5 @@
+import 'package:crm_train/model/railway_worker_model.dart';
 import 'package:crm_train/model/station_cleaning_models.dart';
-import 'package:crm_train/model/user_model.dart';
 import 'package:crm_train/repositories/execution_repository.dart';
 import 'package:crm_train/repositories/obhs_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
@@ -20,7 +20,7 @@ class _ExecutionPlanFormScreenState extends State<ExecutionPlanFormScreen> {
   bool _isLoading = false;
   bool _supervisorsLoaded = false;
 
-  List<UserModel> _allSupervisors = [];
+  List<RailwayWorkerModel> _allSupervisors = [];
 
   late TextEditingController _contractIdCtrl;
   late TextEditingController _machinePlanCtrl;
@@ -34,6 +34,12 @@ class _ExecutionPlanFormScreenState extends State<ExecutionPlanFormScreen> {
   final Set<String> _morningSupervisors = {};
   final Set<String> _afternoonSupervisors = {};
   final Set<String> _nightSupervisors = {};
+
+  final Set<String> _morningWorkers = {};
+  final Set<String> _afternoonWorkers = {};
+  final Set<String> _nightWorkers = {};
+  List<RailwayWorkerModel> _allWorkers = [];
+  bool _workersLoaded = false;
 
   List<String> _materials = [];
 
@@ -65,11 +71,12 @@ class _ExecutionPlanFormScreenState extends State<ExecutionPlanFormScreen> {
       }
     }
     _loadSupervisors();
+    _loadWorkers();
   }
 
   Future<void> _loadSupervisors() async {
     try {
-      final supervisors = await OBHSRepository.getUsersByRole('Contractor Supervisor'); // We'll implement this
+      final supervisors = await OBHSRepository.getWorkers();
       if (mounted) {
         setState(() {
           _allSupervisors = supervisors;
@@ -77,6 +84,20 @@ class _ExecutionPlanFormScreenState extends State<ExecutionPlanFormScreen> {
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadWorkers() async {
+    try {
+      final workers = await OBHSRepository.getWorkers();
+      if (mounted) {
+        setState(() {
+          _allWorkers = workers;
+          _workersLoaded = true;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _workersLoaded = true);
+    }
   }
 
   @override
@@ -109,6 +130,29 @@ class _ExecutionPlanFormScreenState extends State<ExecutionPlanFormScreen> {
       ),
     );
     if (selected != null) {
+      setState(() {
+        currentSelection.clear();
+        currentSelection.addAll(selected);
+      });
+    }
+  }
+
+  Future<void> _showWorkerPicker(String shift, Set<String> currentSelection) async {
+    final selected = await showDialog<Set<String>>(
+      context: context,
+      builder: (ctx) => _WorkerMultiSelectDialog(
+        title: 'Select $shift Shift Workers',
+        allWorkers: _allWorkers,
+        preSelected: Set.from(currentSelection),
+        shiftWorkers: {
+          'morning': _morningWorkers,
+          'afternoon': _afternoonWorkers,
+          'night': _nightWorkers,
+        },
+        currentShift: shift,
+      ),
+    );
+    if (selected != null && mounted) {
       setState(() {
         currentSelection.clear();
         currentSelection.addAll(selected);
@@ -519,7 +563,7 @@ class _ExecutionPlanFormScreenState extends State<ExecutionPlanFormScreen> {
 
 class _SupervisorMultiSelectDialog extends StatefulWidget {
   final String title;
-  final List<UserModel> allSupervisors;
+  final List<RailwayWorkerModel> allSupervisors;
   final Set<String> preSelected;
   final Map<String, Set<String>> shiftSupervisors;
   final String currentShift;
@@ -569,14 +613,92 @@ class _SupervisorMultiSelectDialogState extends State<_SupervisorMultiSelectDial
 
                   return CheckboxListTile(
                     value: isSelected,
-                    title: Text(sup.fullName ?? 'Unknown'),
+                    title: Text(sup.fullName),
                     subtitle: conflictShift != null ? Text('Assigned to $conflictShift', style: const TextStyle(color: Colors.orange, fontSize: 12)) : null,
                     onChanged: conflictShift != null ? null : (val) {
                       setState(() {
                         if (val == true) {
-                          _selectedIds.add(sup.uid!);
+                          _selectedIds.add(sup.uid);
                         } else {
                           _selectedIds.remove(sup.uid);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, _selectedIds),
+          child: Text('Assign (${_selectedIds.length})'),
+        ),
+      ],
+    );
+  }
+}
+
+class _WorkerMultiSelectDialog extends StatefulWidget {
+  final String title;
+  final List<RailwayWorkerModel> allWorkers;
+  final Set<String> preSelected;
+  final Map<String, Set<String>> shiftWorkers;
+  final String currentShift;
+
+  const _WorkerMultiSelectDialog({
+    required this.title,
+    required this.allWorkers,
+    required this.preSelected,
+    required this.shiftWorkers,
+    required this.currentShift,
+  });
+
+  @override
+  State<_WorkerMultiSelectDialog> createState() => _WorkerMultiSelectDialogState();
+}
+
+class _WorkerMultiSelectDialogState extends State<_WorkerMultiSelectDialog> {
+  late Set<String> _selectedIds;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIds = Set.from(widget.preSelected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: widget.allWorkers.isEmpty
+            ? const Center(child: Text('No workers available.'))
+            : ListView.builder(
+                shrinkWrap: true,
+                itemCount: widget.allWorkers.length,
+                itemBuilder: (ctx, index) {
+                  final worker = widget.allWorkers[index];
+                  final isSelected = _selectedIds.contains(worker.uid);
+
+                  String? conflictShift;
+                  widget.shiftWorkers.forEach((shiftName, ids) {
+                    if (shiftName != widget.currentShift && ids.contains(worker.uid)) {
+                      conflictShift = shiftName;
+                    }
+                  });
+
+                  return CheckboxListTile(
+                    value: isSelected,
+                    title: Text(worker.fullName),
+                    subtitle: conflictShift != null ? Text('Assigned to $conflictShift', style: const TextStyle(color: Colors.orange, fontSize: 12)) : null,
+                    onChanged: conflictShift != null ? null : (val) {
+                      setState(() {
+                        if (val == true) {
+                          _selectedIds.add(worker.uid);
+                        } else {
+                          _selectedIds.remove(worker.uid);
                         }
                       });
                     },

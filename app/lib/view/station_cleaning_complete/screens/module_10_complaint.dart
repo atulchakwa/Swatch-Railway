@@ -119,7 +119,7 @@ class ComplaintTrackingScreen extends StatelessWidget {
               const SizedBox(width: 8),
               OutlinedButton.icon(onPressed: () {}, icon: const Icon(Icons.replay, size: 18), label: const Text('Reopen', style: TextStyle(fontSize: 12))),
               const SizedBox(width: 8),
-              OutlinedButton.icon(onPressed: () {}, icon: const Icon(Icons.resend, size: 18), label: const Text('Resubmit', style: TextStyle(fontSize: 12))),
+              OutlinedButton.icon(onPressed: () {}, icon: const Icon(Icons.send, size: 18), label: const Text('Resubmit', style: TextStyle(fontSize: 12))),
             ]),
             const SizedBox(height: 8),
             TextField(decoration: InputDecoration(labelText: 'Remarks', hintText: 'Add review remarks...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), isDense: true), maxLines: 2, controller: TextEditingController(text: 'Good work, maintain same standard.')),

@@ -1,9 +1,9 @@
-import 'package:crm_train/model/annexure_weightage_defaults.dart';
-import 'package:crm_train/model/task_billing_models.dart';
+import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
 import 'package:crm_train/repositories/task_billing_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class AreaWeightageScreen extends StatefulWidget {
   final String contractId;
@@ -20,7 +20,6 @@ class _WeightageRow {
   final String mainArea;
   final double tenderedAreaSqFt;
   final String cleaningFrequency;
-  int? itemNo;
   final TextEditingController weightCtrl;
   final TextEditingController rateCtrl;
 
@@ -29,7 +28,6 @@ class _WeightageRow {
     required this.mainArea,
     required this.tenderedAreaSqFt,
     required this.cleaningFrequency,
-    this.itemNo,
     required this.weightCtrl,
     required this.rateCtrl,
   });
@@ -37,12 +35,15 @@ class _WeightageRow {
 
 class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
   List<_WeightageRow> _rows = [];
-  List<AreaWeightage> _weightages = [];
   bool _loading = true;
   bool _saving = false;
-  bool _defaultsApplied = false;
   bool _statusError = false;
   String _status = '';
+
+  bool get _readOnly {
+    final role = (Provider.of<AuthProvider>(context, listen: false).currentUser?.role ?? '').toUpperCase().replaceAll(' ', '_');
+    return role == 'CONTRACTOR_SUPERVISOR' || role == 'CONTRACTOR_MASTER' || role == 'RAILWAY_MASTER';
+  }
 
   @override
   void initState() {
@@ -83,9 +84,8 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
           mainArea: (a['mainArea'] ?? '').toString(),
           tenderedAreaSqFt: double.tryParse((a['tenderedAreaPerDay'] ?? 0).toString()) ?? 0,
           cleaningFrequency: (a['cleaningFrequency'] ?? 'daily').toString(),
-          itemNo: saved?.annexureItemNo ?? resolveAnnexureItemNo(mainArea: (a['mainArea'] ?? '').toString(), areaName: areaName),
           weightCtrl: TextEditingController(text: saved != null ? _fmt(saved.weightage) : ''),
-          rateCtrl: TextEditingController(text: saved != null && saved.ratePerSqFt != null ? _fmt(saved.ratePerSqFt!) : ''),
+          rateCtrl: TextEditingController(text: saved?.ratePerSqFt != null ? _fmt(saved!.ratePerSqFt!) : ''),
         ));
       }
 
@@ -93,16 +93,22 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
       final hasBlank = rows.any((r) => r.weightCtrl.text.trim().isEmpty);
       setState(() {
         _rows = rows;
-        _weightages = weightages;
         _loading = false;
-        if (weightages.isEmpty && rows.isNotEmpty) {
-          _applyDefaults();
-          _statusError = false;
-          _status = 'Auto-filled Annexure-AB defaults — total 100%. Review then Save All.';
+        _statusError = false;
+        if (_readOnly) {
+          _status = hasBlank
+              ? 'View-only access — weightages shown as saved. Ask contractor admin to fill missing areas.'
+              : 'View-only access — current weightages displayed.';
+        } else if (rows.isEmpty) {
+          _status = '';
+        } else if (weightages.isEmpty) {
+          _equalSplit();
+          _status = 'Auto-filled equal split — total 100%. Adjust then Save All.';
         } else if (hasBlank) {
-          _applyDefaults(recompute: false);
-          _statusError = false;
-          _status = 'New area(s) detected in Area Management — weightage re-split across all areas so the total stays 100%. Review then Save All.';
+          _rebalanceForNewAreas();
+          _status = 'New area(s) detected — equal share assigned, existing values scaled to keep total 100%.';
+        } else {
+          _status = '';
         }
       });
     } catch (e) {
@@ -128,71 +134,71 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
     return sum;
   }
 
-  void _applyDefaults({bool recompute = true}) {
+  void _equalSplit() {
     if (_rows.isEmpty) return;
-    final byItem = <int, List<_WeightageRow>>{};
-    for (final r in _rows) {
-      if (recompute) {
-        r.itemNo = resolveAnnexureItemNo(mainArea: r.mainArea, areaName: r.areaName) ?? 1;
-      }
-      byItem.putIfAbsent(r.itemNo ?? 1, () => []).add(r);
+    var assigned = 0.0;
+    for (var i = 0; i < _rows.length; i++) {
+      final share = i == _rows.length - 1 ? 100 - assigned : 100 / _rows.length;
+      final val = double.parse(share.toStringAsFixed(2));
+      _rows[i].weightCtrl.text = _fmt(val);
+      assigned += val;
     }
-
-    final present = byItem.keys.toSet();
-    final hasItem1 = present.contains(1);
-    final bucketOf = <int, double>{};
-    var presentBaseSum = 0.0;
-    for (final itemNo in present) {
-      final def = annexureWeightageDefaults.where((d) => d.itemNo == itemNo).firstOrNull;
-      bucketOf[itemNo] = def?.weightage ?? 0;
-      presentBaseSum += bucketOf[itemNo]!;
-    }
-    final absentPool = 100 - presentBaseSum;
-
-    double effectiveBucket(int itemNo) {
-      var b = bucketOf[itemNo] ?? 0;
-      if (hasItem1) {
-        if (itemNo == 1) b += absentPool;
-      } else if (presentBaseSum > 0) {
-        b += absentPool * b / presentBaseSum;
-      }
-      return b;
-    }
-
-    for (final entry in byItem.entries) {
-      final itemNo = entry.key;
-      final bucket = effectiveBucket(itemNo);
-      final rows = entry.value;
-      final totalTendered = rows.fold<double>(0, (s, r) => s + r.tenderedAreaSqFt);
-      var assigned = 0.0;
-      for (var i = 0; i < rows.length; i++) {
-        final r = rows[i];
-        final share = totalTendered > 0
-            ? double.parse((bucket * r.tenderedAreaSqFt / totalTendered).toStringAsFixed(2))
-            : double.parse((bucket / rows.length).toStringAsFixed(2));
-        final val = (i == rows.length - 1)
-            ? double.parse((bucket - assigned).toStringAsFixed(2))
-            : share;
-        assigned += val;
-        r.weightCtrl.text = _fmt(val);
-      }
-    }
-    setState(() => _defaultsApplied = true);
+    _snapTotalTo100();
   }
 
-  Future<void> _confirmAndApplyDefaults() async {
+  void _rebalanceForNewAreas() {
+    if (_rows.isEmpty) return;
+    final unsaved = _rows.where((r) => r.weightCtrl.text.trim().isEmpty).toList();
+    final saved = _rows.where((r) => r.weightCtrl.text.trim().isNotEmpty).toList();
+
+    if (unsaved.isEmpty) return;
+    if (saved.isEmpty) {
+      _equalSplit();
+      return;
+    }
+    final shareEach = 100 / _rows.length;
+    final unsavedTotal = shareEach * unsaved.length;
+    final savedSum = saved.fold<double>(0, (s, r) => s + (double.tryParse(r.weightCtrl.text.trim()) ?? 0));
+    final factor = savedSum > 0 ? (100 - unsavedTotal) / savedSum : 1;
+
+    for (final r in saved) {
+      final val = double.tryParse(r.weightCtrl.text.trim()) ?? 0;
+      r.weightCtrl.text = _fmt(val * factor);
+    }
+    for (final r in unsaved) {
+      r.weightCtrl.text = _fmt(shareEach);
+    }
+    _snapTotalTo100();
+  }
+
+  void _snapTotalTo100() {
+    if (_rows.isEmpty) return;
+    final total = _currentTotal();
+    final diff = double.parse((100 - total).toStringAsFixed(2));
+    if (diff.abs() < 0.001) return;
+    final cur = double.tryParse(_rows.first.weightCtrl.text) ?? 0;
+    _rows.first.weightCtrl.text = _fmt(cur + diff);
+  }
+
+  Future<void> _resetToEqual() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Load Annexure-AB defaults?'),
-        content: const Text('This recomputes every area weightage from the Annexure-AB table (25 items). The 100% is always split across this station\'s \u201CArea Arrangement\u201D: missing items are added to Item 1 (45%) when a Platform/other area exists, otherwise they are redistributed proportionally across the areas present, so the station total always equals 100%. Your saved rate overrides are kept. Continue?'),
+        title: const Text('Reset to equal split?'),
+        content: const Text('This divides 100% equally across all areas. Any weightages you entered will be overwritten. Your saved area ₹/sq.ft. rates are kept. Continue?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Apply')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reset')),
         ],
       ),
     );
-    if (ok == true) _applyDefaults(recompute: true);
+    if (ok == true) {
+      setState(() {
+        _equalSplit();
+        _statusError = false;
+        _status = 'Equal split applied — total 100%. Adjust then Save All.';
+      });
+    }
   }
 
   Future<void> _saveAll() async {
@@ -205,32 +211,46 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
         });
         return;
       }
+      final rt = r.rateCtrl.text.trim();
+      final rate = rt.isNotEmpty ? double.tryParse(rt) : null;
+      if (rt.isNotEmpty && (rate == null || rate <= 0)) {
+        setState(() {
+          _statusError = true;
+          _status = 'Invalid rate for "${r.areaName}" — enter a positive ₹/sq.ft. or leave blank (contract-derived).';
+        });
+        return;
+      }
     }
     setState(() {
       _saving = true;
       _status = '';
     });
     var saved = 0;
+    var withRate = 0;
     try {
       for (final r in _rows) {
+        final w = double.tryParse(r.weightCtrl.text) ?? 0;
+        final rt = r.rateCtrl.text.trim();
+        final rate = rt.isNotEmpty ? double.tryParse(rt) : null;
         await TaskBillingRepository.upsertWeightage({
           'contractId': widget.contractId,
           'stationId': widget.stationId,
           'areaName': r.areaName.trim(),
           'mainArea': r.mainArea,
-          'annexureItemNo': r.itemNo,
-          'weightage': double.tryParse(r.weightCtrl.text) ?? 0,
+          'weightage': w,
           'tenderedAreaSqFt': r.tenderedAreaSqFt,
           'cleaningFrequency': r.cleaningFrequency,
-          if (r.rateCtrl.text.trim().isNotEmpty) 'ratePerSqFt': double.tryParse(r.rateCtrl.text.trim()),
+          if (rate != null) 'ratePerSqFt': rate,
         });
         saved++;
+        if (rate != null) withRate++;
       }
       if (!mounted) return;
       setState(() {
         _saving = false;
         _statusError = false;
-        _status = 'Saved $saved area weightage(s) — each update is versioned + audited.';
+        _status = 'Saved $saved area weightage(s) — each update is versioned + audited.'
+            + ' Rates: $withRate area(s) with own ₹/sq.ft.; the rest use the contract-derived rate.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -265,7 +285,7 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
                     if (_status.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        child: Text(_status, style: TextStyle(fontSize: 12, color: _statusError ? kErrorRed : kSuccessGreen)),
+                        child: Text(_status, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: _statusError ? kErrorRed : kSuccessGreen)),
                       ),
                     Expanded(
                       child: RefreshIndicator(
@@ -285,38 +305,59 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
   Widget _buildHeader() {
     final total = _currentTotal();
     final ok = (total - 100).abs() <= 0.6;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Total weightage: ${total.toStringAsFixed(2)}%',
-              style: TextStyle(fontWeight: FontWeight.bold, color: ok ? kSuccessGreen : kErrorRed),
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Each area can have its own ₹/sq.ft. rate (as per contract). Leave a rate blank for the contract-derived rate.',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
             ),
-          ),
-          OutlinedButton(
-            onPressed: _saving || _loading ? null : _confirmAndApplyDefaults,
-            child: const Text('Load Defaults'),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: _saving || _loading ? null : _saveAll,
-            child: Text(_saving ? 'Saving…' : 'Save All'),
-          ),
-        ],
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: (ok ? kSuccessGreen : kErrorRed).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Total weightage: ${total.toStringAsFixed(2)}%${ok ? ' ✓' : ' (should be 100%)'}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: ok ? kSuccessGreen : kErrorRed, fontSize: 13),
+                    ),
+                  ),
+                ),
+                if (!_readOnly) ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: _saving || _loading ? null : _resetToEqual,
+                    child: const Text('Equal Split'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _saving || _loading ? null : _saveAll,
+                    child: Text(_saving ? 'Saving…' : 'Save All'),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildRowCard(_WeightageRow r) {
-    final itemDef = annexureWeightageDefaults.where((d) => d.itemNo == r.itemNo).firstOrNull;
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -332,77 +373,48 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
                     ],
                   ),
                 ),
-                if (itemDef != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.brown.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                    child: Text('Item ${itemDef.itemNo}', style: const TextStyle(fontSize: 11, color: Colors.brown, fontWeight: FontWeight.bold)),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 110,
+                  child: TextField(
+                    controller: r.weightCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: !_saving && !_readOnly,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Weightage %',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
                   ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               children: [
+                const Icon(Icons.currency_rupee, size: 15, color: Colors.grey),
+                const SizedBox(width: 6),
                 Expanded(
-                  flex: 3,
-                  child: DropdownButtonFormField<int>(
-                    initialValue: r.itemNo,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'Annexure item *', isDense: true, border: OutlineInputBorder()),
-                    items: [
-                      for (final d in annexureWeightageDefaults)
-                        DropdownMenuItem(value: d.itemNo, child: Text('${d.itemNo}. ${d.name}', overflow: TextOverflow.ellipsis)),
-                    ],
-                    onChanged: _saving ? null : (v) {
-                      setState(() {
-                        r.itemNo = v;
-                        final def = annexureWeightageDefaults.where((d) => d.itemNo == v).firstOrNull;
-                        final cur = double.tryParse(r.weightCtrl.text) ?? 0;
-                        if (r.weightCtrl.text.trim().isEmpty || cur == 0) {
-                          r.weightCtrl.text = def != null ? _fmt(def.weightage) : '';
-                        }
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: r.weightCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(labelText: 'Weightage %', isDense: true, border: OutlineInputBorder()),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
                   child: TextField(
                     controller: r.rateCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Rate ₹/sq.ft.', isDense: true, border: OutlineInputBorder()),
+                    enabled: !_saving && !_readOnly,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Rate ₹/sq.ft. (this area)',
+                      hintText: 'Blank → contract-derived',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ),
               ],
             ),
-            if (itemDef != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(itemDef.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              ),
           ],
         ),
       ),
     );
-  }
-}
-
-extension _FirstOrNullX<T> on Iterable<T> {
-  T? get firstOrNull {
-    for (final e in this) {
-      return e;
-    }
-    return null;
   }
 }

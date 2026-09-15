@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/services/api_services.dart';
+import 'package:crm_train/repositories/base_repository.dart';
 import 'package:crm_train/utills/app_colors.dart';
 
 class BulkAssignmentScreen extends StatefulWidget {

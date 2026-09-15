@@ -58,7 +58,7 @@ class _MaterialTrackingScreenState extends State<MaterialTrackingScreen> {
             const SizedBox(height: 8),
             DropdownButtonFormField(value: 'Amit Kumar', decoration: const InputDecoration(labelText: 'Issued To', isDense: true), items: ['Amit Kumar', 'Rohit Sharma', 'Suresh Patel'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (_) {}),
             const SizedBox(height: 8),
-            TextField(decoration: InputDecoration(labelText: 'Purpose', hintText: 'Enter purpose...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), isDense: true), initialValue: 'Cleaning PF-1 Toilet'),
+            TextField(decoration: InputDecoration(labelText: 'Purpose', hintText: 'Enter purpose...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), isDense: true), controller: TextEditingController(text: 'Cleaning PF-1 Toilet')),
             const SizedBox(height: 8),
             ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.check), label: const Text('ISSUE MATERIAL')),
           ]))),

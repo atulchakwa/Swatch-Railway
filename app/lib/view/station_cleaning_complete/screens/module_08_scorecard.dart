@@ -40,7 +40,7 @@ class _DailyScorecard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final areas = <Map<String, Object>>[
+    final areas = <Map<String, dynamic>>[
       {'area': 'PF-1 Toilet', 'score': '95%', 'grade': 'A', 'status': 'Excellent', 'color': Colors.green},
       {'area': 'PF-1 Surface', 'score': '88%', 'grade': 'B', 'status': 'Good', 'color': Colors.green},
       {'area': 'PF-2 Toilet', 'score': '82%', 'grade': 'B', 'status': 'Good', 'color': Colors.green},

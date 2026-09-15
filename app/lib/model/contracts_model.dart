@@ -95,55 +95,65 @@ class ContractModel {
       return null;
     }
 
+    String? _str(dynamic v) {
+      if (v == null) return null;
+      if (v is String) return v;
+      if (v is List) return v.map((e) => e.toString()).join(', ');
+      return v.toString();
+    }
+
     final rep = json['representative'] is Map ? json['representative'] as Map<String, dynamic> : {};
 
     final statusValue = (json['status'] ?? '').toString().toLowerCase();
     final bool isActiveValue = statusValue == 'active';
 
-    final stations = (json['stationIds'] as List?)?.cast<String>() ?? [];
-    final stNames = (json['stationNames'] as List?)?.cast<String>() ?? [];
-    final trains = (json['trainIds'] as List?)?.cast<String>() ?? [];
-    final trNames = (json['trainNames'] as List?)?.cast<String>() ?? [];
+    List<String> _stringList(dynamic v) =>
+        v is List ? v.map((e) => e.toString()).toList() : <String>[];
+
+    final stations = _stringList(json['stationIds']);
+    final stNames = _stringList(json['stationNames']);
+    final trains = _stringList(json['trainIds']);
+    final trNames = _stringList(json['trainNames']);
 
     return ContractModel(
       uid: json['uid'] ?? '',
-      contractNumber: json['contractNumber'],
-      contractName: json['contractName'],
-      entityId: json['entityId'],
-      entityName: json['entityName'],
-      zone: json['zone'],
-      division: json['division'],
-      depot: json['depot'],
+      contractNumber: _str(json['contractNumber']),
+      contractName: _str(json['contractName']),
+      entityId: _str(json['entityId']),
+      entityName: _str(json['entityName']),
+      zone: _str(json['zone']),
+      division: _str(json['division']),
+      depot: _str(json['depot']),
       stationIds: stations,
       stationNames: stNames,
       trainIds: trains,
       trainNames: trNames,
-      startDate: json['startDate'],
-      endDate: json['endDate'],
-      contractDuration: json['contractDuration'],
+      startDate: _str(json['startDate']),
+      endDate: _str(json['endDate']),
+      contractDuration: _str(json['contractDuration']),
       contractValue: (json['contractValue'] ?? 0).toDouble(),
-      workCategories: json['workCategories'],
-      remarks: json['remarks'],
-      status: json['status'],
-      billingCycle: json['billingCycle'],
-      contractType: json['contractType'],
+      workCategories: _str(json['workCategories']),
+      remarks: _str(json['remarks']),
+      status: _str(json['status']),
+      billingCycle: _str(json['billingCycle']),
+      contractType: _str(json['contractType']),
       scoringApplicability: json['scoringApplicability'] ?? true,
 
-      repName: json['repName'] ?? rep['name'],
-      repDesignation: json['repDesignation'] ?? rep['designation'],
-      repMobile: json['repMobile'] ?? rep['mobile'],
-      repEmail: json['repEmail'] ?? rep['email'],
-      repIdProofType: json['repIdProofType'] ?? rep['idProofType'],
-      repIdProofNumber: json['repIdProofNumber'] ?? rep['idProofNumber'],
+      repName: _str(json['repName']) ?? _str(rep['name']),
+      repDesignation: _str(json['repDesignation']) ?? _str(rep['designation']),
+      repMobile: _str(json['repMobile']) ?? _str(rep['mobile']),
+      repEmail: _str(json['repEmail']) ?? _str(rep['email']),
+      repIdProofType: _str(json['repIdProofType']) ?? _str(rep['idProofType']),
+      repIdProofNumber: _str(json['repIdProofNumber']) ?? _str(rep['idProofNumber']),
 
       isActive: isActiveValue,
 
       createdAt: _parseTimestamp(json['createdAt']),
-      createdBy: json['createdBy'],
-      createdByName: json['createdByName'],
+      createdBy: _str(json['createdBy']),
+      createdByName: _str(json['createdByName']),
       updatedAt: _parseTimestamp(json['updatedAt']),
-      updatedBy: json['updatedBy'],
-      updatedByName: json['updatedByName'],
+      updatedBy: _str(json['updatedBy']),
+      updatedByName: _str(json['updatedByName']),
     );
   }
 

@@ -41,7 +41,7 @@ class UserService {
       }
     }
 
-    const roleUpper = role.toUpperCase();
+    const roleUpper = role.toUpperCase().replace(/\s+/g, '_');
     const isContractorMaster = roleUpper === 'CONTRACTOR_MASTER';
 
     if (normalizedUserType === 'contractor' && !isContractorMaster) {

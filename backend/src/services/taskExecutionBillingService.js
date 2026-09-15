@@ -263,7 +263,7 @@ class TaskExecutionBillingService {
     if (body.annexureItemNo !== undefined) updates.annexureItemNo = body.annexureItemNo === null || body.annexureItemNo === '' ? null : (parseInt(body.annexureItemNo, 10) || null);
     if (body.cleaningFrequency !== undefined) updates.cleaningFrequency = body.cleaningFrequency;
     if (parseInt(body.boqTimesPerPeriod, 10) > 0) updates.boqTimesPerPeriod = parseInt(body.boqTimesPerPeriod, 10);
-    if (ratePerSqFt !== null) updates.ratePerSqFt = ratePerSqFt;
+    updates.ratePerSqFt = ratePerSqFt;
     await ref.update(updates);
     await auditService.logAudit('TASK_EXECUTION_WEIGHTAGE_UPDATED', userData.uid, userData.fullName || 'User', ref.id, 'contract_area_weightages', `Area weightage ${areaName} updated to ${weightageValue}% (v${(current.version || 1) + 1})`);
     return { message: 'Area weightage updated', uid: ref.id, version: (current.version || 1) + 1 };
