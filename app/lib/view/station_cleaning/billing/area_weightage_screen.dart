@@ -15,26 +15,24 @@ class AreaWeightageScreen extends StatefulWidget {
   State<AreaWeightageScreen> createState() => _AreaWeightageScreenState();
 }
 
-class _WeightageRow {
+class _RateRow {
   final String areaName;
   final String mainArea;
   final double tenderedAreaSqFt;
   final String cleaningFrequency;
-  final TextEditingController weightCtrl;
   final TextEditingController rateCtrl;
 
-  _WeightageRow({
+  _RateRow({
     required this.areaName,
     required this.mainArea,
     required this.tenderedAreaSqFt,
     required this.cleaningFrequency,
-    required this.weightCtrl,
     required this.rateCtrl,
   });
 }
 
 class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
-  List<_WeightageRow> _rows = [];
+  List<_RateRow> _rows = [];
   bool _loading = true;
   bool _saving = false;
   bool _statusError = false;
@@ -54,10 +52,14 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
   @override
   void dispose() {
     for (final r in _rows) {
-      r.weightCtrl.dispose();
       r.rateCtrl.dispose();
     }
     super.dispose();
+  }
+
+  static String _fmt(double v) {
+    final s = v.toStringAsFixed(2);
+    return s.endsWith('.00') ? v.toStringAsFixed(0) : s;
   }
 
   Future<void> _load() async {
@@ -73,40 +75,28 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
       final weightages = await TaskBillingRepository.getWeightages(widget.contractId, widget.stationId);
       final savedByArea = {for (final w in weightages) w.areaName.trim(): w};
 
-      final rows = <_WeightageRow>[];
+      final rows = <_RateRow>[];
       for (final ra in activeAreas) {
         final a = ra is Map ? Map<String, dynamic>.from(ra) : <String, dynamic>{};
         final areaName = (a['areaName'] ?? a['name'] ?? '').toString();
         if (areaName.trim().isEmpty) continue;
         final saved = savedByArea[areaName.trim()];
-        rows.add(_WeightageRow(
+        rows.add(_RateRow(
           areaName: areaName,
           mainArea: (a['mainArea'] ?? '').toString(),
           tenderedAreaSqFt: double.tryParse((a['tenderedAreaPerDay'] ?? 0).toString()) ?? 0,
           cleaningFrequency: (a['cleaningFrequency'] ?? 'daily').toString(),
-          weightCtrl: TextEditingController(text: saved != null ? _fmt(saved.weightage) : ''),
           rateCtrl: TextEditingController(text: saved?.ratePerSqFt != null ? _fmt(saved!.ratePerSqFt!) : ''),
         ));
       }
 
       if (!mounted) return;
-      final hasBlank = rows.any((r) => r.weightCtrl.text.trim().isEmpty);
       setState(() {
         _rows = rows;
         _loading = false;
         _statusError = false;
         if (_readOnly) {
-          _status = hasBlank
-              ? 'View-only access — weightages shown as saved. Ask contractor admin to fill missing areas.'
-              : 'View-only access — current weightages displayed.';
-        } else if (rows.isEmpty) {
-          _status = '';
-        } else if (weightages.isEmpty) {
-          _equalSplit();
-          _status = 'Auto-filled equal split — total 100%. Adjust then Save All.';
-        } else if (hasBlank) {
-          _rebalanceForNewAreas();
-          _status = 'New area(s) detected — equal share assigned, existing values scaled to keep total 100%.';
+          _status = 'View-only access — rates shown as saved. Ask contractor admin to update.';
         } else {
           _status = '';
         }
@@ -121,96 +111,23 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
     }
   }
 
-  static String _fmt(double v) {
-    final s = v.toStringAsFixed(2);
-    return s.endsWith('.00') ? v.toStringAsFixed(0) : s;
-  }
-
-  double _currentTotal() {
-    var sum = 0.0;
-    for (final r in _rows) {
-      sum += double.tryParse(r.weightCtrl.text) ?? 0;
-    }
-    return sum;
-  }
-
-  void _equalSplit() {
-    if (_rows.isEmpty) return;
+  // Weightage is no longer set by the user; share 100% equally so the
+  // backend / daily task billing keeps a valid 100% configuration.
+  List<double> _equalShares() {
+    if (_rows.isEmpty) return const [];
+    final shares = <double>[];
     var assigned = 0.0;
     for (var i = 0; i < _rows.length; i++) {
       final share = i == _rows.length - 1 ? 100 - assigned : 100 / _rows.length;
       final val = double.parse(share.toStringAsFixed(2));
-      _rows[i].weightCtrl.text = _fmt(val);
+      shares.add(val);
       assigned += val;
     }
-    _snapTotalTo100();
-  }
-
-  void _rebalanceForNewAreas() {
-    if (_rows.isEmpty) return;
-    final unsaved = _rows.where((r) => r.weightCtrl.text.trim().isEmpty).toList();
-    final saved = _rows.where((r) => r.weightCtrl.text.trim().isNotEmpty).toList();
-
-    if (unsaved.isEmpty) return;
-    if (saved.isEmpty) {
-      _equalSplit();
-      return;
-    }
-    final shareEach = 100 / _rows.length;
-    final unsavedTotal = shareEach * unsaved.length;
-    final savedSum = saved.fold<double>(0, (s, r) => s + (double.tryParse(r.weightCtrl.text.trim()) ?? 0));
-    final factor = savedSum > 0 ? (100 - unsavedTotal) / savedSum : 1;
-
-    for (final r in saved) {
-      final val = double.tryParse(r.weightCtrl.text.trim()) ?? 0;
-      r.weightCtrl.text = _fmt(val * factor);
-    }
-    for (final r in unsaved) {
-      r.weightCtrl.text = _fmt(shareEach);
-    }
-    _snapTotalTo100();
-  }
-
-  void _snapTotalTo100() {
-    if (_rows.isEmpty) return;
-    final total = _currentTotal();
-    final diff = double.parse((100 - total).toStringAsFixed(2));
-    if (diff.abs() < 0.001) return;
-    final cur = double.tryParse(_rows.first.weightCtrl.text) ?? 0;
-    _rows.first.weightCtrl.text = _fmt(cur + diff);
-  }
-
-  Future<void> _resetToEqual() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset to equal split?'),
-        content: const Text('This divides 100% equally across all areas. Any weightages you entered will be overwritten. Your saved area ₹/sq.ft. rates are kept. Continue?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reset')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      setState(() {
-        _equalSplit();
-        _statusError = false;
-        _status = 'Equal split applied — total 100%. Adjust then Save All.';
-      });
-    }
+    return shares;
   }
 
   Future<void> _saveAll() async {
     for (final r in _rows) {
-      final w = double.tryParse(r.weightCtrl.text);
-      if (w == null || w < 0 || w > 100) {
-        setState(() {
-          _statusError = true;
-          _status = 'Invalid weightage for "${r.areaName}" (0–100%).';
-        });
-        return;
-      }
       final rt = r.rateCtrl.text.trim();
       final rate = rt.isNotEmpty ? double.tryParse(rt) : null;
       if (rt.isNotEmpty && (rate == null || rate <= 0)) {
@@ -225,11 +142,11 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
       _saving = true;
       _status = '';
     });
+    final shares = _equalShares();
     var saved = 0;
-    var withRate = 0;
     try {
-      for (final r in _rows) {
-        final w = double.tryParse(r.weightCtrl.text) ?? 0;
+      for (var i = 0; i < _rows.length; i++) {
+        final r = _rows[i];
         final rt = r.rateCtrl.text.trim();
         final rate = rt.isNotEmpty ? double.tryParse(rt) : null;
         await TaskBillingRepository.upsertWeightage({
@@ -237,20 +154,18 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
           'stationId': widget.stationId,
           'areaName': r.areaName.trim(),
           'mainArea': r.mainArea,
-          'weightage': w,
+          'weightage': shares.isNotEmpty ? shares[i] : 0,
           'tenderedAreaSqFt': r.tenderedAreaSqFt,
           'cleaningFrequency': r.cleaningFrequency,
           if (rate != null) 'ratePerSqFt': rate,
         });
         saved++;
-        if (rate != null) withRate++;
       }
       if (!mounted) return;
       setState(() {
         _saving = false;
         _statusError = false;
-        _status = 'Saved $saved area weightage(s) — each update is versioned + audited.'
-            + ' Rates: $withRate area(s) with own ₹/sq.ft.; the rest use the contract-derived rate.';
+        _status = 'Saved $saved area rate(s) — each update is versioned + audited.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -271,19 +186,12 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Area Weightage', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text('Area Rates', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
             Text(widget.stationName, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11)),
           ],
         ),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.donut_small, color: Colors.white),
-            tooltip: 'Distribute weightage',
-            onPressed: _readOnly ? null : _resetToEqual,
-          ),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -313,7 +221,7 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
                         child: ListView.builder(
                           padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
                           itemCount: _rows.length,
-                          itemBuilder: (context, index) => _buildRowCard(_rows[index], index),
+                          itemBuilder: (context, index) => _buildRowCard(_rows[index]),
                         ),
                       ),
                     ),
@@ -360,8 +268,6 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
   }
 
   Widget _buildHeader() {
-    final total = _currentTotal();
-    final ok = (total - 100).abs() <= 0.6;
     final withRate = _rows.where((r) => r.rateCtrl.text.trim().isNotEmpty).length;
 
     return Container(
@@ -379,27 +285,6 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
           Row(
             children: [
               Expanded(child: _heroStat('Areas', '${_rows.length}', Icons.dashboard_outlined)),
-              SizedBox(
-                height: 70,
-                width: 70,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    CircularProgressIndicator(
-                      value: (total / 100).clamp(0.0, 1.0),
-                      strokeWidth: 7,
-                      backgroundColor: Colors.white24,
-                      color: ok ? Colors.white : const Color(0xFFFFD54F),
-                    ),
-                    Center(
-                      child: Text(
-                        '${total.toStringAsFixed(0)}%',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               Expanded(child: _heroStat('Rates set', '$withRate', Icons.currency_rupee)),
             ],
           ),
@@ -407,43 +292,30 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(ok ? Icons.check_circle : Icons.info_outline, size: 14, color: ok ? Colors.white : const Color(0xFFFFD54F)),
+              Icon(Icons.info_outline, size: 14, color: Colors.white),
               const SizedBox(width: 6),
-              Text(
-                ok ? 'Distributed — total ${total.toStringAsFixed(2)}%' : 'Total ${total.toStringAsFixed(2)}% — must add up to 100%',
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: ok ? Colors.white : const Color(0xFFFFD54F)),
+              Expanded(
+                child: Text(
+                  'Leave Rate blank to use the contract-derived ₹/sq.ft.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: 0.9)),
+                ),
               ),
             ],
           ),
           if (!_readOnly) ...[
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _saving || _loading ? null : _resetToEqual,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: BorderSide(color: Colors.white.withValues(alpha: 0.7)),
-                      backgroundColor: Colors.transparent,
-                    ),
-                    icon: const Icon(Icons.percent, size: 18),
-                    label: const Text('Equal Split'),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _saving || _loading ? null : _saveAll,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: kRailwayBlue,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _saving || _loading ? null : _saveAll,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: kRailwayBlue,
-                    ),
-                    icon: Icon(_saving ? Icons.hourglass_top : Icons.save_outlined, size: 18),
-                    label: Text(_saving ? 'Saving…' : 'Save All'),
-                  ),
-                ),
-              ],
+                icon: Icon(_saving ? Icons.hourglass_top : Icons.save_outlined, size: 18),
+                label: Text(_saving ? 'Saving…' : 'Save All Rates'),
+              ),
             ),
           ],
         ],
@@ -457,9 +329,7 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
     Color(0xFFEDC948), Color(0xFF9C755F),
   ];
 
-  Widget _buildRowCard(_WeightageRow r, int index) {
-    final w = double.tryParse(r.weightCtrl.text) ?? 0;
-    final filled = r.weightCtrl.text.trim().isNotEmpty;
+  Widget _buildRowCard(_RateRow r) {
     final hasRate = r.rateCtrl.text.trim().isNotEmpty;
     final avatarColor = _avatarPalette[r.areaName.hashCode.abs() % _avatarPalette.length];
 
@@ -472,7 +342,7 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
         side: BorderSide(color: Colors.grey.withValues(alpha: 0.18)),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -512,64 +382,19 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
               ],
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: r.weightCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    enabled: !_saving && !_readOnly,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      labelText: 'Weightage %',
-                      isDense: true,
-                      border: const OutlineInputBorder(),
-                      suffixIcon: const Padding(
-                        padding: EdgeInsets.only(right: 10),
-                        child: Icon(Icons.percent, size: 16, color: Colors.grey),
-                      ),
-                      suffixIconConstraints: const BoxConstraints(minWidth: 30, minHeight: 0),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: r.rateCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    enabled: !_saving && !_readOnly,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      labelText: 'Rate ₹/sq.ft.',
-                      hintText: 'Blank → contract',
-                      isDense: true,
-                      border: const OutlineInputBorder(),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: LinearProgressIndicator(
-                      value: (w / 100).clamp(0.0, 1.0),
-                      minHeight: 4,
-                      backgroundColor: Colors.grey[200],
-                      color: filled ? kRailwayBlue : Colors.grey,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  filled ? '${w.toStringAsFixed(2)}%' : '—',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: filled ? kRailwayBlue : Colors.grey[400]),
-                ),
-              ],
+            TextField(
+              controller: r.rateCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              enabled: !_saving && !_readOnly,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Rate ₹/sq.ft.',
+                hintText: 'Blank → contract-derived rate',
+                isDense: true,
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.currency_rupee, size: 16, color: Colors.grey),
+                prefixIconConstraints: const BoxConstraints(minWidth: 34, minHeight: 0),
+              ),
             ),
           ],
         ),
