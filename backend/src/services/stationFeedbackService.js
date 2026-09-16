@@ -98,11 +98,16 @@ class StationFeedbackService {
     return { stationId, totalFeedback: feedbacks.length, averageRating: feedbacks.length > 0 ? Math.round(totalRating / feedbacks.length * 10) / 10 : 0, negativeCount, positiveCount: feedbacks.length - negativeCount, categoryBreakdown: catBreakdown };
   }
 
-  async getStationQr(stationId) {
+  async getStationQr(stationId, req) {
     if (!stationId) throw new ValidationError('stationId is required');
     const stationDoc = await db.collection('stations').doc(stationId).get();
     if (!stationDoc.exists) throw new NotFoundError('Station not found');
-    return { stationId, stationName: stationDoc.data().stationName, stationCode: stationDoc.data().stationCode, feedbackUrl: `${process.env.APP_BASE_URL || 'https://swachhrailways.com'}/station-feedback?stationId=${stationId}` };
+    const forwardedProto = req?.headers?.['x-forwarded-proto']?.split(',')[0]?.trim();
+    const forwardedHost = req?.headers?.['x-forwarded-host']?.split(',')[0]?.trim();
+    const host = forwardedHost || (req?.headers?.host) || process.env.APP_BASE_URL || 'https://swachhrailways.com';
+    const protocol = forwardedProto || (req?.secure ? 'https' : 'http') || (host.startsWith('https') ? 'https' : 'http');
+    const feedbackUrl = `${protocol}://${host.replace(/\/+$/, '')}/station-feedback?stationId=${encodeURIComponent(stationId)}`;
+    return { stationId, stationName: stationDoc.data().stationName, stationCode: stationDoc.data().stationCode, feedbackUrl };
   }
 }
 

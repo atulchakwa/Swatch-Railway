@@ -3,6 +3,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import swaggerUi from 'swagger-ui-express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 import authRoutes from './routes/auth.js';
 import passengerRoutes from './routes/passenger.js';
@@ -109,6 +113,11 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Metrics endpoint
 app.get('/metrics', metricsHandler);
+
+// Serve the public passenger feedback web page (QR target)
+const PUBLIC_DIR = path.resolve(__dirname, '../public');
+app.use(express.static(PUBLIC_DIR));
+app.get('/station-feedback', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'station-feedback.html')));
 
 app.get('/', (req, res) => res.send('Swachh Railways API is running.'));
 
