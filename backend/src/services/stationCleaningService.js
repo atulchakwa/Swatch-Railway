@@ -445,19 +445,27 @@ class StationCleaningService {
     // ─── Idempotency: one task per (station, date, area, time) regardless of
     // how many (duplicate) schedules or cron runs try to create it. Uses
     // equality filters only (stationId + date) so no composite index is
-    // required. ────────────────────────────────────────────────────────────
-    const existingKeys = new Set();
+    // required. Existing slots are recorded WITH their owner so they can also
+    // be self-healed: slots whose supervisor/shift no longer matches the
+    // current shift-holder are reassigned / re-tagged instead of duplicated.
+    const existingMap = new Map();
+    const TERMINAL = new Set(['completed', 'approved', 'rejected', 'cancelled']);
     for (const dayStr of daysToGenerate) {
       try {
         const daySnap = await db.collection('cleaningTasks')
           .where('stationId', '==', schedule.stationId)
           .where('date', '==', dayStr)
-          .select('areaId', 'scheduledTime', 'status')
+          .select('areaId', 'scheduledTime', 'status', 'supervisorId', 'shift')
           .get();
         daySnap.forEach(doc => {
           const d = doc.data();
           if (d.status === 'cancelled') return;
-          existingKeys.add(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`);
+          existingMap.set(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`, {
+            id: doc.id,
+            supervisorId: d.supervisorId || '',
+            shift: d.shift ? String(d.shift).trim().toLowerCase() : '',
+            status: d.status,
+          });
         });
       } catch (dayErr) {
         const allSnap = await db.collection('cleaningTasks')
@@ -465,7 +473,12 @@ class StationCleaningService {
         allSnap.forEach(doc => {
           const d = doc.data();
           if (d.status !== 'cancelled' && (d.date || d.scheduledDate || '') === dayStr) {
-            existingKeys.add(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`);
+            existingMap.set(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`, {
+              id: doc.id,
+              supervisorId: d.supervisorId || '',
+              shift: d.shift ? String(d.shift).trim().toLowerCase() : '',
+              status: d.status,
+            });
           }
         });
       }
@@ -492,13 +505,32 @@ class StationCleaningService {
 
         for (const timeSlot of taskTimes) {
           const key = `${dayStr}|${area.id}|${timeSlot}`;
-          if (existingKeys.has(key)) continue;
-
           const slotShift = this._shiftForTime(timeSlot) ||
             (schedule.shift || 'morning').toString().toLowerCase();
           const shiftSupervisor = supervisorsByShift.get(slotShift);
           const supervisorId = shiftSupervisor?.uid || schedule.supervisorId || null;
           const supervisorName = shiftSupervisor?.fullName || schedule.supervisorName || '';
+
+          // Self-healing: reassign a stale slot to the current shift-holder
+          // and retag its shift so the supervisor screen count matches the
+          // task list. Terminal tasks are never touched.
+          const existing = existingMap.get(key);
+          if (existing) {
+            if (!TERMINAL.has(existing.status) && supervisorId) {
+              const patches = {};
+              if (existing.supervisorId !== supervisorId) {
+                patches.supervisorId = supervisorId;
+                patches.supervisorName = supervisorName;
+              }
+              if (existing.shift !== slotShift) patches.shift = slotShift;
+              if (Object.keys(patches).length > 0) {
+                patches.updatedAt = new Date().toISOString();
+                batch.update(db.collection('cleaningTasks').doc(existing.id), patches);
+                batchCount++;
+              }
+            }
+            continue;
+          }
           if (!supervisorId) continue;
 
           const taskRef = db.collection('cleaningTasks').doc();
@@ -534,7 +566,12 @@ class StationCleaningService {
             updatedAt: new Date().toISOString()
           };
           batch.set(taskRef, task);
-          existingKeys.add(key);
+          existingMap.set(key, {
+            id: taskRef.id,
+            supervisorId,
+            shift: slotShift,
+            status: 'pending',
+          });
           allTaskIds.push(taskRef.id);
           batchCount++;
         }

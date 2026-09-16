@@ -102,21 +102,30 @@ class TaskManagementService {
       const existingSnap = await db.collection('cleaningTasks')
         .where('date', '==', targetDate)
         .where('areaId', '==', assignment.areaId)
-        .select('workerId', 'scheduledTime', 'status')
+        .select('workerId', 'scheduledTime', 'status', 'shift')
         .get();
-      const existingByTime = new Map(); // scheduledTime -> {id, workerId, status}
+      const existingByTime = new Map(); // scheduledTime -> {id, workerId, status, shift}
+      const TERMINAL = new Set(['completed', 'approved', 'rejected', 'cancelled']);
       existingSnap.forEach(tDoc => {
         const d = tDoc.data();
         if (d.status === 'cancelled') return;
         if (!d.scheduledTime) return;
-        existingByTime.set(d.scheduledTime, { id: tDoc.id, workerId: d.workerId, status: d.status });
+        existingByTime.set(d.scheduledTime, {
+          id: tDoc.id,
+          workerId: d.workerId,
+          status: d.status,
+          shift: d.shift ? String(d.shift).trim().toLowerCase() : '',
+        });
       });
 
       const batch = db.batch();
       let batchCount = 0;
 
       // Cancel active tasks whose slot is no longer in the configured set
-      // (frequency reduced), then create the missing slots.
+      // (frequency reduced), then reconcile existing slots:
+      //   - reassign to the current shift-holder if they moved
+      //   - retag the shift label so supervisor-screen filtering is accurate
+      //   - create missing slots
       const slotSet = new Set(frequencyTimes);
       for (const [scheduledTime, existing] of existingByTime.entries()) {
         if (!slotSet.has(scheduledTime)) {
@@ -130,9 +139,31 @@ class TaskManagementService {
       }
 
       for (const scheduledTime of frequencyTimes) {
-        if (existingByTime.has(scheduledTime)) continue;
         const slotShift = this._shiftForTime(scheduledTime) || 'morning';
         const slotSupervisor = pickSupervisorForSlot(slotShift);
+        const existing = existingByTime.get(scheduledTime);
+
+        // Self-healing: reassign stale tasks to the current shift-holder
+        // so the supervisor-screen count always matches the actual task list.
+        if (existing && slotSupervisor && !TERMINAL.has(existing.status)) {
+          const patches = {};
+          if ((existing.workerId || '') !== slotSupervisor.uid) {
+            patches.workerId     = slotSupervisor.uid;
+            patches.workerName   = slotSupervisor.fullName;
+            patches.supervisorId = slotSupervisor.uid;
+            patches.supervisorName = slotSupervisor.fullName;
+          }
+          if (existing.shift !== slotShift) {
+            patches.shift = slotShift;
+          }
+          if (Object.keys(patches).length > 0) {
+            patches.updatedAt = new Date().toISOString();
+            batch.update(db.collection('cleaningTasks').doc(existing.id), patches);
+            batchCount++;
+          }
+          continue;
+        }
+        if (existing) continue;
         if (!slotSupervisor) continue;
         const taskRef = db.collection('cleaningTasks').doc();
         const displayName = [mainArea, areaName].filter(Boolean).join(' - ');
