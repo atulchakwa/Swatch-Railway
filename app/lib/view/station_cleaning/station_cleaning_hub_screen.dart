@@ -18,6 +18,7 @@ import 'inspection/inspection_list_screen.dart';
 import 'reporting/report_list_screen.dart';
 import 'supervisor_log/supervisor_daily_log_screen.dart';
 import '../common_railways/station_management/area_config_screen.dart';
+import '../common_railways/station_management/supervisor_shift_assignment_screen.dart';
 import '../common_railways/station_management/station_feedback_list_screen.dart';
 import '../common_railways/station_management/task_generation_screen.dart';
 
@@ -124,6 +125,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     final cards = <Widget>[
       _moduleCard(context, Icons.assignment, 'Generate\nTask', Colors.deepPurple, () => _openTaskGen(context)),
       _moduleCard(context, Icons.badge, 'Supervisor\nAttendance', kRailwayBlue, () => _openSupervisorAttendance(context)),
+      _moduleCard(context, Icons.nights_stay, 'Supervisor\nShift', Colors.indigo.shade400, () => _openSupervisorShift(context)),
       _moduleCard(context, Icons.search, 'Inspection', Colors.indigo, () => _openInspection(context)),
       _moduleCard(context, Icons.assessment, 'Reports', Colors.purple, () => _openReports(context)),
       _moduleCard(context, Icons.receipt, 'Billing', Colors.deepOrange, () => _openBilling(context)),
@@ -191,6 +193,13 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
 
   void _openSupervisorAttendance(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => StationSupervisorAttendanceScreen(
+      stationId: _selectedStationId,
+      stationName: _selectedStationName,
+    )));
+  }
+
+  void _openSupervisorShift(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => SupervisorShiftAssignmentScreen(
       stationId: _selectedStationId,
       stationName: _selectedStationName,
     )));

@@ -265,35 +265,55 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text('Area Weightage — ${widget.stationName}'),
-        backgroundColor: Colors.brown,
+        titleSpacing: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Area Weightage', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(widget.stationName, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11)),
+          ],
+        ),
+        backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.donut_small, color: Colors.white),
+            tooltip: 'Distribute weightage',
+            onPressed: _readOnly ? null : _resetToEqual,
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _rows.isEmpty
-              ? const Center(
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text('No active areas configured for this station. Add areas first from "Area Arrangement".', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.dashboard_customize_outlined, size: 56, color: Colors.grey[400]),
+                        const SizedBox(height: 12),
+                        const Text('No active areas configured for this station.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 4),
+                        const Text('Add areas first from "Area Arrangement".', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      ],
+                    ),
                   ),
                 )
               : Column(
                   children: [
                     _buildHeader(),
-                    if (_status.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        child: Text(_status, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: _statusError ? kErrorRed : kSuccessGreen)),
-                      ),
+                    _buildStatusBanner(),
                     Expanded(
                       child: RefreshIndicator(
                         onRefresh: _load,
                         child: ListView.builder(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
                           itemCount: _rows.length,
-                          itemBuilder: (context, index) => _buildRowCard(_rows[index]),
+                          itemBuilder: (context, index) => _buildRowCard(_rows[index], index),
                         ),
                       ),
                     ),
@@ -302,48 +322,253 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
     );
   }
 
+  Widget _buildStatusBanner() {
+    if (_status.isEmpty) return const SizedBox.shrink();
+    final Color bg = _statusError ? kErrorRed : kSuccessGreen;
+    final String msg = _status;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: bg.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: bg.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            Icon(_statusError ? Icons.error_outline : Icons.check_circle_outline, size: 18, color: bg),
+            const SizedBox(width: 8),
+            Expanded(child: Text(msg, style: TextStyle(fontSize: 12, color: bg, fontWeight: FontWeight.w500))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _heroStat(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white.withValues(alpha: 0.9), size: 20),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 2),
+        Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 10)),
+      ],
+    );
+  }
+
   Widget _buildHeader() {
     final total = _currentTotal();
     final ok = (total - 100).abs() <= 0.6;
-    return Card(
+    final withRate = _rows.where((r) => r.rateCtrl.text.trim().isNotEmpty).length;
+
+    return Container(
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [kRailwayBlue, Color(0xFF2A5AB8)]),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: kRailwayBlue.withValues(alpha: 0.35), blurRadius: 12, offset: const Offset(0, 5)),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _heroStat('Areas', '${_rows.length}', Icons.dashboard_outlined)),
+              SizedBox(
+                height: 70,
+                width: 70,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CircularProgressIndicator(
+                      value: (total / 100).clamp(0.0, 1.0),
+                      strokeWidth: 7,
+                      backgroundColor: Colors.white24,
+                      color: ok ? Colors.white : const Color(0xFFFFD54F),
+                    ),
+                    Center(
+                      child: Text(
+                        '${total.toStringAsFixed(0)}%',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(child: _heroStat('Rates set', '$withRate', Icons.currency_rupee)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(ok ? Icons.check_circle : Icons.info_outline, size: 14, color: ok ? Colors.white : const Color(0xFFFFD54F)),
+              const SizedBox(width: 6),
+              Text(
+                ok ? 'Distributed — total ${total.toStringAsFixed(2)}%' : 'Total ${total.toStringAsFixed(2)}% — must add up to 100%',
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: ok ? Colors.white : const Color(0xFFFFD54F)),
+              ),
+            ],
+          ),
+          if (!_readOnly) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving || _loading ? null : _resetToEqual,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(color: Colors.white.withValues(alpha: 0.7)),
+                      backgroundColor: Colors.transparent,
+                    ),
+                    icon: const Icon(Icons.percent, size: 18),
+                    label: const Text('Equal Split'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _saving || _loading ? null : _saveAll,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: kRailwayBlue,
+                    ),
+                    icon: Icon(_saving ? Icons.hourglass_top : Icons.save_outlined, size: 18),
+                    label: Text(_saving ? 'Saving…' : 'Save All'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static const List<Color> _avatarPalette = [
+    Color(0xFF4E79A7), Color(0xFF59A14F), Color(0xFFF28E2B),
+    Color(0xFFE15759), Color(0xFFB07AA1), Color(0xFF76B7B2),
+    Color(0xFFEDC948), Color(0xFF9C755F),
+  ];
+
+  Widget _buildRowCard(_WeightageRow r, int index) {
+    final w = double.tryParse(r.weightCtrl.text) ?? 0;
+    final filled = r.weightCtrl.text.trim().isNotEmpty;
+    final hasRate = r.rateCtrl.text.trim().isNotEmpty;
+    final avatarColor = _avatarPalette[r.areaName.hashCode.abs() % _avatarPalette.length];
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0.4,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.withValues(alpha: 0.18)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Each area can have its own ₹/sq.ft. rate (as per contract). Leave a rate blank for the contract-derived rate.',
-              style: TextStyle(fontSize: 11, color: Colors.grey),
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: avatarColor.withValues(alpha: 0.14),
+                  child: Text(
+                    r.areaName.isEmpty ? '?' : r.areaName.characters.first.toUpperCase(),
+                    style: TextStyle(color: avatarColor, fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(r.areaName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                      if (r.mainArea.isNotEmpty)
+                        Text(r.mainArea, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          _chip('${r.tenderedAreaSqFt.toStringAsFixed(0)} sq.ft.', Icons.square_foot),
+                          const SizedBox(width: 6),
+                          _chip(r.cleaningFrequency, Icons.refresh),
+                          if (hasRate) ...[
+                            const SizedBox(width: 6),
+                            _chip('₹${r.rateCtrl.text} /sq.ft.', Icons.currency_rupee, accent: kSuccessGreen),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: (ok ? kSuccessGreen : kErrorRed).withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'Total weightage: ${total.toStringAsFixed(2)}%${ok ? ' ✓' : ' (should be 100%)'}',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: ok ? kSuccessGreen : kErrorRed, fontSize: 13),
+                  child: TextField(
+                    controller: r.weightCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: !_saving && !_readOnly,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'Weightage %',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: const Padding(
+                        padding: EdgeInsets.only(right: 10),
+                        child: Icon(Icons.percent, size: 16, color: Colors.grey),
+                      ),
+                      suffixIconConstraints: const BoxConstraints(minWidth: 30, minHeight: 0),
                     ),
                   ),
                 ),
-                if (!_readOnly) ...[
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: _saving || _loading ? null : _resetToEqual,
-                    child: const Text('Equal Split'),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: r.rateCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: !_saving && !_readOnly,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'Rate ₹/sq.ft.',
+                      hintText: 'Blank → contract',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _saving || _loading ? null : _saveAll,
-                    child: Text(_saving ? 'Saving…' : 'Save All'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: (w / 100).clamp(0.0, 1.0),
+                      minHeight: 4,
+                      backgroundColor: Colors.grey[200],
+                      color: filled ? kRailwayBlue : Colors.grey,
+                    ),
                   ),
-                ],
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  filled ? '${w.toStringAsFixed(2)}%' : '—',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: filled ? kRailwayBlue : Colors.grey[400]),
+                ),
               ],
             ),
           ],
@@ -352,68 +577,20 @@ class _AreaWeightageScreenState extends State<AreaWeightageScreen> {
     );
   }
 
-  Widget _buildRowCard(_WeightageRow r) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(r.areaName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      if (r.mainArea.isNotEmpty)
-                        Text(r.mainArea, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                      const SizedBox(height: 2),
-                      Text('${r.tenderedAreaSqFt.toStringAsFixed(0)} sq.ft./day · ${r.cleaningFrequency}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 110,
-                  child: TextField(
-                    controller: r.weightCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    enabled: !_saving && !_readOnly,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Weightage %',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.currency_rupee, size: 15, color: Colors.grey),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: TextField(
-                    controller: r.rateCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    enabled: !_saving && !_readOnly,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Rate ₹/sq.ft. (this area)',
-                      hintText: 'Blank → contract-derived',
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+  Widget _chip(String text, IconData icon, {Color accent = kRailwayBlue}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: accent),
+          const SizedBox(width: 4),
+          Text(text, style: TextStyle(fontSize: 10, color: accent, fontWeight: FontWeight.w600)),
+        ],
       ),
     );
   }
