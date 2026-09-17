@@ -81,17 +81,51 @@ class _FilterSectionState extends State<FilterSection> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.filter_list, color: kRailwayBlue, size: 20),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(Icons.filter_list, color: kRailwayBlue, size: 20),
+                  ),
                   const SizedBox(width: 8),
-                  const Text(
-                    'Filter',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Filter',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        if (_hasActiveFilter) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: _activeFilterChips(),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  const Spacer(),
+                  if (_hasActiveFilter)
+                    GestureDetector(
+                      onTap: _clearFilters,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Text(
+                          'Clear',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
                   AnimatedRotation(
                     turns: _isExpanded ? 0.5 : 0,
                     duration: const Duration(milliseconds: 300),
@@ -241,6 +275,36 @@ class _FilterSectionState extends State<FilterSection> {
                 : const SizedBox.shrink(),
           ),
         ],
+      ),
+    );
+  }
+
+  bool get _hasActiveFilter =>
+      tempZone != null || tempDivision != null || tempDepot != null;
+
+  List<Widget> _activeFilterChips() {
+    final chips = <Widget>[];
+    if (tempZone != null) chips.add(_filterChip('Zone', tempZone!));
+    if (tempDivision != null) chips.add(_filterChip('Division', tempDivision!));
+    if (tempDepot != null) chips.add(_filterChip('Depot', tempDepot!));
+    return chips;
+  }
+
+  Widget _filterChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: kRailwayBlue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(
+          fontSize: 11,
+          color: kRailwayBlue,
+          fontWeight: FontWeight.w500,
+        ),
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }

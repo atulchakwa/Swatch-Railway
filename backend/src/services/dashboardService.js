@@ -69,6 +69,8 @@ class DashboardService {
     userSnap.docs.forEach(doc => {
       const d = doc.data();
       let visible = isSuperAdmin || (isMaster && d.zone === userZone) || (isAdmin && d.division === userDiv);
+      if (filterZone && d.zone && d.zone !== filterZone) visible = false;
+      if (filterDivision && d.division && d.division !== filterDivision) visible = false;
       if (visible) {
         stats.user.total++;
         if (d.status === 'APPROVED') stats.user.approved++;
@@ -86,6 +88,8 @@ class DashboardService {
     trainSnap.docs.forEach(doc => {
       const d = doc.data();
       let visible = isSuperAdmin || (isMaster && d.zone === userZone) || (isAdmin && d.division === userDiv);
+      if (filterZone && d.zone && d.zone !== filterZone) visible = false;
+      if (filterDivision && d.division && d.division !== filterDivision) visible = false;
       if (visible) { stats.train.total++; if (d.status === 'ACTIVE' || d.status === 'active') stats.train.active++; }
     });
 
@@ -622,21 +626,89 @@ class DashboardService {
     return result;
   }
 
-  async getUserStats() {
+  async getUserStats(requesterData = {}, query = {}) {
+    const { role, userType, zone: userZone, division: userDiv } = requesterData;
+    const zone = query.selectedZone || query.zone || null;
+    const division = query.selectedDivision || query.division || null;
+    const depot = query.selectedDepot || query.depot || null;
+
+    const userRole = (role || '').trim().toLowerCase().replace(/_/g, ' ');
+    const isSuperAdmin = userRole.includes('super admin');
+    const isMaster = userRole.includes('master');
+    const isAdmin = (!userRole.includes('super admin') && userRole.includes('admin')) || userRole.includes('supervisor');
+
+    const filterZone = zone || (isSuperAdmin ? null : userZone);
+    const filterDivision = division || (isSuperAdmin ? null : userDiv);
+
     const snapshot = await db.collection('users').get();
-    const users = snapshot.docs.map(d => d.data());
-    return { total: users.length, approved: users.filter(u => u.status === 'APPROVED').length,
-      pending: users.filter(u => u.status === 'PENDING').length,
-      railway: users.filter(u => u.userType === 'railway').length,
-      contractor: users.filter(u => u.userType === 'contractor').length };
+    const users = snapshot.docs.map(d => d.data()).filter(u => {
+      if (!isSuperAdmin) {
+        if (isMaster && u.zone !== userZone) return false;
+        if (isAdmin && u.division !== userDiv) return false;
+      }
+      if (filterZone && u.zone && u.zone !== filterZone) return false;
+      if (filterDivision && u.division && u.division !== filterDivision) return false;
+      if (depot && u.depot && u.depot !== depot) return false;
+      return true;
+    });
+    const total = users.length;
+    const approved = users.filter(u => u.status === 'APPROVED').length;
+    const pending = users.filter(u => u.status === 'PENDING').length;
+    const rejected = users.filter(u => u.status === 'REJECTED').length;
+    const railway = users.filter(u => u.userType === 'railway').length;
+    const contractor = users.filter(u => u.userType === 'contractor').length;
+    return {
+      total, approved, pending, rejected, railway, contractor,
+      data: {
+        totalRegistered: total,
+        approvedUsers: approved,
+        pendingApproval: pending,
+        rejectedUsers: rejected,
+        railwayStaff: railway,
+        contractorStaff: contractor,
+      }
+    };
   }
 
-  async getTrainStats() {
+  async getTrainStats(requesterData = {}, query = {}) {
+    const { role, zone: userZone, division: userDiv } = requesterData;
+    const zone = query.selectedZone || query.zone || null;
+    const division = query.selectedDivision || query.division || null;
+    const depot = query.selectedDepot || query.depot || null;
+
+    const userRole = (role || '').trim().toLowerCase().replace(/_/g, ' ');
+    const isSuperAdmin = userRole.includes('super admin');
+    const isMaster = userRole.includes('master');
+    const isAdmin = (!userRole.includes('super admin') && userRole.includes('admin')) || userRole.includes('supervisor');
+
+    const filterZone = zone || (isSuperAdmin ? null : userZone);
+    const filterDivision = division || (isSuperAdmin ? null : userDiv);
+
     const snapshot = await db.collection('trains').get();
-    const trains = snapshot.docs.map(d => d.data());
-    return { total: trains.length, active: trains.filter(t => t.status === 'ACTIVE' || t.status === 'active').length,
-      obhsEnabled: trains.filter(t => (t.TrainApplicableFor || []).includes('OBHS')).length,
-      ctsEnabled: trains.filter(t => (t.TrainApplicableFor || []).includes('CTS')).length };
+    const trains = snapshot.docs.map(d => d.data()).filter(t => {
+      if (!isSuperAdmin) {
+        if (isMaster && t.zone !== userZone) return false;
+        if (isAdmin && t.division !== userDiv) return false;
+      }
+      if (filterZone && t.zone && t.zone !== filterZone) return false;
+      if (filterDivision && t.division && t.division !== filterDivision) return false;
+      if (depot && t.depot && t.depot !== depot) return false;
+      return true;
+    });
+    const total = trains.length;
+    const active = trains.filter(t => t.status === 'ACTIVE' || t.status === 'active').length;
+    const obhsEnabled = trains.filter(t => (t.TrainApplicableFor || []).includes('OBHS')).length;
+    const ctsEnabled = trains.filter(t => (t.TrainApplicableFor || []).includes('CTS')).length;
+    return {
+      total, active, obhsEnabled, ctsEnabled,
+      data: {
+        totalTrains: total,
+        activeTrains: active,
+        inactiveTrains: total - active,
+        obhsEnabled,
+        ctsEnabled,
+      }
+    };
   }
 
   async getSupervisorStats(requesterData) {
