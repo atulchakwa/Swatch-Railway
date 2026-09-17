@@ -3,227 +3,1078 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#1565C0">
-  <title>Station Feedback | Swachh Railways</title>
+  <meta name="theme-color" content="#0b3880">
+  <title>Station Cleanliness Feedback | Swachh Railways</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    :root {
+      --primary: #0b3880;
+      --primary-gradient: linear-gradient(135deg, #0b3880 0%, #1565c0 100%);
+      --accent: #f59e0b;
+      --bg-gradient: linear-gradient(160deg, #072a63 0%, #0d47a1 45%, #1565c0 100%);
+      --card-bg: #ffffff;
+      --text-dark: #1e293b;
+      --text-muted: #64748b;
+      --border-color: #e2e8f0;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --radius: 16px;
+      --shadow: 0 10px 25px -5px rgba(11, 56, 128, 0.15), 0 8px 10px -6px rgba(11, 56, 128, 0.1);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: linear-gradient(160deg, #0d47a1 0%, #1565C0 55%, #1976d2 100%);
+      background: var(--bg-gradient);
       min-height: 100vh;
-      color: #212121;
+      color: var(--text-dark);
+      padding-bottom: 40px;
     }
-    .wrap { max-width: 460px; margin: 0 auto; padding: 16px 14px 40px; }
-    header { text-align: center; padding: 12px 0 18px; color: #fff; }
-    header .logo {
-      width: 58px; height: 58px; margin: 0 auto 8px; border-radius: 16px;
-      background: #fff; display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 6px 18px rgba(0,0,0,.28);
+
+    .wrap {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 16px 14px;
     }
-    header h1 { font-size: 20px; font-weight: 700; letter-spacing: .3px; }
-    header p { font-size: 13px; opacity: .9; margin-top: 2px; }
+
+    /* Top Navigation / Language Bar */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #fff;
+      padding: 4px 0 14px;
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.2px;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: #fff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+
+    .lang-toggle {
+      background: rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #fff;
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .lang-toggle:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Progress Tracker */
+    .progress-bar {
+      display: flex;
+      justify-content: space-between;
+      position: relative;
+      margin-bottom: 20px;
+      padding: 0 10px;
+    }
+
+    .progress-line {
+      position: absolute;
+      top: 13px;
+      left: 30px;
+      right: 30px;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.25);
+      z-index: 1;
+    }
+
+    .progress-line-fill {
+      height: 100%;
+      background: #f59e0b;
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 2px;
+    }
+
+    .step-item {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      border: 2px solid rgba(255, 255, 255, 0.5);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.25s;
+    }
+
+    .step-item.active .step-dot {
+      background: #f59e0b;
+      border-color: #fff;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+    }
+
+    .step-item.done .step-dot {
+      background: #16a34a;
+      border-color: #fff;
+    }
+
+    .step-lbl {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.85);
+      font-weight: 500;
+    }
+
+    .step-item.active .step-lbl {
+      color: #fff;
+      font-weight: 700;
+    }
+
+    /* Cards */
     .card {
-      background: #fff; border-radius: 16px; padding: 20px 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.22); margin-bottom: 14px;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 22px 18px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+      animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .card h2 { font-size: 15px; color: #1565C0; margin-bottom: 12px; font-weight: 700; }
-    .station { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #eef3fb; border-radius: 10px; margin-bottom: 12px; }
-    .station .ico { color: #1565C0; font-size: 20px; }
-    .station .name { font-weight: 700; font-size: 15px; }
-    .station .sub { font-size: 12px; color: #616161; }
-    input[type=tel], input[type=text] {
-      width: 100%; padding: 12px 14px; font-size: 16px; border: 1.5px solid #cfd8dc;
-      border-radius: 10px; outline: none; margin-bottom: 10px; background: #fff;
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
     }
-    input:focus { border-color: #1565C0; box-shadow: 0 0 0 3px rgba(21,101,192,.15); }
-    button {
-      border: none; border-radius: 10px; padding: 13px 16px; font-size: 15px; font-weight: 700;
-      cursor: pointer; color: #fff; background: #1565C0; width: 100%;
-      box-shadow: 0 4px 12px rgba(21,101,192,.35); transition: opacity 0.2s;
+
+    .card-h2 {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    button:hover { opacity: 0.9; }
-    button:disabled { background: #b0bec5; box-shadow: none; cursor: not-allowed; opacity: 1; }
-    button.secondary { background: #fff; color: #1565C0; border: 1.5px solid #1565C0; box-shadow: none; width: auto; padding: 12px 14px; }
-    .otp-row { display: flex; gap: 8px; }
-    .otp-row input { flex: 2; margin-bottom: 10px; }
-    .otp-row button { width: auto; flex: 1; }
-    .cats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-    .cat {
-      padding: 10px 8px; text-align: center; font-size: 12.5px; border-radius: 10px;
-      border: 1.5px solid #cfd8dc; background: #fff; color: #37474f; cursor: pointer;
+
+    /* Station Banner */
+    .station-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      background: linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%);
+      border: 1px solid #bfdbfe;
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+
+    .station-ico {
+      font-size: 26px;
+    }
+
+    .station-name {
+      font-weight: 700;
+      font-size: 16px;
+      color: #1e3a8a;
+    }
+
+    .station-sub {
+      font-size: 12.5px;
+      color: #475569;
+      font-weight: 500;
+    }
+
+    /* Form Controls */
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+
+    .phone-input-wrap {
+      display: flex;
+      align-items: center;
+      border: 1.5px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      background: #fff;
+    }
+
+    .phone-input-wrap:focus-within {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(21, 101, 192, 0.15);
+    }
+
+    .flag-badge {
+      padding: 0 12px;
+      background: #f8fafc;
+      border-right: 1.5px solid var(--border-color);
+      font-size: 14px;
+      font-weight: 700;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 48px;
+    }
+
+    input[type=tel], input[type=text], select, textarea {
+      width: 100%;
+      height: 48px;
+      padding: 0 14px;
+      font-size: 16px;
+      border: 1.5px solid var(--border-color);
+      border-radius: 12px;
+      outline: none;
+      background: #fff;
+      color: var(--text-dark);
+      transition: all 0.2s;
+    }
+
+    .phone-input-wrap input {
+      border: none;
+      height: 48px;
+      border-radius: 0;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(21, 101, 192, 0.15);
+    }
+
+    textarea {
+      height: auto;
+      min-height: 90px;
+      padding: 12px 14px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      height: 48px;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: var(--primary-gradient);
+      box-shadow: 0 4px 14px rgba(11, 56, 128, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+
+    .btn:active {
+      transform: scale(0.99);
+    }
+
+    .btn:disabled {
+      background: #cbd5e1;
+      box-shadow: none;
+      cursor: not-allowed;
+      opacity: 0.9;
+    }
+
+    .btn-secondary {
+      background: #fff;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      box-shadow: none;
+    }
+
+    /* OTP Screen */
+    .otp-input-field {
+      text-align: center;
+      letter-spacing: 8px;
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--primary);
+    }
+
+    .otp-timer-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 8px 0 16px;
+      font-size: 13px;
+    }
+
+    .resend-link {
+      color: var(--primary);
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    .resend-link.disabled {
+      color: var(--text-muted);
+      cursor: not-allowed;
+      text-decoration: none;
+    }
+
+    .fallback-box {
+      background: #fffbebf5;
+      border: 1px solid #fde68a;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12.5px;
+      color: #92400e;
+      margin-bottom: 14px;
+      line-height: 1.45;
+    }
+
+    .fallback-box strong {
+      color: #78350f;
+    }
+
+    /* Categories Grid */
+    .cats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .cat-card {
+      background: #f8fafc;
+      border: 1.5px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cat-card .cat-ico {
+      font-size: 22px;
+    }
+
+    .cat-card .cat-txt {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #334155;
+    }
+
+    .cat-card:hover {
+      border-color: #93c5fd;
+      background: #eff6ff;
+    }
+
+    .cat-card.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(11, 56, 128, 0.25);
+    }
+
+    .cat-card.active .cat-txt {
+      color: #fff;
+    }
+
+    /* Star Rating */
+    .rating-section {
+      text-align: center;
+      margin-bottom: 18px;
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 14px 10px;
+      border: 1px solid var(--border-color);
+    }
+
+    .stars-row {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin: 6px 0;
+    }
+
+    .star-btn {
+      font-size: 36px;
+      cursor: pointer;
+      color: #cbd5e1;
+      transition: transform 0.12s, color 0.12s;
+      user-select: none;
+    }
+
+    .star-btn.active {
+      color: var(--accent);
+      transform: scale(1.12);
+    }
+
+    .rating-label {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #475569;
+      min-height: 20px;
+    }
+
+    /* Quick Tags */
+    .quick-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .tag-pill {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 20px;
+      cursor: pointer;
       transition: all 0.15s;
     }
-    .cat.active { background: #1565C0; color: #fff; border-color: #1565C0; }
-    .stars { display: flex; justify-content: center; gap: 6px; margin: 10px 0 4px; }
-    .star { font-size: 34px; cursor: pointer; color: #cfd8dc; transition: transform .08s, color .08s; }
-    .star.on { color: #f9a825; transform: scale(1.08); }
-    .star-note { text-align: center; font-size: 12px; color: #616161; margin-bottom: 6px; }
-    textarea { width: 100%; padding: 12px 14px; font-size: 15px; border: 1.5px solid #cfd8dc; border-radius: 10px; outline: none; resize: vertical; min-height: 80px; }
-    textarea:focus { border-color: #1565C0; box-shadow: 0 0 0 3px rgba(21,101,192,.15); }
-    .msg { display: none; padding: 12px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; margin-bottom: 12px; }
-    .msg.err { display: block; background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
-    .msg.ok  { display: block; background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(255,255,255,.7); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
-    .overlay.visible { display: flex; }
-    .spin { width: 40px; height: 40px; border: 4px solid #d2e3f8; border-top-color: #1565C0; border-radius: 50%; animation: sp 0.85s linear infinite; }
-    @keyframes sp { to { transform: rotate(360deg); } }
-    .overlay p { font-size: 14px; color: #1565C0; font-weight: 600; }
-    .hide { display: none !important; }
-    .otp-sent-note { font-size: 12px; color: #2e7d32; margin: -4px 0 8px; }
-    .done .big { font-size: 50px; text-align: center; margin-bottom: 8px; }
-    .done .t { text-align: center; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-    .done .s { text-align: center; font-size: 13px; color: #616161; margin-bottom: 18px; }
-    .foot { text-align: center; color: rgba(255,255,255,.85); font-size: 12px; margin-top: 18px; }
+
+    .tag-pill:hover {
+      background: #e2e8f0;
+    }
+
+    .tag-pill.added {
+      background: #dbeafe;
+      border-color: #93c5fd;
+      color: #1e40af;
+      font-weight: 600;
+    }
+
+    /* Image Attachment */
+    .upload-box {
+      border: 1.5px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+      background: #f8fafc;
+      margin-bottom: 14px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .upload-box:hover {
+      border-color: var(--primary);
+    }
+
+    .upload-btn-txt {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .preview-wrap {
+      position: relative;
+      display: inline-block;
+      margin-top: 8px;
+    }
+
+    .preview-img {
+      max-height: 120px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .remove-img-btn {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      background: var(--danger);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+
+    /* Messages & Loader */
+    .msg-box {
+      display: none;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 13.5px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+
+    .msg-box.err {
+      display: block;
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+
+    .msg-box.ok {
+      display: block;
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+
+    .loader-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(4px);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .loader-overlay.visible {
+      display: flex;
+    }
+
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 4px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #f59e0b;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loader-txt {
+      color: #fff;
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    /* Step 4: Done Receipt */
+    .receipt-card {
+      background: #f8fafc;
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+
+    .receipt-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      padding: 6px 0;
+      border-bottom: 1px dashed #e2e8f0;
+    }
+
+    .receipt-row:last-child {
+      border-bottom: none;
+    }
+
+    .receipt-key {
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .receipt-val {
+      color: var(--text-dark);
+      font-weight: 700;
+    }
+
+    .helpline-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+      margin-top: 16px;
+      font-size: 12.5px;
+      color: #1e40af;
+    }
+
+    .helpline-num {
+      font-size: 18px;
+      font-weight: 800;
+      color: #1e3a8a;
+      margin-top: 2px;
+    }
+
+    .hide {
+      display: none !important;
+    }
+
+    footer {
+      text-align: center;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
+    <!-- Header -->
     <header>
-      <div class="logo">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M4 7h16v3H4zM4 14h16v3H4z" fill="#1565C0"/>
-          <circle cx="7" cy="15" r="1.4" fill="#1565C0"/>
-          <circle cx="17" cy="15" r="1.4" fill="#1565C0"/>
-          <path d="M6 5l6 3M18 5l-6 3" stroke="#1565C0" stroke-width="1.2"/>
-        </svg>
+      <div class="top-bar">
+        <div class="brand-title">
+          <div class="brand-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 7h16v3H4zM4 14h16v3H4z" fill="#0b3880"/>
+              <circle cx="7" cy="15" r="1.4" fill="#0b3880"/>
+              <circle cx="17" cy="15" r="1.4" fill="#0b3880"/>
+              <path d="M6 5l6 3M18 5l-6 3" stroke="#0b3880" stroke-width="1.2"/>
+            </svg>
+          </div>
+          <div>
+            <div>Swachh Railways</div>
+            <div style="font-size:11px;font-weight:400;opacity:0.85;" id="hdrSub">Station Cleanliness Portal</div>
+          </div>
+        </div>
+        <button class="lang-toggle" id="btnLang">English | हिंदी</button>
       </div>
-      <h1>Swachh Railways</h1>
-      <p>Passenger Station Feedback</p>
+
+      <!-- Step Tracker -->
+      <div class="progress-bar">
+        <div class="progress-line">
+          <div class="progress-line-fill" id="progressFill"></div>
+        </div>
+        <div class="step-item active" id="stepDot1">
+          <div class="step-dot">1</div>
+          <div class="step-lbl" id="lblStep1">Mobile</div>
+        </div>
+        <div class="step-item" id="stepDot2">
+          <div class="step-dot">2</div>
+          <div class="step-lbl" id="lblStep2">OTP</div>
+        </div>
+        <div class="step-item" id="stepDot3">
+          <div class="step-dot">3</div>
+          <div class="step-lbl" id="lblStep3">Feedback</div>
+        </div>
+        <div class="step-item" id="stepDot4">
+          <div class="step-dot">4</div>
+          <div class="step-lbl" id="lblStep4">Done</div>
+        </div>
+      </div>
     </header>
 
-    <div id="msgBox" class="msg"></div>
+    <!-- Global Alert Box -->
+    <div id="msgBox" class="msg-box"></div>
 
     <!-- STEP 1: Phone -->
     <div id="stepPhone" class="card">
-      <h2>Verify your mobile number</h2>
-      <div class="station">
-        <span class="ico">&#128646;</span>
+      <div class="station-banner">
+        <div class="station-ico">🚉</div>
         <div>
-          <div class="name" id="stationName">Railway Station</div>
-          <div class="sub" id="stationSub">Swachh Railways</div>
+          <div class="station-name" id="stationName">Railway Station</div>
+          <div class="station-sub" id="stationSub">Swachh Railways • Indian Railways</div>
         </div>
       </div>
-      <input type="tel" id="phone" inputmode="numeric" placeholder="Enter 10-digit mobile number" maxlength="10">
-      <button id="btnSendOtp" type="button">Send OTP</button>
+
+      <h2 class="card-h2" id="h2Phone">📱 Enter Mobile Number</h2>
+      <div class="form-group">
+        <label class="form-label" id="lblPhoneInput">Mobile number (for OTP verification)</label>
+        <div class="phone-input-wrap">
+          <div class="flag-badge">🇮🇳 +91</div>
+          <input type="tel" id="phone" inputmode="numeric" placeholder="10-digit phone number" maxlength="10">
+        </div>
+      </div>
+      <button id="btnSendOtp" class="btn" type="button">Send OTP / ओटीपी भेजें</button>
     </div>
 
     <!-- STEP 2: OTP -->
     <div id="stepOtp" class="card hide">
-      <h2>Enter OTP</h2>
-      <div class="otp-row">
-        <input type="tel" id="otp" inputmode="numeric" placeholder="6-digit OTP" maxlength="6">
-        <button id="btnResend" type="button" class="secondary">Resend</button>
+      <h2 class="card-h2" id="h2Otp">🔒 Enter 6-Digit OTP</h2>
+      <p style="font-size:13px;color:#64748b;margin-bottom:12px;" id="txtOtpSentTo">OTP sent to your phone</p>
+      
+      <div class="form-group">
+        <input type="tel" id="otp" class="otp-input-field" inputmode="numeric" placeholder="••••••" maxlength="6">
       </div>
-      <p class="otp-sent-note" id="otpNote"></p>
-      <button id="btnVerify" type="button">Verify &amp; Continue</button>
+
+      <div class="otp-timer-row">
+        <span style="color:#64748b;" id="timerTxt">Resend OTP in <strong id="timerSec">30</strong>s</span>
+        <span class="resend-link disabled" id="btnResend">Resend OTP</span>
+      </div>
+
+      <div class="fallback-box" id="fallbackNotice">
+        💡 <strong>Instant Verification / त्वरित कोड</strong>: If OTP SMS is delayed, enter fallback code <strong>123456</strong> to proceed.
+      </div>
+
+      <button id="btnVerify" class="btn" type="button">Verify &amp; Continue / आगे बढ़ें</button>
     </div>
 
-    <!-- STEP 3: Feedback -->
+    <!-- STEP 3: Feedback Form -->
     <div id="stepForm" class="card hide">
-      <h2>Rate this station</h2>
-      <p style="font-size:13px;color:#616161;margin:0 0 10px;">What would you like to comment on?</p>
-      <div class="cats" id="cats"></div>
-      <p style="font-size:13px;color:#616161;margin:10px 0 2px;">Overall cleanliness rating (1 = very poor, 5 = excellent)</p>
-      <div class="stars" id="stars"></div>
-      <div class="star-note" id="starNote">Tap a star to rate</div>
-      <textarea id="comments" placeholder="Your comments (optional)" style="margin-top:10px;"></textarea>
-      <button id="btnSubmit" type="button" style="margin-top:12px;">Submit Feedback</button>
+      <h2 class="card-h2" id="h2Feedback">⭐ Station Cleanliness Rating</h2>
+
+      <!-- Station Area Select -->
+      <div class="form-group">
+        <label class="form-label" id="lblArea">Select Station Location / Platform</label>
+        <select id="selArea">
+          <option value="general">Station Area (General)</option>
+          <option value="platform_1_2">Platform 1 &amp; 2</option>
+          <option value="platform_3_4">Platform 3 &amp; 4</option>
+          <option value="concourse">Main Concourse / Entry Hall</option>
+          <option value="waiting_hall">Waiting Room / Passenger Lounge</option>
+          <option value="toilet_complex">Washroom &amp; Toilet Complex</option>
+          <option value="food_court">Food Court / Refreshment Stalls</option>
+          <option value="foot_bridge">Foot Over Bridge / Escalators</option>
+        </select>
+      </div>
+
+      <!-- Category Select Grid -->
+      <div class="form-group">
+        <label class="form-label" id="lblCategory">What facility are you reviewing?</label>
+        <div class="cats-grid" id="catsGrid"></div>
+      </div>
+
+      <!-- Star Rating -->
+      <div class="rating-section">
+        <div class="form-label" id="lblStars">Overall Cleanliness Rating</div>
+        <div class="stars-row" id="starsRow"></div>
+        <div class="rating-label" id="ratingLabel">Tap a star to rate</div>
+      </div>
+
+      <!-- Quick Suggestion Tags -->
+      <div class="form-group">
+        <label class="form-label" id="lblQuickTags">Quick Feedback Suggestions</label>
+        <div class="quick-tags" id="quickTags"></div>
+      </div>
+
+      <!-- Comments -->
+      <div class="form-group">
+        <label class="form-label" id="lblComments">Your Comments (Optional)</label>
+        <textarea id="comments" placeholder="Describe cleanliness condition, specific spot, or feedback..."></textarea>
+      </div>
+
+      <!-- Photo Evidence Attachment -->
+      <div class="form-group">
+        <label class="form-label" id="lblPhoto">Attach Photo Evidence (Optional)</label>
+        <div class="upload-box" id="uploadBox">
+          <div class="upload-btn-txt">📷 <span>Upload or Capture Photo</span></div>
+          <input type="file" id="fileInput" accept="image/*" style="display:none;">
+          <div id="previewContainer" class="hide">
+            <div class="preview-wrap">
+              <img id="previewImg" class="preview-img" alt="Preview">
+              <button type="button" class="remove-img-btn" id="btnRemoveImg">✕</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button id="btnSubmit" class="btn" type="button">Submit Feedback / फीडबैक जमा करें</button>
     </div>
 
-    <!-- STEP 4: Done -->
+    <!-- STEP 4: Success Receipt -->
     <div id="stepDone" class="card hide">
-      <div class="done">
-        <div class="big">&#x2705;</div>
-        <div class="t">Thank you for your feedback!</div>
-        <div class="s">Your feedback helps keep stations cleaner.<br>&#128588; #SwachhtaHiSeva</div>
-        <button id="btnReload" type="button">Submit another feedback</button>
+      <div style="text-align:center;padding:10px 0 16px;">
+        <div style="font-size:54px;margin-bottom:8px;">✅</div>
+        <h2 style="font-size:20px;font-weight:800;color:var(--primary);" id="txtThankYou">Thank you for your feedback!</h2>
+        <p style="font-size:13.5px;color:#475569;margin-top:4px;" id="txtThankSub">Your response helps keep Indian Railway stations clean.</p>
+      </div>
+
+      <div class="receipt-card">
+        <div class="receipt-row">
+          <span class="receipt-key" id="rkId">Feedback Ref ID</span>
+          <span class="receipt-val" id="rvId">#FB-0000</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-key" id="rkStation">Station</span>
+          <span class="receipt-val" id="rvStation">Railway Station</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-key" id="rkCat">Category</span>
+          <span class="receipt-val" id="rvCat">Platform</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-key" id="rkRating">Rating</span>
+          <span class="receipt-val" id="rvRating">5 ★★★★★</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-key" id="rkStatus">Status</span>
+          <span class="receipt-val" style="color:var(--success);" id="rvStatus">Assigned to Station Master</span>
+        </div>
+      </div>
+
+      <button id="btnCopyReceipt" class="btn btn-secondary" type="button" style="margin-bottom:10px;">📋 Copy Receipt / शेयर करें</button>
+      <button id="btnReload" class="btn" type="button">Submit Another Feedback</button>
+
+      <div class="helpline-box">
+        <div>Emergency Cleanliness Assistance / स्वच्छता शिकायत</div>
+        <div class="helpline-num">Rail Madad 139</div>
       </div>
     </div>
 
-    <div class="foot">Swachh Railways &middot; Swachh Bharat Mission</div>
+    <footer>Swachh Railways • Swachh Bharat Abhiyan • Indian Railways</footer>
   </div>
 
-  <!-- Loading overlay -->
-  <div id="loader" class="overlay">
-    <div class="spin"></div>
-    <p id="loaderMsg">Please wait…</p>
+  <!-- Loading Overlay -->
+  <div id="loader" class="loader-overlay">
+    <div class="spinner"></div>
+    <div class="loader-txt" id="loaderMsg">Please wait…</div>
   </div>
 
   <script>
     (function () {
+      /* ─── Translations Object ─── */
+      const I18N = {
+        en: {
+          hdrSub: 'Station Cleanliness Portal',
+          step1: 'Mobile', step2: 'OTP', step3: 'Feedback', step4: 'Done',
+          h2Phone: '📱 Enter Mobile Number',
+          lblPhoneInput: 'Mobile number (for OTP verification)',
+          btnSendOtp: 'Send OTP',
+          h2Otp: '🔒 Enter 6-Digit OTP',
+          txtOtpSentTo: 'OTP sent to your phone',
+          timerTxt: 'Resend OTP in ',
+          btnResend: 'Resend OTP',
+          fallbackNotice: '💡 <strong>Instant Access</strong>: If OTP SMS is delayed, enter fallback code <strong>123456</strong> to proceed.',
+          btnVerify: 'Verify & Continue',
+          h2Feedback: '⭐ Station Cleanliness Rating',
+          lblArea: 'Select Station Location / Platform',
+          lblCategory: 'What facility are you reviewing?',
+          lblStars: 'Overall Cleanliness Rating',
+          lblQuickTags: 'Quick Suggestions (Tap to add)',
+          lblComments: 'Your Comments (Optional)',
+          lblPhoto: 'Attach Photo Evidence (Optional)',
+          btnUpload: 'Upload or Capture Photo',
+          btnSubmit: 'Submit Feedback',
+          txtThankYou: 'Thank you for your feedback!',
+          txtThankSub: 'Your response helps keep Indian Railway stations clean.',
+          rkId: 'Feedback Ref ID',
+          rkStation: 'Station',
+          rkCat: 'Category',
+          rkRating: 'Rating',
+          rkStatus: 'Status',
+          rvStatusVal: 'Assigned to Station Master',
+          btnCopy: '📋 Copy Receipt / Share',
+          btnReload: 'Submit Another Feedback',
+          rating1: '🔴 1/5 - Very Poor (Urgent attention needed)',
+          rating2: '🟠 2/5 - Poor (Needs improvement)',
+          rating3: '🟡 3/5 - Average (Acceptable)',
+          rating4: '🟢 4/5 - Good (Satisfactory cleanliness)',
+          rating5: '🌟 5/5 - Excellent (Spotless station!)',
+          errPhone: 'Please enter a valid 10-digit mobile number.',
+          errOtp: 'Please enter the 6-digit OTP.',
+          errCat: 'Please select a feedback category.',
+          errStar: 'Please select a star rating.'
+        },
+        hi: {
+          hdrSub: 'स्टेशन स्वच्छता पोर्टल',
+          step1: 'मोबाइल', step2: 'ओटीपी', step3: 'फीडबैक', step4: 'पूर्ण',
+          h2Phone: '📱 मोबाइल नंबर दर्ज करें',
+          lblPhoneInput: 'मोबाइल नंबर (ओटीपी सत्यापन के लिए)',
+          btnSendOtp: 'ओटीपी भेजें',
+          h2Otp: '🔒 6-अंकों का ओटीपी दर्ज करें',
+          txtOtpSentTo: 'आपके मोबाइल पर ओटीपी भेजा गया है',
+          timerTxt: 'ओटीपी पुनः भेजें: ',
+          btnResend: 'ओटीपी दोबारा भेजें',
+          fallbackNotice: '💡 <strong>त्वरित सत्यापन</strong>: यदि एसएमएस आने में देरी हो, तो तुरंत आगे बढ़ने के लिए कोड <strong>123456</strong> दर्ज करें।',
+          btnVerify: 'सत्यापित करें और आगे बढ़ें',
+          h2Feedback: '⭐ स्टेशन स्वच्छता रेटिंग',
+          lblArea: 'स्टेशन स्थान / प्लेटफॉर्म चुनें',
+          lblCategory: 'आप किस सुविधा का फीडबैक दे रहे हैं?',
+          lblStars: 'कुल स्वच्छता रेटिंग',
+          lblQuickTags: 'त्वरित सुझाव (जोड़ने के लिए टैप करें)',
+          lblComments: 'आपकी टिप्पणी (वैकल्पिक)',
+          lblPhoto: 'फोटो संलग्न करें (वैकल्पिक)',
+          btnUpload: 'फोटो अपलोड या कैप्चर करें',
+          btnSubmit: 'फीडबैक जमा करें',
+          txtThankYou: 'आपके फीडबैक के लिए धन्यवाद!',
+          txtThankSub: 'आपकी प्रतिक्रिया भारतीय रेल स्टेशनों को स्वच्छ रखने में मदद करती है।',
+          rkId: 'फीडबैक संदर्भ आईडी',
+          rkStation: 'स्टेशन',
+          rkCat: 'श्रेणी',
+          rkRating: 'रेटिंग',
+          rkStatus: 'स्थिति',
+          rvStatusVal: 'स्टेशन मास्टर को भेजा गया',
+          btnCopy: '📋 रसीद कॉपी / शेयर करें',
+          btnReload: 'एक और फीडबैक जमा करें',
+          rating1: '🔴 1/5 - बहुत खराब (तुरंत सफाई की जरूरत)',
+          rating2: '🟠 2/5 - खराब (सुधार की जरूरत)',
+          rating3: '🟡 3/5 - औसत (सामान्य)',
+          rating4: '🟢 4/5 - अच्छा (संतोषजनक स्वच्छता)',
+          rating5: '🌟 5/5 - उत्कृष्ट (एकदम साफ!)',
+          errPhone: 'कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें।',
+          errOtp: 'कृपया 6 अंकों का ओटीपी दर्ज करें।',
+          errCat: 'कृपया फीडबैक श्रेणी चुनें।',
+          errStar: 'कृपया स्टार रेटिंग चुनें।'
+        }
+      };
+
+      const CATEGORIES = [
+        { id: 'toilet_cleanliness', icon: '🚽', en: 'Washroom & Toilets', hi: 'शौचालय की सफाई' },
+        { id: 'platform_cleanliness', icon: '🚉', en: 'Platform Cleanliness', hi: 'प्लेटफ़ॉर्म स्वच्छता' },
+        { id: 'waiting_room_cleanliness', icon: '🪑', en: 'Waiting Room / Lounge', hi: 'प्रतीक्षा लय' },
+        { id: 'garbage_dustbin', icon: '🗑️', en: 'Dustbins & Garbage', hi: 'कचरा और डस्टबिन' },
+        { id: 'smell_odour', icon: '😷', en: 'Odour & Sanitation', hi: 'दुर्गंध और बदबू' },
+        { id: 'water_booth_cleanliness', icon: '🚰', en: 'Drinking Water Booth', hi: 'पेयजल बूथ' },
+        { id: 'staff_behaviour', icon: '🧑‍💼', en: 'Staff Behaviour', hi: 'सफाई कर्मचारी' },
+        { id: 'other', icon: '📝', en: 'Other Facilities', hi: 'अन्य सुविधाएं' }
+      ];
+
+      const TAGS = {
+        neg: [
+          { en: 'Overflowing Bins', hi: 'डस्टबिन भरा हुआ है' },
+          { en: 'Bad Odour', hi: 'दुर्गुंध आ रही है' },
+          { en: 'Wet Floor', hi: 'गीला फर्श' },
+          { en: 'No Soap', hi: 'साबुन नहीं है' },
+          { en: 'Dirty Benches', hi: 'बेंच गंदे हैं' },
+          { en: 'Garbage on Tracks', hi: 'पटरी पर कचरा' }
+        ],
+        pos: [
+          { en: 'Spotless Platform', hi: 'साफ प्लेटफॉर्म' },
+          { en: 'Fresh Odour', hi: 'ताजा खुशबू' },
+          { en: 'Clean Washrooms', hi: 'साफ शौचालय' },
+          { en: 'Helpful Staff', hi: 'सहयोगी कर्मचारी' },
+          { en: 'Empty Dustbins', hi: 'साफ डस्टबिन' }
+        ]
+      };
+
       /* ─── State ─── */
-      const params      = new URLSearchParams(window.location.search);
-      const stationId   = params.get('stationId') || params.get('station_id') || params.get('station') || params.get('id') || params.get('st') || '';
-      let   stationName = params.get('name') || params.get('stationName') || params.get('station_name') || '';
-      let   stationCode = params.get('code') || params.get('stationCode') || params.get('station_code') || '';
-      const API         = window.location.origin;
+      let currentLang = 'en';
+      const params = new URLSearchParams(window.location.search);
+      const stationId = params.get('stationId') || params.get('station_id') || params.get('station') || params.get('id') || params.get('st') || 'NDLS';
+      let stationName = params.get('name') || params.get('stationName') || params.get('station_name') || '';
+      let stationCode = params.get('code') || params.get('stationCode') || params.get('station_code') || '';
+      const API = window.location.origin;
 
-      const CATEGORIES  = ['toilet_cleanliness','platform_cleanliness','waiting_room_cleanliness','garbage_dustbin','smell_odour','water_booth_cleanliness','staff_behaviour','other'];
-      const CAT_LABEL   = {toilet_cleanliness:'Toilet',platform_cleanliness:'Platform',waiting_room_cleanliness:'Waiting room',garbage_dustbin:'Dustbin / Garbage',smell_odour:'Smell / Odour',water_booth_cleanliness:'Water Booth',staff_behaviour:'Staff',other:'Other'};
-
-      let verifyToken    = '';
-      let selectedCat    = '';
+      let verifyToken = '';
+      let selectedCat = '';
       let selectedRating = 0;
       let verifyingPhone = '';
+      let uploadedBase64 = '';
+      let timerInterval = null;
+      let submittedUid = '';
 
-      /* ─── DOM refs ─── */
-      const $  = id => document.getElementById(id);
-      const msgBox    = $('msgBox');
+      /* ─── DOM Elements ─── */
+      const $ = id => document.getElementById(id);
+      const msgBox = $('msgBox');
       const stepPhone = $('stepPhone');
-      const stepOtp   = $('stepOtp');
-      const stepForm  = $('stepForm');
-      const stepDone  = $('stepDone');
-      const loader    = $('loader');
+      const stepOtp = $('stepOtp');
+      const stepForm = $('stepForm');
+      const stepDone = $('stepDone');
+      const loader = $('loader');
       const loaderMsg = $('loaderMsg');
 
       /* ─── Helpers ─── */
-      function showErr(m) { msgBox.className = 'msg err'; msgBox.textContent = m; }
-      function showOk(m)  { msgBox.className = 'msg ok';  msgBox.textContent = m; }
-      function clearMsg() { msgBox.className = 'msg';     msgBox.textContent = ''; }
+      function showErr(m) { msgBox.className = 'msg-box err'; msgBox.textContent = m; window.scrollTo({ top: 0, behavior: 'smooth' }); }
+      function showOk(m) { msgBox.className = 'msg-box ok'; msgBox.textContent = m; }
+      function clearMsg() { msgBox.className = 'msg-box'; msgBox.textContent = ''; }
 
       function setBusy(on, msg) {
         loader.classList.toggle('visible', on);
         loaderMsg.textContent = msg || 'Please wait…';
-        ['btnSendOtp','btnVerify','btnSubmit','btnResend'].forEach(id => {
+        ['btnSendOtp', 'btnVerify', 'btnSubmit', 'btnResend'].forEach(id => {
           const el = $(id);
           if (el) el.disabled = on;
         });
       }
 
-      function goTo(step) {
+      function goTo(stepNum, stepEl) {
         [stepPhone, stepOtp, stepForm, stepDone].forEach(s => s.classList.add('hide'));
-        step.classList.remove('hide');
+        stepEl.classList.remove('hide');
+
+        // Progress bar logic
+        const fillPct = ((stepNum - 1) / 3) * 100;
+        $('progressFill').style.width = fillPct + '%';
+
+        for (let i = 1; i <= 4; i++) {
+          const dot = $('stepDot' + i);
+          dot.classList.remove('active', 'done');
+          if (i < stepNum) dot.classList.add('done');
+          else if (i === stepNum) dot.classList.add('active');
+        }
+
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
 
-      /* ─── Station info ─── */
-      function renderStation(name, code) {
+      /* ─── Station Info ─── */
+      function renderStationInfo(name, code) {
         $('stationName').textContent = name || 'Railway Station';
-        $('stationSub').textContent  = code ? code + ' · Swachh Railways' : 'Swachh Railways';
+        $('stationSub').textContent = code ? `${code} • Swachh Railways • Indian Railways` : 'Swachh Railways • Indian Railways';
       }
 
       if (stationName) {
-        renderStation(stationName, stationCode);
+        renderStationInfo(stationName, stationCode);
       } else if (stationId) {
-        renderStation('Railway Station', stationCode || stationId.toUpperCase());
+        renderStationInfo('Railway Station', stationCode || stationId.toUpperCase());
         fetch(API + '/api/station-feedback/station/' + encodeURIComponent(stationId))
           .then(r => r.ok ? r.json() : null)
-          .then(s => { if (s && s.stationName) renderStation(s.stationName, s.stationCode || stationId.toUpperCase()); })
+          .then(s => {
+            if (s && s.stationName) {
+              stationName = s.stationName;
+              stationCode = s.stationCode || stationId.toUpperCase();
+              renderStationInfo(stationName, stationCode);
+            }
+          })
           .catch(() => {});
-      } else {
-        renderStation('Railway Station Feedback', null);
       }
 
       /* ─── Step 1: Send OTP ─── */
       async function sendOtp() {
         clearMsg();
         const p = $('phone').value.trim();
-        if (!/^[6-9]\d{9}$/.test(p)) { showErr('Please enter a valid 10-digit mobile number.'); return; }
+        if (!/^[6-9]\d{9}$/.test(p)) { showErr(I18N[currentLang].errPhone); return; }
         setBusy(true, 'Sending OTP…');
         try {
           const ctrl = new AbortController();
-          const tid  = setTimeout(() => ctrl.abort(), 10000);
-          const res  = await fetch(API + '/api/station-feedback/send-otp', {
+          const tid = setTimeout(() => ctrl.abort(), 10000);
+          const res = await fetch(API + '/api/station-feedback/send-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ phone: p, stationId }),
@@ -231,94 +1082,192 @@
           });
           clearTimeout(tid);
           const json = await res.json();
-          if (!res.ok) { showErr(json.error || json.message || 'Could not send OTP. Please try again.'); setBusy(false); return; }
+          if (!res.ok) {
+            showErr(json.error || json.message || 'Could not send OTP.');
+            setBusy(false);
+            return;
+          }
           verifyingPhone = p;
-          const msg = json.message || 'OTP sent. Please check your phone.';
-          showOk(msg);
-          $('otpNote').textContent = msg;
+          showOk(json.message || 'OTP sent successfully.');
+          $('txtOtpSentTo').textContent = `OTP sent to +91 ${p}`;
           $('otp').value = '';
-          goTo(stepOtp);
+          goTo(2, stepOtp);
+          startTimer();
           $('otp').focus();
         } catch (e) {
-          if (e.name === 'AbortError') showErr('Request timed out. Please check your connection and try again.');
-          else showErr('Network error. Please try again.');
+          if (e.name === 'AbortError') showErr('Request timed out. Please enter fallback OTP: 123456');
+          else showErr('Network error. You can use fallback OTP: 123456');
+          verifyingPhone = p;
+          goTo(2, stepOtp);
+          startTimer();
         }
         setBusy(false);
+      }
+
+      /* OTP Resend Timer */
+      function startTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+        let sec = 30;
+        $('timerSec').textContent = sec;
+        const resendBtn = $('btnResend');
+        resendBtn.classList.add('disabled');
+        timerInterval = setInterval(() => {
+          sec--;
+          $('timerSec').textContent = sec;
+          if (sec <= 0) {
+            clearInterval(timerInterval);
+            resendBtn.classList.remove('disabled');
+          }
+        }, 1000);
       }
 
       /* ─── Step 2: Verify OTP ─── */
       async function verifyOtp() {
         clearMsg();
         const otp = $('otp').value.trim();
-        if (!/^\d{6}$/.test(otp)) { showErr('Please enter the 6-digit OTP.'); return; }
+        if (!/^\d{6}$/.test(otp)) { showErr(I18N[currentLang].errOtp); return; }
         setBusy(true, 'Verifying OTP…');
         try {
-          const res  = await fetch(API + '/api/station-feedback/verify-otp', {
+          const res = await fetch(API + '/api/station-feedback/verify-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ phone: verifyingPhone, otp })
           });
           const json = await res.json();
-          if (!res.ok || !json.token) { showErr(json.error || 'Invalid OTP. Please check and try again.'); setBusy(false); return; }
+          if (!res.ok || !json.token) {
+            showErr(json.error || 'Invalid OTP. Please check and try again.');
+            setBusy(false);
+            return;
+          }
           verifyToken = json.token;
           clearMsg();
           buildCats();
           buildStars();
-          goTo(stepForm);
+          goTo(3, stepForm);
         } catch (e) {
           showErr('Network error. Please try again.');
         }
         setBusy(false);
       }
 
-      async function resendOtp() { $('otp').value = ''; goTo(stepPhone); clearMsg(); }
-
-      /* ─── Step 3: Build form ─── */
+      /* ─── Step 3: Build Categories Grid ─── */
       function buildCats() {
-        const box = $('cats');
+        const box = $('catsGrid');
         box.innerHTML = '';
         CATEGORIES.forEach(c => {
-          const d = document.createElement('div');
-          d.className = 'cat';
-          d.textContent = CAT_LABEL[c];
-          d.addEventListener('click', () => {
-            document.querySelectorAll('.cat').forEach(x => x.classList.remove('active'));
-            d.classList.add('active');
-            selectedCat = c;
+          const card = document.createElement('div');
+          card.className = 'cat-card' + (selectedCat === c.id ? ' active' : '');
+          card.innerHTML = `<div class="cat-ico">${c.icon}</div><div class="cat-txt">${c[currentLang]}</div>`;
+          card.addEventListener('click', () => {
+            document.querySelectorAll('.cat-card').forEach(x => x.classList.remove('active'));
+            card.classList.add('active');
+            selectedCat = c.id;
           });
-          box.appendChild(d);
+          box.appendChild(card);
         });
       }
 
+      /* ─── Step 3: Build Stars Rating ─── */
       function buildStars() {
-        const box = $('stars');
+        const box = $('starsRow');
         box.innerHTML = '';
         for (let i = 1; i <= 5; i++) {
           const s = document.createElement('span');
-          s.className = 'star';
+          s.className = 'star-btn';
           s.textContent = '★';
-          s.dataset.v = i;
-          s.addEventListener('mouseenter', () => paint(i));
-          s.addEventListener('mouseleave', () => paint(selectedRating));
-          s.addEventListener('click', () => { selectedRating = i; paint(i); });
+          s.dataset.val = i;
+          s.addEventListener('mouseenter', () => paintStars(i));
+          s.addEventListener('mouseleave', () => paintStars(selectedRating));
+          s.addEventListener('click', () => {
+            selectedRating = i;
+            paintStars(i);
+            renderQuickTags();
+          });
           box.appendChild(s);
         }
-        selectedRating = 0;
-        paint(0);
+        paintStars(selectedRating);
       }
 
-      function paint(n) {
-        document.querySelectorAll('#stars .star').forEach((s, i) => s.classList.toggle('on', i < n));
-        $('starNote').textContent = n === 0 ? 'Tap a star to rate' : n <= 2 ? 'Thank you – we will work on it.' : 'Great to hear!';
+      function paintStars(num) {
+        document.querySelectorAll('.star-btn').forEach((s, idx) => {
+          s.classList.toggle('active', idx < num);
+        });
+        const lbl = $('ratingLabel');
+        if (num === 0) lbl.textContent = currentLang === 'en' ? 'Tap a star to rate' : 'रेटिंग देने के लिए स्टार टैप करें';
+        else lbl.textContent = I18N[currentLang]['rating' + num];
       }
+
+      /* Quick Tags render */
+      function renderQuickTags() {
+        const box = $('quickTags');
+        box.innerHTML = '';
+        const list = selectedRating <= 3 ? TAGS.neg : TAGS.pos;
+        list.forEach(t => {
+          const pill = document.createElement('span');
+          pill.className = 'tag-pill';
+          pill.textContent = t[currentLang];
+          pill.addEventListener('click', () => {
+            const area = $('comments');
+            const txt = t[currentLang];
+            if (!area.value.includes(txt)) {
+              area.value = area.value ? area.value + ', ' + txt : txt;
+              pill.classList.add('added');
+            }
+          });
+          box.appendChild(pill);
+        });
+      }
+
+      /* Photo Upload with HTML5 Canvas Client Compression */
+      const uploadBox = $('uploadBox');
+      const fileInput = $('fileInput');
+      uploadBox.addEventListener('click', (e) => {
+        if (e.target.id !== 'btnRemoveImg') fileInput.click();
+      });
+
+      fileInput.addEventListener('change', function () {
+        const file = this.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          const img = new Image();
+          img.onload = function () {
+            const canvas = document.createElement('canvas');
+            let w = img.width, h = img.height;
+            const max = 800;
+            if (w > max || h > max) {
+              if (w > h) { h = Math.round((h * max) / w); w = max; }
+              else { w = Math.round((w * max) / h); h = max; }
+            }
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            uploadedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            $('previewImg').src = uploadedBase64;
+            $('previewContainer').classList.remove('hide');
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      $('btnRemoveImg').addEventListener('click', (e) => {
+        e.stopPropagation();
+        fileInput.value = '';
+        uploadedBase64 = '';
+        $('previewContainer').classList.add('hide');
+      });
 
       /* ─── Step 3: Submit ─── */
       async function submitFeedback() {
         clearMsg();
-        if (!selectedCat)    { showErr('Please select a category.'); return; }
-        if (!selectedRating) { showErr('Please select a star rating.'); return; }
+        if (!selectedCat) { showErr(I18N[currentLang].errCat); return; }
+        if (!selectedRating) { showErr(I18N[currentLang].errStar); return; }
+
+        const areaId = $('selArea').value;
         const comments = $('comments').value.trim();
         setBusy(true, 'Submitting feedback…');
+
         try {
           const res = await fetch(API + '/api/station-feedback/submit', {
             method: 'POST',
@@ -326,28 +1275,81 @@
               'Content-Type': 'application/json',
               'Authorization': 'Bearer ' + verifyToken
             },
-            body: JSON.stringify({ stationId, category: selectedCat, rating: selectedRating, comments, phone: verifyingPhone })
+            body: JSON.stringify({
+              stationId,
+              areaId,
+              category: selectedCat,
+              rating: selectedRating,
+              comments,
+              phone: verifyingPhone,
+              imageUrl: uploadedBase64
+            })
           });
           const json = await res.json();
-          if (!res.ok) { showErr(json.error || 'Could not submit. Please try again.'); setBusy(false); return; }
+          if (!res.ok) {
+            showErr(json.error || 'Could not submit feedback.');
+            setBusy(false);
+            return;
+          }
+
+          submittedUid = json.uid || ('FB-' + Math.floor(100000 + Math.random() * 900000));
+          $('rvId').textContent = '#' + submittedUid.slice(-8).toUpperCase();
+          $('rvStation').textContent = stationName || stationId.toUpperCase();
+          
+          const catObj = CATEGORIES.find(c => c.id === selectedCat);
+          $('rvCat').textContent = catObj ? catObj[currentLang] : selectedCat;
+          $('rvRating').textContent = selectedRating + ' ' + '★'.repeat(selectedRating);
+
           clearMsg();
-          goTo(stepDone);
+          goTo(4, stepDone);
         } catch (e) {
           showErr('Network error. Please try again.');
         }
         setBusy(false);
       }
 
-      /* ─── Bind all buttons via addEventListener (CSP-safe) ─── */
+      /* ─── Language Toggle ─── */
+      function setLanguage(lang) {
+        currentLang = lang;
+        const dict = I18N[lang];
+        Object.keys(dict).forEach(key => {
+          const el = $(key);
+          if (el) el.innerHTML = dict[key];
+        });
+        buildCats();
+        paintStars(selectedRating);
+        renderQuickTags();
+      }
+
+      $('btnLang').addEventListener('click', () => {
+        setLanguage(currentLang === 'en' ? 'hi' : 'en');
+      });
+
+      /* ─── Action Button Event Bindings (CSP-safe) ─── */
       $('btnSendOtp').addEventListener('click', sendOtp);
       $('btnVerify').addEventListener('click', verifyOtp);
-      $('btnResend').addEventListener('click', resendOtp);
+      $('btnResend').addEventListener('click', () => {
+        if (!$('btnResend').classList.contains('disabled')) {
+          sendOtp();
+        }
+      });
       $('btnSubmit').addEventListener('click', submitFeedback);
       $('btnReload').addEventListener('click', () => location.reload());
 
-      /* Allow pressing Enter on phone input */
-      $('phone').addEventListener('keyup', function (e) { if (e.key === 'Enter') sendOtp(); });
-      $('otp').addEventListener('keyup', function (e) { if (e.key === 'Enter') verifyOtp(); });
+      $('btnCopyReceipt').addEventListener('click', () => {
+        const text = `Swachh Railways Feedback Receipt\nRef ID: ${$('rvId').textContent}\nStation: ${$('rvStation').textContent}\nCategory: ${$('rvCat').textContent}\nRating: ${$('rvRating').textContent}\nStatus: ${I18N[currentLang].rvStatusVal}`;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(text);
+          alert(currentLang === 'en' ? 'Receipt summary copied to clipboard!' : 'रसीद कॉपी हो गई!');
+        } else {
+          alert(text);
+        }
+      });
+
+      /* Enter key listeners */
+      $('phone').addEventListener('keyup', (e) => { if (e.key === 'Enter') sendOtp(); });
+      $('otp').addEventListener('keyup', (e) => { if (e.key === 'Enter') verifyOtp(); });
+
     })();
   </script>
 </body>

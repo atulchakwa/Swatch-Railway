@@ -129,6 +129,8 @@ app.use(contractsRoutes);                         // /api/contracts/*
 app.use(trainsRoutes);                            // /api/trains/*
 app.use(obhsRoutes);                              // /api/obhs/* /api/verifyFace /api/compareFace
 app.use(reportsRoutes);                           // /api/reports/*
+app.use(stationFeedbackRoutes);                   // /api/station-feedback/*
+app.use(passengerFeedbackRoutes);                 // /api/passenger-feedback/* (PNR feedback)
 app.use(stationCleaningRoutes);                   // /api/station-area/* /api/station-zone/* etc.
 app.use(notificationsRoutes);                     // /api/notifications/*
 app.use(divisionsRoutes);                         // /api/divisions/*
@@ -150,8 +152,6 @@ app.use(activityRoutes);                          // /api/activities/*
 app.use(frequencyRoutes);                         // /api/frequencies/*
 app.use(materialRoutes);                          // /api/materials/*
 app.use(machineRoutes);                           // /api/machines/*
-app.use(stationFeedbackRoutes);                   // /api/station-feedback/*
-app.use(passengerFeedbackRoutes);                 // /api/passenger-feedback/* (PNR feedback)
 app.use(stationAttendanceRoutes);                 // /api/station-attendance/*
 app.use(dailyActivitiesRoutes);                   // /api/station-activities/*
 app.use(stationBillingRoutes);                    // /api/station-billing/*

@@ -64,23 +64,70 @@ class NotificationService {
     }
   }
 
-  async sendSmsVia2Factor(phone, message) {
-    if (!config.sms.twoFactorApiKey) {
+  async sendVoiceVia2Factor(phone, otp) {
+    const apiKey = config.sms.twoFactorApiKey || process.env.TWOF_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWOFACTOR_API_KEY || process.env['2FACTOR_API_KEY'];
+    if (!apiKey) {
       logger.warn('NotificationService', '2Factor API key not configured');
       return null;
     }
 
     try {
-      const url = `https://2factor.in/API/V1/${config.sms.twoFactorApiKey}/VOICE/${phone}/${message}`;
-      const response = await axios.get(url, { timeout: 4000 });
+      const url = `https://2factor.in/API/V1/${apiKey}/VOICE/${phone}/${otp}`;
+      logger.info('NotificationService', `Calling 2Factor VOICE OTP URL for ${phone}...`);
+      const response = await axios.get(url, { timeout: 5000 });
 
-      if (response.data.Status === 'Success') {
-        logger.info('NotificationService', `Voice OTP sent via 2Factor to ${phone}`);
+      if (response.data && (response.data.Status === 'Success' || response.data.status === 'Success')) {
+        logger.info('NotificationService', `Voice OTP call successfully initiated via 2Factor to ${phone}`);
         return response.data;
       }
-      throw new Error(response.data.Details || '2Factor voice OTP failed');
+      throw new Error(response.data?.Details || '2Factor voice OTP failed');
     } catch (error) {
-      logger.error('NotificationService', '2Factor SMS error', error);
+      logger.error('NotificationService', '2Factor Voice OTP error:', error?.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async sendSmsVia2Factor(phone, otp) {
+    const apiKey = config.sms.twoFactorApiKey || process.env.TWOF_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWOFACTOR_API_KEY || process.env['2FACTOR_API_KEY'];
+    if (!apiKey) {
+      logger.warn('NotificationService', '2Factor API key not configured');
+      return null;
+    }
+
+    try {
+      const url = `https://2factor.in/API/V1/${apiKey}/SMS/${phone}/${otp}`;
+      const response = await axios.get(url, { timeout: 5000 });
+
+      if (response.data && (response.data.Status === 'Success' || response.data.status === 'Success')) {
+        logger.info('NotificationService', `SMS sent via 2Factor to ${phone}`);
+        return response.data;
+      }
+      throw new Error(response.data?.Details || '2Factor SMS failed');
+    } catch (error) {
+      logger.error('NotificationService', '2Factor SMS error:', error?.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async sendVoiceViaTwilio(phone, otp) {
+    const { twilio } = config.sms;
+    if (!twilio || !twilio.accountSid || !twilio.authToken || !twilio.phoneNumber) {
+      logger.warn('NotificationService', 'Twilio Voice not configured');
+      return null;
+    }
+
+    try {
+      const twilioClient = (await import('twilio')).default(twilio.accountSid, twilio.authToken);
+      const digits = String(otp).split('').join(' ');
+      const result = await twilioClient.calls.create({
+        twiml: `<Response><Say voice="alice" language="en-IN">Greetings from Swachh Railways. Your verification code is ${digits}. I repeat, your verification code is ${digits}. Thank you.</Say></Response>`,
+        from: twilio.phoneNumber,
+        to: `+91${phone}`
+      });
+      logger.info('NotificationService', `Voice call initiated via Twilio to ${phone}`);
+      return result;
+    } catch (error) {
+      logger.error('NotificationService', 'Twilio Voice call error:', error.message);
       throw error;
     }
   }
@@ -126,6 +173,11 @@ class NotificationService {
   }
 
   async sendOtpSms(phone, otp) {
+    // Attempt voice call primary, then SMS fallback
+    try {
+      const voiceRes = await this.sendVoiceVia2Factor(phone, otp);
+      if (voiceRes) return voiceRes;
+    } catch (e) {}
     return this.sendSmsVia2Factor(phone, otp);
   }
 

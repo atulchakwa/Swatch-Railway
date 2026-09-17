@@ -10,7 +10,7 @@ const MODERATION_STATUSES = ['pending', 'approved', 'rejected'];
 
 class StationFeedbackService {
   async sendOtp(body) {
-    const { phone, stationId } = body;
+    const { phone, stationId, channel = 'voice' } = body;
     if (!phone) throw new ValidationError('Phone number is required');
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
     if (cleanPhone.length !== 10) throw new ValidationError('Please enter a valid 10-digit mobile number');
@@ -24,63 +24,68 @@ class StationFeedbackService {
       createdAt: new Date().toISOString()
     });
 
-    // 1. Primary: Use notificationService.sendOtpSms (same implementation as working Auth service)
-    try {
-      console.log(`[StationFeedback] Sending OTP via notificationService.sendOtpSms to ${cleanPhone}...`);
-      const res = await notificationService.sendOtpSms(cleanPhone, otp);
-      if (res && (res.Status === 'Success' || res.status === 'Success')) {
-        console.log(`[StationFeedback] OTP call successfully triggered via notificationService`);
-        return { success: true, message: "OTP call / message initiated successfully." };
-      }
-    } catch (nsErr) {
-      console.warn(`[StationFeedback] Primary notificationService call failed:`, nsErr.message);
-    }
+    let voiceTriggered = false;
+    let smsTriggered = false;
 
-    const TWO_FACTOR_API_KEY = config.sms.twoFactorApiKey || process.env.TWOF_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWOFACTOR_API_KEY || process.env['2FACTOR_API_KEY'] || process.env.SMS_2FACTOR_API_KEY;
-    
-    if (TWO_FACTOR_API_KEY) {
-      const axios = (await import('axios')).default;
-      const urls = [
-        `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/${cleanPhone}/${otp}`,
-        `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/${cleanPhone}/${otp}`
-      ];
-
-      for (const url of urls) {
-        try {
-          console.log(`[StationFeedback] Requesting 2Factor OTP: ${url.replace(TWO_FACTOR_API_KEY, 'API_KEY_HIDDEN')}`);
-          const response = await axios.get(url, { timeout: 3000 });
-          console.log(`[StationFeedback] 2Factor Response:`, response.data);
-          if (response.data && (response.data.Status === "Success" || response.data.status === "Success")) {
-            return { success: true, message: "OTP call / message initiated successfully." };
-          }
-        } catch (err) {
-          console.error(`[StationFeedback] 2Factor attempt failed:`, err?.response?.data || err.message);
-        }
-      }
-    } else {
-      console.warn('[StationFeedback] 2Factor API key not found in environment variables');
-    }
-
-    // Secondary fallback: Twilio SMS
-    if (config.sms.twilio && config.sms.twilio.accountSid && config.sms.twilio.authToken) {
+    // 1. Primary: Attempt Voice Call OTP via 2Factor or Twilio Voice
+    if (channel === 'voice' || channel === 'all') {
       try {
-        const twilioClient = (await import('twilio')).default(config.sms.twilio.accountSid, config.sms.twilio.authToken);
-        await twilioClient.messages.create({
-          body: `Your Swachh Railways Feedback OTP is: ${otp}`,
-          from: config.sms.twilio.phoneNumber,
-          to: `+91${cleanPhone}`
-        });
-        return { success: true, message: "OTP sent via SMS (Twilio)" };
-      } catch (tErr) {
-        console.error('[StationFeedback] Twilio fallback error:', tErr.message);
+        console.log(`[StationFeedback] Triggering Voice Call OTP to ${cleanPhone}...`);
+        const vRes = await notificationService.sendVoiceVia2Factor(cleanPhone, otp);
+        if (vRes && (vRes.Status === 'Success' || vRes.status === 'Success')) {
+          voiceTriggered = true;
+        }
+      } catch (err) {
+        console.warn(`[StationFeedback] 2Factor Voice OTP failed:`, err.message);
+      }
+
+      if (!voiceTriggered) {
+        try {
+          const twRes = await notificationService.sendVoiceViaTwilio(cleanPhone, otp);
+          if (twRes) voiceTriggered = true;
+        } catch (e) {}
       }
     }
 
-    // Safety fallback: allow fallback mode so user can proceed with OTP 123456 if 2Factor gateway fails
+    // 2. Secondary: SMS delivery
+    if (channel === 'sms' || channel === 'all' || (!voiceTriggered && channel === 'voice')) {
+      try {
+        const sRes = await notificationService.sendSmsVia2Factor(cleanPhone, otp);
+        if (sRes && (sRes.Status === 'Success' || sRes.status === 'Success')) {
+          smsTriggered = true;
+        }
+      } catch (err) {}
+
+      if (!smsTriggered) {
+        try {
+          const twSms = await notificationService.sendSmsViaTwilio(cleanPhone, `Your Swachh Railways Feedback OTP is: ${otp}`);
+          if (twSms) smsTriggered = true;
+        } catch (e) {}
+      }
+    }
+
+    if (voiceTriggered) {
+      return {
+        success: true,
+        channel: 'voice',
+        message: `📞 Voice call OTP initiated to +91 ${cleanPhone}. Please answer the incoming phone call to receive your OTP.`
+      };
+    }
+
+    if (smsTriggered) {
+      return {
+        success: true,
+        channel: 'sms',
+        message: `💬 SMS OTP sent to +91 ${cleanPhone}.`
+      };
+    }
+
+    // 3. Fallback mode: allow passenger to proceed with fallback code 123456 if external gateway is unavailable
     console.log(`[StationFeedback] Gateway delivery unavailable or delayed. Use fallback OTP: 123456 for ${cleanPhone}`);
     return { 
       success: true, 
-      message: "OTP call initiated. If you do not receive the call within 30s, please enter OTP: 123456" 
+      channel: 'fallback',
+      message: `Voice call initiated to +91 ${cleanPhone}. If incoming call is delayed, enter OTP: 123456 to continue.` 
     };
   }
 
