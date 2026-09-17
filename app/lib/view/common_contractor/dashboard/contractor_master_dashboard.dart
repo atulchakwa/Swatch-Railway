@@ -13,6 +13,7 @@ import '../../../services/dashboard_counts_service.dart';
 import '../../common_railways/widgets/DonutChart.dart';
 import '../../common_railways/widgets/indicator_color.dart';
 import '../../common_railways/widgets/status_tile.dart';
+import 'station_selector_scaffold.dart';
 import '../../onboarding_screens/login_screen.dart';
 import '../alert/contractor_master_alert_screen.dart';
 import '../profile/contractor_master_profile_screen.dart';
@@ -493,6 +494,29 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     }).where((item) => !item.containsKey('children') || (item['children'] as List).isNotEmpty).toList();
   }
 
+  void _navigateWithStationSelector(
+    BuildContext context,
+    String title,
+    IconData icon,
+    Widget Function(BuildContext context, String stationId, String stationName) screenBuilder,
+    dynamic user,
+  ) {
+    final navigator = Navigator.of(context);
+    List<String> allowed = [];
+    if (user?.stations is List) {
+      allowed = (user.stations as List).whereType<String>().toList();
+    }
+    navigator.push(MaterialPageRoute(
+      builder: (_) => StationSelectorScaffold(
+        title: title,
+        icon: icon,
+        allowedStationIds: allowed,
+        initialStationId: user?.stationId?.toString(),
+        builder: screenBuilder,
+      ),
+    ));
+  }
+
   void _navigateWithStation(BuildContext context, Widget Function(String stationId, String stationName) screenBuilder, dynamic user) async {
     final navigator = Navigator.of(context);
     String stationId = user?.stationId ?? '';
@@ -583,7 +607,8 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         break;
       case "billing_rules":
       case "billing":
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const BillingDashboardScreen()));
+        _navigateWithStationSelector(context, 'Billing', Icons.receipt_long, (ctx, stationId, stationName) =>
+            BillingDashboardScreen(stationId: stationId, stationName: stationName), user);
         break;
       case "ratings":
         Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminRatingsScreen()));
@@ -637,22 +662,16 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
         ), user);
         break;
       case "sc_passenger_feedback":
-        _navigateWithStation(context, (stationId, stationName) => _PassengerFeedbackChooser(
-          stationId: stationId,
-          stationName: stationName,
-        ), user);
+        _navigateWithStationSelector(context, 'Passenger Feedback', Icons.feedback, (ctx, stationId, stationName) =>
+            _PassengerFeedbackChooser(stationId: stationId, stationName: stationName), user);
         break;
       case "sc_supervisor_attendance":
-        _navigateWithStation(context, (stationId, stationName) => StationSupervisorAttendanceScreen(
-          stationId: stationId,
-          stationName: stationName,
-        ), user);
+        _navigateWithStationSelector(context, 'Supervisor Attendance', Icons.verified_user, (ctx, stationId, stationName) =>
+            StationSupervisorAttendanceScreen(stationId: stationId, stationName: stationName), user);
         break;
       case "sc_supervisor_shifts":
-        _navigateWithStation(context, (stationId, stationName) => SupervisorShiftAssignmentScreen(
-          stationId: stationId,
-          stationName: stationName,
-        ), user);
+        _navigateWithStationSelector(context, 'Supervisor Shifts', Icons.nights_stay, (ctx, stationId, stationName) =>
+            SupervisorShiftAssignmentScreen(stationId: stationId, stationName: stationName), user);
         break;
       default:
         break;

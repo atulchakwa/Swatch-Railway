@@ -6,7 +6,9 @@ import 'package:crm_train/view/common_railways/billing/billing_report_screen.dar
 import 'package:flutter/material.dart';
 
 class ContractorBillingDashboard extends StatefulWidget {
-  const ContractorBillingDashboard({super.key});
+  final String stationId;
+  final String stationName;
+  const ContractorBillingDashboard({super.key, this.stationId = '', this.stationName = ''});
 
   @override
   State<ContractorBillingDashboard> createState() => _ContractorBillingDashboardState();
@@ -25,8 +27,35 @@ class _ContractorBillingDashboardState extends State<ContractorBillingDashboard>
   Future<void> _loadData() async {
     setState(() { isLoading = true; });
     try {
-      final result = await ApiService.getContractorBillingData();
-      if (mounted) setState(() { data = result; isLoading = false; });
+      if (widget.stationId.isNotEmpty) {
+        final contracts = await ApiService.getStationContracts(widget.stationId);
+        final contractIds = contracts.map((c) => c.uid).toSet();
+        final allBills = <BillingReport>[];
+        for (final cid in contractIds) {
+          try {
+            allBills.addAll(await ApiService.getBillingReports(contractId: cid));
+          } catch (_) {}
+        }
+        allBills.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        double pending = 0, approved = 0, deductions = 0;
+        for (final b in allBills) {
+          deductions += b.totalDeduction;
+          if (b.status == 'PENDING') pending += b.finalPayable;
+          if (b.status == 'APPROVED') approved += b.finalPayable;
+        }
+        final stationData = <String, dynamic>{
+          'configs': contracts.length,
+          'totalBills': allBills.length,
+          'pendingAmount': pending,
+          'approvedAmount': approved,
+          'totalDeductions': deductions,
+          'recentBills': allBills.take(10).map((b) => b.toJson()).toList(),
+        };
+        if (mounted) setState(() { data = stationData; isLoading = false; });
+      } else {
+        final result = await ApiService.getContractorBillingData();
+        if (mounted) setState(() { data = result; isLoading = false; });
+      }
     } catch (e) {
       if (mounted) setState(() { isLoading = false; });
     }
@@ -34,9 +63,10 @@ class _ContractorBillingDashboardState extends State<ContractorBillingDashboard>
 
   @override
   Widget build(BuildContext context) {
+    final stationSuffix = widget.stationName.isNotEmpty ? ' - ${widget.stationName}' : '';
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Billing', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('My Billing$stationSuffix', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData, tooltip: 'Refresh')],
@@ -58,7 +88,13 @@ class _ContractorBillingDashboardState extends State<ContractorBillingDashboard>
                       const SizedBox(height: 12),
                       ...((data!['recentBills'] as List?) ?? []).map((b) => _buildBillHistoryCard(context, b as Map<String, dynamic>)),
                       if ((data!['recentBills'] as List?)?.isEmpty ?? true)
-                        const Padding(padding: EdgeInsets.all(16), child: Text('No bills yet', style: TextStyle(color: Colors.grey))),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            widget.stationName.isNotEmpty ? 'No bills found for ${widget.stationName}' : 'No bills yet',
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                        ),
                       const SizedBox(height: 20),
                       const Text('Downloads', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),

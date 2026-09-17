@@ -12,7 +12,9 @@ import 'package:provider/provider.dart';
 import 'package:crm_train/providers/auth_provider.dart';
 
 class BillingDashboardScreen extends StatefulWidget {
-  const BillingDashboardScreen({super.key});
+  final String? stationId;
+  final String? stationName;
+  const BillingDashboardScreen({super.key, this.stationId, this.stationName});
 
   @override
   State<BillingDashboardScreen> createState() => _BillingDashboardScreenState();
@@ -68,14 +70,21 @@ class _BillingDashboardScreenState extends State<BillingDashboardScreen> with Si
     if (role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master') {
       return _buildAdminDashboard();
     }
-    return const ContractorBillingDashboard();
+    return ContractorBillingDashboard(stationId: widget.stationId ?? '', stationName: widget.stationName ?? '');
   }
 
   Widget _buildAdminDashboard() {
     final user = Provider.of<AuthProvider>(context).currentUser;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Billing Management', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Billing Management', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            if ((widget.stationName ?? '').isNotEmpty)
+              Text('Station: ${widget.stationName}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
