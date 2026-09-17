@@ -117,6 +117,10 @@ class StationFeedbackService {
     const data = stationDoc.data();
     return { stationId, stationName: data.stationName || '', stationCode: data.stationCode || '' };
   }
+
+  async getVersion() {
+    return { service: 'swachh-railways-backend', build: 'voice-otp-v3', deployedAt: new Date().toISOString() };
+  }
 }
 
 export const stationFeedbackService = new StationFeedbackService();

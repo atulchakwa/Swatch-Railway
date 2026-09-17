@@ -8,4 +8,5 @@ export const list = asyncHandler(async (req, res) => res.json(await stationFeedb
 export const summary = asyncHandler(async (req, res) => res.json(await stationFeedbackService.getFeedbackSummary(req.params.stationId, req.query)));
 export const qrCode = asyncHandler(async (req, res) => res.json(await stationFeedbackService.getStationQr(req.params.stationId, req)));
 export const stationBrief = asyncHandler(async (req, res) => res.json(await stationFeedbackService.getStationBrief(req.params.stationId)));
+export const version = asyncHandler(async (req, res) => res.json(await stationFeedbackService.getVersion()));
 export const moderate = asyncHandler(async (req, res) => res.json(await stationFeedbackService.moderateFeedback(req.params.uid, req.user, req.body)));
