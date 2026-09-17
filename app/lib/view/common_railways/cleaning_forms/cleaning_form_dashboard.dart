@@ -58,7 +58,7 @@ class _CleaningFormDashboardScreenState extends State<CleaningFormDashboardScree
     final user = Provider.of<AuthProvider>(context).currentUser;
     final role = user?.role ?? '';
     final isSupervisor = role == 'Railway Supervisor';
-    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master' || role == 'Contractor Admin';
+    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master' || role == 'Contractor Admin' || role == 'Contractor Master';
 
     return Scaffold(
       appBar: AppBar(
@@ -107,7 +107,7 @@ class _CleaningFormDashboardScreenState extends State<CleaningFormDashboardScree
   Widget _buildOverviewTab(user) {
     final role = user?.role ?? '';
     final isSupervisor = role == 'Railway Supervisor';
-    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master';
+    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master' || role == 'Contractor Admin' || role == 'Contractor Master';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),

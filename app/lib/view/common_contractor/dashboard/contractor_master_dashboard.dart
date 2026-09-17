@@ -212,7 +212,7 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
       if (stationId.isEmpty && (user.stations is List) && (user.stations as List).isNotEmpty) {
         stationId = (user.stations as List).first.toString();
       }
-      final isAdmin = user.role == 'Contractor Admin';
+      final isAdmin = user.role == 'Contractor Admin' || user.role == 'Contractor Master' || user.role == 'Company Master';
       final results = await Future.wait([
         isAdmin
             ? provider.fetchAdminDashboard(stationId)
@@ -646,13 +646,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           shift: 'Morning',
           date: DateTime.now().toIso8601String().split('T')[0],
           areas: const [],
-        ), user);
-        break;
-      case "sc_supervisor_reports":
-        _navigateWithStation(context, (stationId, stationName) => ReportListScreen(
-          stationId: stationId,
-          stationName: stationName,
-          role: user?.role ?? '',
         ), user);
         break;
       case "sc_supervisor_passenger_feedback":

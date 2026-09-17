@@ -183,7 +183,7 @@ class _StationDashboardScreenState extends State<StationDashboardScreen>
   @override
   Widget build(BuildContext context) {
     final role = Provider.of<AuthProvider>(context).currentUser?.role ?? '';
-    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master' || role == 'Contractor Admin';
+    final isAdmin = role == 'SUPER_ADMIN' || role == 'Super Admin' || role == 'Railway Admin' || role == 'Railway Master' || role == 'Company Master' || role == 'Contractor Admin' || role == 'Contractor Master';
     final isSupervisor = role == 'Railway Supervisor';
 
     return Scaffold(
