@@ -137,9 +137,9 @@
 
   <script>
     const params = new URLSearchParams(window.location.search);
-    const stationId = params.get('stationId') || '';
-    const stationName = params.get('name') || '';
-    const stationCode = params.get('code') || '';
+    const stationId = params.get('stationId') || params.get('station_id') || params.get('station') || params.get('id') || params.get('st') || '';
+    let stationName = params.get('name') || params.get('stationName') || params.get('station_name') || '';
+    let stationCode = params.get('code') || params.get('stationCode') || params.get('station_code') || '';
     const categories = ['toilet_cleanliness','platform_cleanliness','waiting_room_cleanliness','garbage_dustbin','smell_odour','water_booth_cleanliness','staff_behaviour','other'];
     const catLabel = {toilet_cleanliness:'Toilet',platform_cleanliness:'Platform',waiting_room_cleanliness:'Waiting room',garbage_dustbin:'Dustbin/ Garbage',smell_odour:'Smell',water_booth_cleanliness:'Water booth',staff_behaviour:'Staff',other:'Other'};
 
@@ -156,19 +156,30 @@
     let verifyingPhone = '';
     const API = window.location.origin;
 
-    document.getElementById('stationName').textContent = stationName || 'Loading station...';
-    document.getElementById('stationSub').textContent = stationCode ? stationCode + ' · Swachh Railways' : (stationName ? stationName + ' · Swachh Railways' : 'Swachh Railways');
+    function renderStationInfo(name, code) {
+      const displayName = name || (stationId ? 'Railway Station' : 'Railway Station Feedback');
+      document.getElementById('stationName').textContent = displayName;
+      document.getElementById('stationSub').textContent = code ? code + ' · Swachh Railways' : 'Swachh Railways';
+    }
 
-    if (!stationName && stationId) {
+    if (stationName) {
+      renderStationInfo(stationName, stationCode);
+    } else if (stationId) {
+      renderStationInfo('Loading station...', stationCode);
       fetch(API + '/api/station-feedback/station/' + encodeURIComponent(stationId))
         .then(r => r.ok ? r.json() : null)
         .then(s => {
-          if (s && s.stationName) {
-            document.getElementById('stationName').textContent = s.stationName;
-            document.getElementById('stationSub').textContent = (s.stationCode || '') + ' · Swachh Railways';
+          if (s && (s.stationName || s.stationCode)) {
+            renderStationInfo(s.stationName, s.stationCode);
+          } else {
+            renderStationInfo('Railway Station', stationId.toUpperCase());
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          renderStationInfo('Railway Station', stationId ? stationId.toUpperCase() : '');
+        });
+    } else {
+      renderStationInfo('Railway Station Feedback', 'Swachh Railways');
     }
 
     function showErr(msg){ msgBox.className='msg err'; msgBox.textContent=msg; }
@@ -183,10 +194,10 @@
       try{
         const r = await fetch(API + '/api/station-feedback/send-otp', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ phone:p, stationId }) });
         const j = await r.json();
-        if(!r.ok){ showErr(j.error || 'Could not send OTP.'); setBusy(false); return; }
+        if(!r.ok){ showErr(j.error || j.message || 'Could not send OTP.'); setBusy(false); return; }
         verifyingPhone = p;
-        showOk('Call initiated on ' + p + '. Please note the OTP heard on the call.');
-        document.getElementById('otpNote').textContent = 'Calling ' + p + ' now — listen to the call for your OTP';
+        showOk('OTP call / message sent to ' + p + '. Please check your phone for the OTP.');
+        document.getElementById('otpNote').textContent = 'Calling / sending OTP to ' + p + ' now — please check your phone';
         stepPhone.classList.add('hide'); stepOtp.classList.remove('hide');
         document.getElementById('otp').focus();
       }catch(e){ showErr('Network error. Please try again.'); }

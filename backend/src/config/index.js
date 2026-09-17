@@ -25,7 +25,7 @@ const config = Object.freeze({
   },
 
   sms: {
-    twoFactorApiKey: process.env.TWOF_API_KEY,
+    twoFactorApiKey: process.env.TWOF_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWOFACTOR_API_KEY || process.env['2FACTOR_API_KEY'],
     twilio: {
       accountSid: process.env.TWILIO_ACCOUNT_SID,
       authToken: process.env.TWILIO_AUTH_TOKEN,

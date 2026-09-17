@@ -11,52 +11,94 @@ class StationFeedbackService {
   async sendOtp(body) {
     const { phone, stationId } = body;
     if (!phone) throw new ValidationError('Phone number is required');
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length !== 10) throw new ValidationError('Please enter a valid 10-digit mobile number');
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const phoneKey = `fb_otp_${phone}`;
+    const phoneKey = `fb_otp_${cleanPhone}`;
 
     await db.collection('feedback_otps').doc(phoneKey).set({
-      phone, otp, stationId: stationId || '', attempts: 0,
+      phone: cleanPhone, otp, stationId: stationId || '', attempts: 0,
       expiresAt: new Date(Date.now() + 300000).toISOString(),
       createdAt: new Date().toISOString()
     });
 
-    const TWO_FACTOR_API_KEY = config.sms.twoFactorApiKey;
-    if (!TWO_FACTOR_API_KEY) throw new Error('2Factor API key not configured');
-    const url = `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/${phone}/${otp}`;
+    const TWO_FACTOR_API_KEY = config.sms.twoFactorApiKey || process.env.TWOF_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWOFACTOR_API_KEY || process.env['2FACTOR_API_KEY'];
+    if (!TWO_FACTOR_API_KEY) {
+      console.warn('2Factor API key not found in environment');
+      throw new ValidationError('2Factor API key not configured on server. Please set TWOF_API_KEY or TWO_FACTOR_API_KEY.');
+    }
+
     const axios = (await import('axios')).default;
-    const response = await axios.get(url);
-    if (response.data.Status === "Success") return { success: true, message: "OTP sent" };
-    throw new ValidationError(response.data.Details || "Failed to send voice OTP via 2Factor");
+    let lastError = null;
+
+    // Try multi-gateway sequence: Voice -> Voice (with 91) -> SMS -> SMS (with 91) -> AUTOGEN
+    const urls = [
+      `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/${cleanPhone}/${otp}`,
+      `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/91${cleanPhone}/${otp}`,
+      `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/${cleanPhone}/${otp}`,
+      `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/91${cleanPhone}/${otp}`
+    ];
+
+    for (const url of urls) {
+      try {
+        const response = await axios.get(url, { timeout: 8000 });
+        if (response.data && response.data.Status === "Success") {
+          return { success: true, message: "OTP sent via voice call / SMS" };
+        } else if (response.data && response.data.Details) {
+          lastError = response.data.Details;
+        }
+      } catch (err) {
+        lastError = err?.response?.data?.Details || err.message;
+      }
+    }
+
+    throw new ValidationError(lastError || "Failed to send OTP call. Please check mobile number or 2Factor account balance.");
   }
 
   async verifyOtp(body) {
     const { phone, otp } = body;
     if (!phone || !otp) throw new ValidationError("Phone and OTP are required.");
-    const phoneKey = `fb_otp_${phone}`;
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    const phoneKey = `fb_otp_${cleanPhone}`;
     const doc = await db.collection('feedback_otps').doc(phoneKey).get();
     if (!doc.exists) throw new ValidationError("OTP expired or not requested.");
     const data = doc.data();
     if (new Date(data.expiresAt) < new Date()) throw new ValidationError("OTP expired.");
     if (data.attempts >= 5) throw new ValidationError("Too many attempts.");
-    if (data.otp !== otp) {
+    if (data.otp !== String(otp).trim()) {
       await doc.ref.update({ attempts: data.attempts + 1 });
       throw new ValidationError("Invalid OTP.");
     }
     await doc.ref.delete();
-    const token = jwt.sign({ phone, purpose: 'station_feedback' }, config.jwtSecret, { expiresIn: '1h' });
+    const token = jwt.sign({ phone: cleanPhone, purpose: 'station_feedback' }, config.jwtSecret, { expiresIn: '1h' });
     return { success: true, message: "Verified.", token };
   }
 
   async submitFeedback(body) {
     const { stationId, areaId, category, rating, comments, phone, imageUrl } = body;
-    if (!stationId || !category || rating === undefined) throw new ValidationError('stationId, category, and rating are required');
+    if (!category || rating === undefined) throw new ValidationError('category and rating are required');
     if (!FEEDBACK_CATEGORIES.includes(category)) throw new ValidationError(`Invalid category. Must be one of: ${FEEDBACK_CATEGORIES.join(', ')}`);
     const ratingNum = Number(rating);
     if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) throw new ValidationError('Rating must be between 1 and 5');
-    const stationDoc = await db.collection('stations').doc(stationId).get();
-    if (!stationDoc.exists) throw new NotFoundError('Station not found');
+    
+    let stationName = '';
+    if (stationId) {
+      const stationDoc = await db.collection('stations').doc(stationId).get();
+      if (stationDoc.exists) {
+        stationName = stationDoc.data().stationName || '';
+      } else {
+        const byUid = await db.collection('stations').where('uid', '==', stationId).limit(1).get();
+        if (!byUid.empty) stationName = byUid.docs[0].data().stationName || '';
+        else {
+          const byCode = await db.collection('stations').where('stationCode', '==', String(stationId).toUpperCase()).limit(1).get();
+          if (!byCode.empty) stationName = byCode.docs[0].data().stationName || '';
+        }
+      }
+    }
+    
     const ref = db.collection('station_feedback').doc();
-    const data = { uid: ref.id, stationId, stationName: stationDoc.data().stationName || '', areaId: areaId || null, areaName: '', category, rating: ratingNum, comments: comments || '', phone: phone || '', imageUrl: imageUrl || '', isNegative: ratingNum <= 2, moderationStatus: 'pending', moderationAt: null, moderatedBy: null, createdAt: new Date().toISOString() };
+    const data = { uid: ref.id, stationId: stationId || 'GENERAL', stationName: stationName || 'Railway Station', areaId: areaId || null, areaName: '', category, rating: ratingNum, comments: comments || '', phone: phone || '', imageUrl: imageUrl || '', isNegative: ratingNum <= 2, moderationStatus: 'pending', moderationAt: null, moderatedBy: null, createdAt: new Date().toISOString() };
     await ref.set(data);
     return { message: 'Feedback submitted', uid: ref.id, feedback: data };
   }
@@ -100,22 +142,45 @@ class StationFeedbackService {
 
   async getStationQr(stationId, req) {
     if (!stationId) throw new ValidationError('stationId is required');
-    const stationDoc = await db.collection('stations').doc(stationId).get();
-    if (!stationDoc.exists) throw new NotFoundError('Station not found');
+    let stationDoc = await db.collection('stations').doc(stationId).get();
+    if (!stationDoc.exists) {
+      const byUid = await db.collection('stations').where('uid', '==', stationId).limit(1).get();
+      if (!byUid.empty) stationDoc = byUid.docs[0];
+      else {
+        const byCode = await db.collection('stations').where('stationCode', '==', String(stationId).toUpperCase()).limit(1).get();
+        if (!byCode.empty) stationDoc = byCode.docs[0];
+      }
+    }
+    const sData = stationDoc && stationDoc.exists ? stationDoc.data() : {};
+    const stationName = sData.stationName || 'Railway Station';
+    const stationCode = sData.stationCode || String(stationId).toUpperCase();
     const forwardedProto = req?.headers?.['x-forwarded-proto']?.split(',')[0]?.trim();
     const forwardedHost = req?.headers?.['x-forwarded-host']?.split(',')[0]?.trim();
     const host = forwardedHost || (req?.headers?.host) || process.env.APP_BASE_URL || 'https://swachhrailways.com';
     const protocol = forwardedProto || (req?.secure ? 'https' : 'http') || (host.startsWith('https') ? 'https' : 'http');
-    const feedbackUrl = `${protocol}://${host.replace(/\/+$/, '')}/station-feedback?stationId=${encodeURIComponent(stationId)}&name=${encodeURIComponent(stationDoc.data().stationName || '')}&code=${encodeURIComponent(stationDoc.data().stationCode || '')}`;
-    return { stationId, stationName: stationDoc.data().stationName, stationCode: stationDoc.data().stationCode, feedbackUrl };
+    const feedbackUrl = `${protocol}://${host.replace(/\/+$/, '')}/station-feedback?stationId=${encodeURIComponent(stationId)}&name=${encodeURIComponent(stationName)}&code=${encodeURIComponent(stationCode)}`;
+    return { stationId, stationName, stationCode, feedbackUrl };
   }
 
   async getStationBrief(stationId) {
-    if (!stationId) throw new ValidationError('stationId is required');
-    const stationDoc = await db.collection('stations').doc(stationId).get();
-    if (!stationDoc.exists) throw new NotFoundError('Station not found');
+    if (!stationId) return { stationId: '', stationName: 'Railway Station', stationCode: '' };
+    let stationDoc = await db.collection('stations').doc(stationId).get();
+    if (!stationDoc.exists) {
+      const byUid = await db.collection('stations').where('uid', '==', stationId).limit(1).get();
+      if (!byUid.empty) {
+        stationDoc = byUid.docs[0];
+      } else {
+        const byCode = await db.collection('stations').where('stationCode', '==', String(stationId).toUpperCase()).limit(1).get();
+        if (!byCode.empty) {
+          stationDoc = byCode.docs[0];
+        }
+      }
+    }
+    if (!stationDoc || !stationDoc.exists) {
+      return { stationId, stationName: 'Railway Station', stationCode: String(stationId).toUpperCase() };
+    }
     const data = stationDoc.data();
-    return { stationId, stationName: data.stationName || '', stationCode: data.stationCode || '' };
+    return { stationId: stationDoc.id, stationName: data.stationName || 'Railway Station', stationCode: data.stationCode || '' };
   }
 
   async getVersion() {
