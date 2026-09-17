@@ -36,11 +36,11 @@ class DashboardService {
 
   async getDashboardStats(requesterData, query = {}) {
     const { role, userType, zone: userZone, division: userDiv } = requesterData;
-    const cacheKey = this._cacheKey('stats', { role, userZone, userDiv });
+    const { zone: queryZone, division: queryDivision } = query;
+    const cacheKey = this._cacheKey('stats', { role, userZone, userDiv, queryZone, queryDivision });
     const cached = this._getCached(cacheKey);
     if (cached) return cached;
 
-    const { zone: queryZone, division: queryDivision } = query;
     const isSuperAdminRole = (role || '').trim().toLowerCase().replace(/_/g, ' ').includes('super admin');
     const filterZone = queryZone || (isSuperAdminRole ? null : userZone);
     const filterDivision = queryDivision || (isSuperAdminRole ? null : userDiv);
