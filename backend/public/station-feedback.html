@@ -138,7 +138,8 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const stationId = params.get('stationId') || '';
-    const stationName = params.get('name') || 'Station';
+    const stationName = params.get('name') || '';
+    const stationCode = params.get('code') || '';
     const categories = ['toilet_cleanliness','platform_cleanliness','waiting_room_cleanliness','garbage_dustbin','smell_odour','water_booth_cleanliness','staff_behaviour','other'];
     const catLabel = {toilet_cleanliness:'Toilet',platform_cleanliness:'Platform',waiting_room_cleanliness:'Waiting room',garbage_dustbin:'Dustbin/ Garbage',smell_odour:'Smell',water_booth_cleanliness:'Water booth',staff_behaviour:'Staff',other:'Other'};
 
@@ -155,8 +156,20 @@
     let verifyingPhone = '';
     const API = window.location.origin;
 
-    document.getElementById('stationName').textContent = stationName || 'Station';
-    document.getElementById('stationSub').textContent = stationName ? stationName + ' · Swachh Railways' : 'Swachh Railways';
+    document.getElementById('stationName').textContent = stationName || 'Loading station...';
+    document.getElementById('stationSub').textContent = stationCode ? stationCode + ' · Swachh Railways' : (stationName ? stationName + ' · Swachh Railways' : 'Swachh Railways');
+
+    if (!stationName && stationId) {
+      fetch(API + '/api/station-feedback/station/' + encodeURIComponent(stationId))
+        .then(r => r.ok ? r.json() : null)
+        .then(s => {
+          if (s && s.stationName) {
+            document.getElementById('stationName').textContent = s.stationName;
+            document.getElementById('stationSub').textContent = (s.stationCode || '') + ' · Swachh Railways';
+          }
+        })
+        .catch(() => {});
+    }
 
     function showErr(msg){ msgBox.className='msg err'; msgBox.textContent=msg; }
     function showOk(msg){ msgBox.className='msg ok'; msgBox.textContent=msg; }

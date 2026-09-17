@@ -106,8 +106,16 @@ class StationFeedbackService {
     const forwardedHost = req?.headers?.['x-forwarded-host']?.split(',')[0]?.trim();
     const host = forwardedHost || (req?.headers?.host) || process.env.APP_BASE_URL || 'https://swachhrailways.com';
     const protocol = forwardedProto || (req?.secure ? 'https' : 'http') || (host.startsWith('https') ? 'https' : 'http');
-    const feedbackUrl = `${protocol}://${host.replace(/\/+$/, '')}/station-feedback?stationId=${encodeURIComponent(stationId)}`;
+    const feedbackUrl = `${protocol}://${host.replace(/\/+$/, '')}/station-feedback?stationId=${encodeURIComponent(stationId)}&name=${encodeURIComponent(stationDoc.data().stationName || '')}&code=${encodeURIComponent(stationDoc.data().stationCode || '')}`;
     return { stationId, stationName: stationDoc.data().stationName, stationCode: stationDoc.data().stationCode, feedbackUrl };
+  }
+
+  async getStationBrief(stationId) {
+    if (!stationId) throw new ValidationError('stationId is required');
+    const stationDoc = await db.collection('stations').doc(stationId).get();
+    if (!stationDoc.exists) throw new NotFoundError('Station not found');
+    const data = stationDoc.data();
+    return { stationId, stationName: data.stationName || '', stationCode: data.stationCode || '' };
   }
 }
 
