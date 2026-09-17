@@ -120,6 +120,14 @@ class _CommonDashboardState extends State<CommonDashboard> {
   int ctsAutoApproved = 0;
   int ctsLocked = 0;
 
+  int scTotalStations = 0;
+  int scTotalAreas = 0;
+  int scTasksToday = 0;
+  int scTasksPending = 0;
+  int scTasksCompleted = 0;
+  int scTasksInProgress = 0;
+  int scPendingShiftSummaries = 0;
+
   List<StatusModel> get statusList {
     return [
       StatusModel(pendingForms, 'Pending'),
@@ -313,6 +321,15 @@ class _CommonDashboardState extends State<CommonDashboard> {
         ctsScoringProgress = ctsStats['scoringProgress'] ?? 0;
         ctsAutoApproved = ctsStats['autoApproved'] ?? 0;
         ctsLocked = ctsStats['locked'] ?? 0;
+
+        final scOverview = stats['stationCleaning'] ?? {};
+        scTotalStations = scOverview['totalStations'] ?? 0;
+        scTotalAreas = scOverview['totalAreas'] ?? 0;
+        scTasksToday = scOverview['tasksToday'] ?? 0;
+        scTasksPending = scOverview['tasksPending'] ?? 0;
+        scTasksCompleted = scOverview['tasksCompleted'] ?? 0;
+        scTasksInProgress = scOverview['tasksInProgress'] ?? 0;
+        scPendingShiftSummaries = scOverview['pendingShiftSummaries'] ?? 0;
 
         isStatsLoading = false;
       });
@@ -930,22 +947,24 @@ class _CommonDashboardState extends State<CommonDashboard> {
               if (user?.role != 'Railway Supervisor')
                 FilterSection(
                   userRole: user?.role,
-                  fixedZone: user?.zone,
-                  fixedDivision: user?.division,
-                  fixedDepot: user?.depot,
+                  fixedZone: user?.role == 'Super Admin' ? null : user?.zone,
+                  fixedDivision: user?.role == 'Super Admin' ? null : user?.division,
+                  fixedDepot: user?.role == 'Super Admin' ? null : user?.depot,
                   onChanged: (zone, division, depot) {
+                    final isSuperAdmin = user?.role == 'Super Admin';
                     setState(() {
-                      selectedZone = zone ?? user?.zone;
-                      selectedDivision = division ?? user?.division;
-                      selectedDepot = depot ?? user?.depot;
+                      selectedZone = (isSuperAdmin ? zone : (zone ?? user?.zone));
+                      selectedDivision = (isSuperAdmin ? division : (division ?? user?.division));
+                      selectedDepot = (isSuperAdmin ? depot : (depot ?? user?.depot));
                     });
                     _loadDashboardStats();
                   },
                   onClear: () {
+                    final isSuperAdmin = user?.role == 'Super Admin';
                     setState(() {
-                      selectedZone = user?.zone;
-                      selectedDivision = user?.division;
-                      selectedDepot = user?.depot;
+                      selectedZone = isSuperAdmin ? null : user?.zone;
+                      selectedDivision = isSuperAdmin ? null : user?.division;
+                      selectedDepot = isSuperAdmin ? null : user?.depot;
                     });
                     _loadDashboardStats();
                   },
@@ -1093,6 +1112,39 @@ class _CommonDashboardState extends State<CommonDashboard> {
                 ),
               ),
 
+
+              const SizedBox(height: 20),
+
+              Text("Station Cleaning",
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87)),
+              const SizedBox(height: 10),
+
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    children: [
+                      StatusTile(number: scTotalStations, label: 'Stations'),
+                      const SizedBox(width: 12),
+                      StatusTile(number: scTotalAreas, label: 'Areas'),
+                      const SizedBox(width: 12),
+                      StatusTile(number: scTasksToday, label: 'Tasks Today'),
+                      const SizedBox(width: 12),
+                      StatusTile(number: scTasksPending, label: 'Pending Tasks'),
+                      const SizedBox(width: 12),
+                      StatusTile(number: scTasksCompleted, label: 'Completed'),
+                      const SizedBox(width: 12),
+                      StatusTile(number: scTasksInProgress, label: 'In Progress'),
+                      const SizedBox(width: 12),
+                      StatusTile(number: scPendingShiftSummaries, label: 'Shift Summary Pending'),
+                    ],
+                  ),
+                ),
+              ),
 
               const SizedBox(height: 20),
 
@@ -1335,6 +1387,97 @@ class _CommonDashboardState extends State<CommonDashboard> {
             progress: ctsScoringProgress,
             autoApproved: ctsAutoApproved,
             locked: ctsLocked,
+          ),
+          const SizedBox(width: 16),
+          _buildStationCleaningCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStationCleaningCard() {
+    return Padding(
+      padding: const EdgeInsets.all(5.0),
+      child: Container(
+        width: 350,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3))
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Color(0xFF1565C0).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.train, color: Color(0xFF1565C0), size: 32),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Station Cleaning',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _scTile('Stations', scTotalStations, Icons.location_city),
+                _scTile('Areas', scTotalAreas, Icons.grid_on),
+                _scTile('Tasks Today', scTasksToday, Icons.assignment),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _scTile('Completed', scTasksCompleted, Icons.check_circle),
+                _scTile('Pending', scTasksPending, Icons.hourglass_empty),
+                _scTile('Shift Summary\nPending', scPendingShiftSummaries, Icons.toc),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const StationDashboardScreen()));
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue),
+              child: const Text("Open Station Dashboard"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _scTile(String label, int value, IconData icon) {
+    return Container(
+      width: 92,
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1565C0).withOpacity(0.06),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: const Color(0xFF1565C0), size: 18),
+          const SizedBox(height: 4),
+          Text(
+            '$value',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1565C0)),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
           ),
         ],
       ),

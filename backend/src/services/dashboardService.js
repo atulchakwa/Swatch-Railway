@@ -41,8 +41,9 @@ class DashboardService {
     if (cached) return cached;
 
     const { zone: queryZone, division: queryDivision } = query;
-    const filterZone = queryZone || userZone;
-    const filterDivision = queryDivision || userDiv;
+    const isSuperAdminRole = (role || '').trim().toLowerCase().replace(/_/g, ' ').includes('super admin');
+    const filterZone = queryZone || (isSuperAdminRole ? null : userZone);
+    const filterDivision = queryDivision || (isSuperAdminRole ? null : userDiv);
 
     const [userSnap, entitySnap, trainSnap, contractSnap, coachSnap, premisesSnap, ctsSnap] = await Promise.all([
       db.collection('users').get(),
@@ -110,6 +111,8 @@ class DashboardService {
     const ctsFormStats = countStatuses(ctsSnap);
     const totalForms = coachFormStats.total + premisesFormStats.total + ctsFormStats.total;
 
+    const stationCleaning = await this._getStationCleaningOverview(filterZone, filterDivision);
+
     const result = {
       systemOverview: {
         railwayEmployees: stats.user.railway, contractorEmployees: stats.user.contractor,
@@ -126,10 +129,46 @@ class DashboardService {
         scoringProgress: coachFormStats.scoringProgress + premisesFormStats.scoringProgress + ctsFormStats.scoringProgress,
         autoApproved: coachFormStats.autoApproved + premisesFormStats.autoApproved + ctsFormStats.autoApproved,
         locked: coachFormStats.locked + premisesFormStats.locked + ctsFormStats.locked
-      }
+      },
+      stationCleaning
     };
     this._setCache(cacheKey, result);
     return result;
+  }
+
+  async _getStationCleaningOverview(filterZone, filterDivision) {
+    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    let stationQuery = db.collection('stations');
+    if (filterZone) stationQuery = stationQuery.where('zone', '==', filterZone);
+    const [stationSnap, areaSnap, taskSnap, shiftSnap] = await Promise.all([
+      stationQuery.get(),
+      db.collection('stationAreas').get(),
+      db.collection('cleaningTasks').where('scheduledDate', '==', todayIST).get(),
+      db.collection('stationShiftSummaries').get(),
+    ]);
+    let stationData = stationSnap.docs.map(d => d.data());
+    if (filterDivision) stationData = stationData.filter(s => s.division === filterDivision);
+    let tasksToday = 0, tasksPending = 0, tasksCompleted = 0, tasksInProgress = 0;
+    taskSnap.docs.forEach(doc => {
+      const st = (doc.data().status || '').toLowerCase();
+      tasksToday++;
+      if (st === 'pending' || st === 'assigned') tasksPending++;
+      else if (st === 'completed') tasksCompleted++;
+      else if (st === 'in_progress' || st === 'started') tasksInProgress++;
+    });
+    let pendingShiftSummaries = 0;
+    shiftSnap.docs.forEach(doc => {
+      if ((doc.data().status || '').toLowerCase() === 'pending') pendingShiftSummaries++;
+    });
+    return {
+      totalStations: stationData.length,
+      totalAreas: areaSnap.size,
+      tasksToday,
+      tasksPending,
+      tasksCompleted,
+      tasksInProgress,
+      pendingShiftSummaries,
+    };
   }
 
   async getRailwayDashboardStats(requesterData) {
