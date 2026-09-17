@@ -94,7 +94,7 @@
       <h2>Verify your mobile number</h2>
       <div class="station"><span class="ico">&#128646;</span><div><div class="name" id="stationName">Railway Station</div><div class="sub" id="stationSub">Swachh Railways</div></div></div>
       <input type="tel" id="phone" inputmode="numeric" placeholder="Enter 10-digit mobile number" maxlength="10">
-      <button id="btnSendOtp" onclick="sendOtp()">Send OTP</button>
+      <button id="btnSendOtp" type="button">Send OTP</button>
     </div>
 
     <!-- STEP 2: otp -->
@@ -102,10 +102,10 @@
       <h2>Enter OTP</h2>
       <div class="otp-row">
         <input type="tel" id="otp" class="grow" inputmode="numeric" placeholder="6-digit OTP" maxlength="6" style="flex:2;">
-        <button class="secondary" onclick="resendOtp()" id="btnResend">Resend</button>
+        <button class="secondary" id="btnResend" type="button">Resend</button>
       </div>
       <p class="otp-sent-note" id="otpNote"></p>
-      <button id="btnVerify" onclick="verifyOtp()">Verify &amp; Continue</button>
+      <button id="btnVerify" type="button">Verify &amp; Continue</button>
     </div>
 
     <!-- STEP 3: feedback form -->
@@ -117,7 +117,7 @@
       <div class="stars" id="stars"></div>
       <div class="star-note" id="starNote">Tap a star to rate</div>
       <textarea id="comments" placeholder="Your comments (optional)"></textarea>
-      <button id="btnSubmit" onclick="submitFeedback()" style="margin-top:12px;">Submit Feedback</button>
+      <button id="btnSubmit" type="button" style="margin-top:12px;">Submit Feedback</button>
     </div>
 
     <!-- STEP 4: done -->
@@ -126,7 +126,7 @@
         <div class="big">&#10003;</div>
         <div class="t">Thank you for your feedback!</div>
         <div class="s">Your feedback helps us keep stations cleaner. <br>Translate QR aur station pe aapka shukriya.</div>
-        <button onclick="location.reload()">Submit another feedback</button>
+        <button id="btnReload" type="button">Submit another feedback</button>
       </div>
     </div>
 
@@ -236,7 +236,7 @@
       categories.forEach(c => {
         const d = document.createElement('div');
         d.className='cat'; d.textContent = catLabel[c];
-        d.onclick = () => { document.querySelectorAll('.cat').forEach(x=>x.classList.remove('active')); d.classList.add('active'); selectedCategory=c; };
+        d.addEventListener('click', () => { document.querySelectorAll('.cat').forEach(x=>x.classList.remove('active')); d.classList.add('active'); selectedCategory=c; });
         box.appendChild(d);
       });
     }
@@ -247,8 +247,9 @@
         const s=document.createElement('span');
         s.className='star'; s.innerHTML='&#9733;';
         s.dataset.v=i;
-        s.onmouseenter=()=>paint(i); s.onmouseleave=()=>paint(selectedRating);
-        s.onclick=()=>{ selectedRating=i; paint(i); };
+        s.addEventListener('mouseenter', ()=>paint(i));
+        s.addEventListener('mouseleave', ()=>paint(selectedRating));
+        s.addEventListener('click', ()=>{ selectedRating=i; paint(i); });
         box.appendChild(s);
       }
     }
@@ -271,7 +272,14 @@
       }catch(e){ showErr('Network error. Please try again.'); }
       setBusy(false);
     }
-    function setBusy(b){ loading.style.display = b ? 'block' : 'none'; const btns=['btnSendOtp','btnVerify','btnSubmit']; btns.forEach(id=>{ document.getElementById(id).disabled=b; }); }
+    function setBusy(b){ loading.style.display = b ? 'block' : 'none'; const btns=['btnSendOtp','btnVerify','btnSubmit']; btns.forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=b; }); }
+
+    // Bind event listeners cleanly without inline script attributes (CSP friendly)
+    document.getElementById('btnSendOtp').addEventListener('click', sendOtp);
+    document.getElementById('btnResend').addEventListener('click', resendOtp);
+    document.getElementById('btnVerify').addEventListener('click', verifyOtp);
+    document.getElementById('btnSubmit').addEventListener('click', submitFeedback);
+    document.getElementById('btnReload').addEventListener('click', () => location.reload());
   </script>
 </body>
 </html>
