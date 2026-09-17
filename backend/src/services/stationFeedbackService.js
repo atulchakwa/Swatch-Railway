@@ -25,14 +25,28 @@ class StationFeedbackService {
 
     const TWO_FACTOR_API_KEY = config.sms.twoFactorApiKey || process.env.TWOF_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWOFACTOR_API_KEY || process.env['2FACTOR_API_KEY'];
     if (!TWO_FACTOR_API_KEY) {
-      console.warn('2Factor API key not found in environment');
-      throw new ValidationError('2Factor API key not configured on server. Please set TWOF_API_KEY or TWO_FACTOR_API_KEY.');
+      console.warn('[StationFeedback] 2Factor API key not found in environment');
+      // If Twilio is configured, fall back to Twilio
+      if (config.sms.twilio && config.sms.twilio.accountSid && config.sms.twilio.authToken) {
+        try {
+          const twilioClient = (await import('twilio')).default(config.sms.twilio.accountSid, config.sms.twilio.authToken);
+          await twilioClient.messages.create({
+            body: `Your Swachh Railways Feedback OTP is: ${otp}`,
+            from: config.sms.twilio.phoneNumber,
+            to: `+91${cleanPhone}`
+          });
+          return { success: true, message: "OTP sent via SMS (Twilio)" };
+        } catch (tErr) {
+          console.error('[StationFeedback] Twilio fallback failed:', tErr.message);
+        }
+      }
+      throw new ValidationError('2Factor API key not configured on deployment server. Please set TWOF_API_KEY environment variable.');
     }
 
     const axios = (await import('axios')).default;
     let lastError = null;
 
-    // Try multi-gateway sequence: Voice -> Voice (with 91) -> SMS -> SMS (with 91) -> AUTOGEN
+    // Multi-gateway sequence: Voice -> Voice(91) -> SMS -> SMS(91)
     const urls = [
       `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/${cleanPhone}/${otp}`,
       `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/91${cleanPhone}/${otp}`,
@@ -42,18 +56,36 @@ class StationFeedbackService {
 
     for (const url of urls) {
       try {
-        const response = await axios.get(url, { timeout: 8000 });
-        if (response.data && response.data.Status === "Success") {
-          return { success: true, message: "OTP sent via voice call / SMS" };
+        console.log(`[StationFeedback] Requesting 2Factor OTP: ${url.replace(TWO_FACTOR_API_KEY, 'API_KEY_HIDDEN')}`);
+        const response = await axios.get(url, { timeout: 10000 });
+        console.log(`[StationFeedback] 2Factor Response:`, response.data);
+        if (response.data && (response.data.Status === "Success" || response.data.status === "Success")) {
+          return { success: true, message: "OTP call / message initiated successfully." };
         } else if (response.data && response.data.Details) {
           lastError = response.data.Details;
         }
       } catch (err) {
-        lastError = err?.response?.data?.Details || err.message;
+        console.error(`[StationFeedback] 2Factor attempt failed:`, err?.response?.data || err.message);
+        lastError = err?.response?.data?.Details || err?.response?.data?.message || err.message;
       }
     }
 
-    throw new ValidationError(lastError || "Failed to send OTP call. Please check mobile number or 2Factor account balance.");
+    // Secondary fallback: Twilio SMS if 2Factor Voice/SMS fails
+    if (config.sms.twilio && config.sms.twilio.accountSid && config.sms.twilio.authToken) {
+      try {
+        const twilioClient = (await import('twilio')).default(config.sms.twilio.accountSid, config.sms.twilio.authToken);
+        await twilioClient.messages.create({
+          body: `Your Swachh Railways Feedback OTP is: ${otp}`,
+          from: config.sms.twilio.phoneNumber,
+          to: `+91${cleanPhone}`
+        });
+        return { success: true, message: "OTP sent via SMS" };
+      } catch (tErr) {
+        console.error('[StationFeedback] Twilio fallback error:', tErr.message);
+      }
+    }
+
+    throw new ValidationError(lastError || "2Factor OTP call failed. Please check 2Factor Voice balance or API key.");
   }
 
   async verifyOtp(body) {

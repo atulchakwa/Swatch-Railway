@@ -165,19 +165,16 @@
     if (stationName) {
       renderStationInfo(stationName, stationCode);
     } else if (stationId) {
-      renderStationInfo('Loading station...', stationCode);
+      // Immediately render default station info so "Loading station..." is NEVER shown to the user
+      renderStationInfo('Railway Station', stationCode || stationId.toUpperCase());
       fetch(API + '/api/station-feedback/station/' + encodeURIComponent(stationId))
         .then(r => r.ok ? r.json() : null)
         .then(s => {
-          if (s && (s.stationName || s.stationCode)) {
-            renderStationInfo(s.stationName, s.stationCode);
-          } else {
-            renderStationInfo('Railway Station', stationId.toUpperCase());
+          if (s && s.stationName) {
+            renderStationInfo(s.stationName, s.stationCode || stationCode || stationId.toUpperCase());
           }
         })
-        .catch(() => {
-          renderStationInfo('Railway Station', stationId ? stationId.toUpperCase() : '');
-        });
+        .catch(() => {});
     } else {
       renderStationInfo('Railway Station Feedback', 'Swachh Railways');
     }
