@@ -348,11 +348,16 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
       return;
     }
 
-    // Gate: all tasks for this shift must be completed before the summary can submit.
-    final terminalStatuses = {'completed', 'approved', 'cancelled'};
+    // Gate: only actionable tasks (pending / in progress / rejected / resubmitted)
+    // block the summary submission. Completed / approved / cancelled and MISSED
+    // tasks (start window elapsed, never started) never block.
+    final nonBlockingStatuses = {'completed', 'approved', 'cancelled', 'missed'};
     final blockers = _tasks.where((t) {
-      return !terminalStatuses.contains((t['status'] ?? '').toString().toLowerCase());
+      final status = (t['status'] ?? '').toString().toLowerCase();
+      if (nonBlockingStatuses.contains(status)) return false;
+      return !_isTaskMissed(t);
     }).toList();
+    final missedTasks = _tasks.where(_isTaskMissed).toList();
     if (blockers.isNotEmpty) {
       final uniqAreas = <String>{};
       for (final t in blockers) {
@@ -363,14 +368,14 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
           context: context,
           builder: (ctx) => AlertDialog(
             icon: const Icon(Icons.rule, color: kWarningOrange),
-            title: const Text('Complete All Tasks First'),
+            title: const Text('Pending Tasks Block Submission'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '${blockers.length} task(s) are still incomplete for this shift. '
-                    'Shift summary can only be submitted after every task is completed.',
+                    '${blockers.length} task(s) are still pending or in progress for this shift. '
+                    'Please complete or resolve them before submitting the shift summary.',
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
@@ -383,6 +388,14 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
                     const SizedBox(height: 6),
                   if (uniqAreas.length > 10)
                     Text('... and ${uniqAreas.length - 10} more', style: const TextStyle(fontSize: 12)),
+                  if (missedTasks.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      '${missedTasks.length} task(s) were missed (start window lapsed) and will not block submission.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: kWarningOrange),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -451,7 +464,9 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
           icon: const Icon(Icons.camera_alt, size: 48, color: Colors.orange),
           title: const Text('Shift Summary Required'),
           content: Text(
-            'You have $areas.length completed area(s). Submit your shift summary with photos to complete your shift.',
+            missedTasks.isEmpty
+                ? 'You have $areas.length completed area(s). Submit your shift summary with photos to complete your shift.'
+                : 'You have $areas.length completed area(s) and ${missedTasks.length} missed task(s). Submit your shift summary with photos to complete your shift.',
             textAlign: TextAlign.center,
           ),
           actions: [
@@ -469,6 +484,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
                       shift: primaryShift,
                       date: _selectedDate,
                       areas: areas,
+                      missedCount: missedTasks.length,
                     ),
                   ),
                 );
@@ -524,6 +540,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
           areas: areas,
           existingSummaryUid: (stored['uid'] ?? stored['id'] ?? '').toString(),
           rejectionReason: (stored['rejectionReason'] ?? '').toString(),
+          missedCount: _tasks.where(_isTaskMissed).length,
         ),
       ),
     );
@@ -538,6 +555,29 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
 
   int get _activeTaskCount => _tasks.where((t) => (t['status'] ?? '').toString().toLowerCase() != 'cancelled').length;
   bool get _hasCompletedHalf => _activeTaskCount > 0 && _completedCount >= (_activeTaskCount / 2).ceil();
+
+  // A task is MISSED when its 1-hour start window (scheduledTime <= now <
+  // scheduledTime + 1h, IST) elapsed without it ever being started. Mirrors
+  // the backend _isTaskMissed rule in stationCleaningService.js.
+  bool _isTaskMissed(Map<String, dynamic> t) {
+    final status = (t['status'] ?? '').toString().toLowerCase();
+    if (!{'pending', 'assigned', ''}.contains(status)) return false;
+    final scheduledDate = (t['scheduledDate'] ?? t['date'] ?? '').toString();
+    final scheduledTime = (t['scheduledTime'] ?? '').toString();
+    if (scheduledDate.isEmpty || scheduledTime.isEmpty) return false;
+    final dm = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(scheduledDate);
+    final tm = RegExp(r'^(\d{2}):(\d{2})$').firstMatch(scheduledTime);
+    if (dm == null || tm == null) return false;
+    final scheduledIST = DateTime.utc(
+      int.parse(dm.group(1)!),
+      int.parse(dm.group(2)!),
+      int.parse(dm.group(3)!),
+      int.parse(tm.group(1)!),
+      int.parse(tm.group(2)!),
+    );
+    final nowIST = DateTime.now().toUtc().add(const Duration(milliseconds: 19800000));
+    return !nowIST.isBefore(scheduledIST.add(const Duration(hours: 1)));
+  }
 
   void _handleComplete(Map<String, dynamic> t) {
     if (!_midMarked && _hasCompletedHalf) {

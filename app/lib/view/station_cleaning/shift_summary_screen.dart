@@ -20,6 +20,7 @@ class ShiftSummaryScreen extends StatefulWidget {
   final List<Map<String, dynamic>> areas;
   final String? existingSummaryUid;
   final String? rejectionReason;
+  final int missedCount;
 
   const ShiftSummaryScreen({
     super.key,
@@ -32,6 +33,7 @@ class ShiftSummaryScreen extends StatefulWidget {
     required this.areas,
     this.existingSummaryUid,
     this.rejectionReason,
+    this.missedCount = 0,
   });
 
   @override
@@ -416,7 +418,10 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                 Text('${widget.shift} Shift — ${widget.date}',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text('${_entries.length} completed area(s) — End-of-shift photos: $_photoCount/${_requiredPhotoCount}',
+                Text('Completed: ${_entries.length} • Missed: ${widget.missedCount}',
+                    style: TextStyle(color: Colors.grey[600])),
+                const SizedBox(height: 4),
+                Text('End-of-shift photos: $_photoCount/$_requiredPhotoCount',
                     style: TextStyle(color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text('Total Work Done: ${_totalWorkDone.toStringAsFixed(0)} sqft',

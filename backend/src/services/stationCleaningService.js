@@ -2301,6 +2301,29 @@ class StationCleaningService {
     }
   }
 
+  // A task is MISSED when its 1-hour start window (scheduledTime <= now <
+  // scheduledTime + 1h) has elapsed without it ever being started. Missed
+  // tasks are legitimately unworked and never block the shift summary.
+  _isTaskMissed(task) {
+    const status = String(task.status || '').toLowerCase();
+    if (!['pending', 'assigned', ''].includes(status)) return false;
+    const scheduledDate = task.scheduledDate || task.date || '';
+    const scheduledTime = task.scheduledTime || '';
+    if (!scheduledDate || !scheduledTime) return false;
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(scheduledDate);
+    const timeMatch = /^(\d{2}):(\d{2})$/.exec(scheduledTime);
+    if (!dateMatch || !timeMatch) return false;
+    const [, y, mo, d] = dateMatch.map(Number);
+    const [, hh, mm] = timeMatch.map(Number);
+    const scheduledIST = new Date(Date.UTC(y, mo - 1, d, hh, mm, 0));
+    const nowIST = Date.now() + 5.5 * 60 * 60 * 1000;
+    return nowIST >= scheduledIST.getTime() + 60 * 60 * 1000;
+  }
+
+  // Only actionable tasks (pending / in progress / rejected / resubmitted)
+  // block the shift summary submission. Terminal tasks (completed / approved /
+  // cancelled) and MISSED tasks (start window elapsed, never started) never
+  // block.
   async _assertAllTasksTerminal(supervisorId, stationId, date, resolvedShift) {
     const incompleteTasks = [];
     const taskSnap = await db.collection('cleaningTasks')
@@ -2315,14 +2338,16 @@ class StationCleaningService {
       if (taskShift && resolvedShift && taskShift !== resolvedShift) return;
       if (!taskShift && resolvedShift && resolvedShift !== 'morning') return;
       const status = String(t.status || '').toLowerCase();
-      if (['completed', 'approved', 'cancelled'].includes(status)) return;
+      if (['completed', 'approved', 'cancelled', 'missed'].includes(status)) return;
+      if (this._isTaskMissed(t)) return;
       incompleteTasks.push({ areaName: t.areaName || 'Unknown area', scheduledTime: t.scheduledTime || '', status });
     });
     if (incompleteTasks.length > 0) {
       const uniqAreas = [...new Set(incompleteTasks.map(x => x.areaName))].slice(0, 10);
       const extra = incompleteTasks.length > uniqAreas.length ? `, ... (${incompleteTasks.length} total)` : '';
+      const noun = incompleteTasks.length === 1 ? 'task is' : 'tasks are';
       throw new ValidationError(
-        `Complete all tasks before submitting the shift summary. ${incompleteTasks.length} task(s) still incomplete: ${uniqAreas.join(', ')}${extra}`
+        `Cannot submit shift summary: ${incompleteTasks.length} ${noun} still pending or in progress: ${uniqAreas.join(', ')}${extra}. Please complete or resolve them before submitting.`
       );
     }
   }
