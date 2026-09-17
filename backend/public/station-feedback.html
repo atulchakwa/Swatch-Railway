@@ -172,8 +172,8 @@
         const j = await r.json();
         if(!r.ok){ showErr(j.error || 'Could not send OTP.'); setBusy(false); return; }
         verifyingPhone = p;
-        showOk('OTP sent to ' + p + '.');
-        document.getElementById('otpNote').textContent = 'OTP sent to ' + p;
+        showOk('Call initiated on ' + p + '. Please note the OTP heard on the call.');
+        document.getElementById('otpNote').textContent = 'Calling ' + p + ' now — listen to the call for your OTP';
         stepPhone.classList.add('hide'); stepOtp.classList.remove('hide');
         document.getElementById('otp').focus();
       }catch(e){ showErr('Network error. Please try again.'); }

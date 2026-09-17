@@ -71,14 +71,14 @@ class NotificationService {
     }
 
     try {
-      const url = `https://2factor.in/API/V1/${config.sms.twoFactorApiKey}/SMS/91${phone}/${message}`;
+      const url = `https://2factor.in/API/V1/${config.sms.twoFactorApiKey}/VOICE/${phone}/${message}`;
       const response = await axios.get(url);
 
       if (response.data.Status === 'Success') {
-        logger.info('NotificationService', `SMS sent via 2Factor to ${phone}`);
+        logger.info('NotificationService', `Voice OTP sent via 2Factor to ${phone}`);
         return response.data;
       }
-      throw new Error(response.data.Details || '2Factor SMS failed');
+      throw new Error(response.data.Details || '2Factor voice OTP failed');
     } catch (error) {
       logger.error('NotificationService', '2Factor SMS error', error);
       throw error;

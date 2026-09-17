@@ -22,11 +22,11 @@ class StationFeedbackService {
 
     const TWO_FACTOR_API_KEY = config.sms.twoFactorApiKey;
     if (!TWO_FACTOR_API_KEY) throw new Error('2Factor API key not configured');
-    const url = `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/91${phone}/${otp}`;
+    const url = `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/${phone}/${otp}`;
     const axios = (await import('axios')).default;
     const response = await axios.get(url);
     if (response.data.Status === "Success") return { success: true, message: "OTP sent" };
-    throw new Error(response.data.Details || "Failed to send SMS");
+    throw new ValidationError(response.data.Details || "Failed to send voice OTP via 2Factor");
   }
 
   async verifyOtp(body) {
