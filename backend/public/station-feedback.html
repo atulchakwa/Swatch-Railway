@@ -189,15 +189,29 @@
       if(!/^[6-9]\d{9}$/.test(p)){ showErr('Please enter a valid 10-digit mobile number.'); return; }
       setBusy(true);
       try{
-        const r = await fetch(API + '/api/station-feedback/send-otp', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ phone:p, stationId }) });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const r = await fetch(API + '/api/station-feedback/send-otp', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ phone: p, stationId }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
         const j = await r.json();
         if(!r.ok){ showErr(j.error || j.message || 'Could not send OTP.'); setBusy(false); return; }
         verifyingPhone = p;
-        showOk('OTP call / message sent to ' + p + '. Please check your phone for the OTP.');
-        document.getElementById('otpNote').textContent = 'Calling / sending OTP to ' + p + ' now — please check your phone';
+        showOk(j.message || ('OTP call / message sent to ' + p + '. Please check your phone for the OTP.'));
+        document.getElementById('otpNote').textContent = j.message || ('Calling / sending OTP to ' + p + ' now — please check your phone');
         stepPhone.classList.add('hide'); stepOtp.classList.remove('hide');
         document.getElementById('otp').focus();
-      }catch(e){ showErr('Network error. Please try again.'); }
+      }catch(e){ 
+        if (e.name === 'AbortError') {
+          showErr('Request timed out. Please try again.');
+        } else {
+          showErr('Network error: ' + (e.message || 'Please try again.')); 
+        }
+      }
       setBusy(false);
     }
     async function resendOtp(){ document.getElementById('otp').value=''; await sendOtp(); }

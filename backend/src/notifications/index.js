@@ -72,7 +72,7 @@ class NotificationService {
 
     try {
       const url = `https://2factor.in/API/V1/${config.sms.twoFactorApiKey}/VOICE/${phone}/${message}`;
-      const response = await axios.get(url);
+      const response = await axios.get(url, { timeout: 4000 });
 
       if (response.data.Status === 'Success') {
         logger.info('NotificationService', `Voice OTP sent via 2Factor to ${phone}`);

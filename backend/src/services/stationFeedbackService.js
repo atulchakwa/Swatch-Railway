@@ -42,15 +42,13 @@ class StationFeedbackService {
       const axios = (await import('axios')).default;
       const urls = [
         `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/${cleanPhone}/${otp}`,
-        `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/VOICE/91${cleanPhone}/${otp}`,
-        `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/${cleanPhone}/${otp}`,
-        `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/91${cleanPhone}/${otp}`
+        `https://2factor.in/API/V1/${TWO_FACTOR_API_KEY}/SMS/${cleanPhone}/${otp}`
       ];
 
       for (const url of urls) {
         try {
           console.log(`[StationFeedback] Requesting 2Factor OTP: ${url.replace(TWO_FACTOR_API_KEY, 'API_KEY_HIDDEN')}`);
-          const response = await axios.get(url, { timeout: 8000 });
+          const response = await axios.get(url, { timeout: 3000 });
           console.log(`[StationFeedback] 2Factor Response:`, response.data);
           if (response.data && (response.data.Status === "Success" || response.data.status === "Success")) {
             return { success: true, message: "OTP call / message initiated successfully." };
