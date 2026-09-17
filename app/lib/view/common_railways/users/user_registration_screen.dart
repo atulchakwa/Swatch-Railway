@@ -46,6 +46,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   String _selectedUserType = 'railway';
   String? _selectedRole;
   String? _selectedCompany;
+  String? _selectedCompanyName;
   String? _zone;
   String? _division;
   String? _depot;
@@ -135,6 +136,11 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     }
   }
 
+  String _entityLabel() {
+    final name = _selectedCompanyName?.isNotEmpty == true ? _selectedCompanyName : null;
+    return name ?? _selectedCompany ?? 'Auto-assigned';
+  }
+
   Future<void> _autoAssignFromCurrentUser() async {
     final currentUser = Provider.of<AuthProvider>(context, listen: false).currentUser;
     if (currentUser?.role != 'Contractor Admin') return;
@@ -159,6 +165,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
         setState(() {
           _isContractAutoAssigned = true;
           _selectedCompany = currentUser.entityId;
+          _selectedCompanyName = (contractData['entityName'] as String?)?.isNotEmpty == true ? contractData['entityName'] as String? : null;
           _selectedContractId = contractData['uid'] as String? ?? currentUser.contractId;
           _selectedContractData = contractData;
           _selectedContractStationIds = contractStationIds;
@@ -194,6 +201,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       _selectedUserType = draft['userType'] ?? 'railway';
       _selectedRole = draft['role'];
       _selectedCompany = draft['entityId'];
+      _selectedCompanyName = draft['entityName']?.toString().isNotEmpty == true ? draft['entityName'] as String? : null;
       _selectedContractId = draft['contractId'];
       _selectedContractStationIds = List<String>.from(draft['stations'] ?? []);
       if (_selectedContractStationIds.isNotEmpty) {
@@ -645,7 +653,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                       children: [
                         const Text('Entity', style: TextStyle(fontWeight: FontWeight.w500)),
                         const SizedBox(height: 4),
-                        Chip(avatar: const Icon(Icons.business, size: 18), label: Text(_selectedCompany ?? 'Auto-assigned')),
+                        Chip(avatar: const Icon(Icons.business, size: 18), label: Text(_entityLabel())),
                         const SizedBox(height: 8),
                         const Text('Contract', style: TextStyle(fontWeight: FontWeight.w500)),
                         const SizedBox(height: 4),
@@ -665,7 +673,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                       children: [
                         const Text('Entity', style: TextStyle(fontWeight: FontWeight.w500)),
                         const SizedBox(height: 4),
-                        Chip(avatar: const Icon(Icons.business, size: 18), label: Text(_selectedCompany ?? 'Auto-assigned')),
+                        Chip(avatar: const Icon(Icons.business, size: 18), label: Text(_entityLabel())),
                       ],
                     ),
                   ),
@@ -684,6 +692,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                       setState(() {
                         _selectedContractId = contractId;
                         _selectedContractData = contractData;
+                        _selectedCompanyName = (contractData['entityName'] as String?)?.isNotEmpty == true ? contractData['entityName'] as String? : _selectedCompanyName;
                         _selectedContractStationIds = [];
                         _selectedStationId = null;
                         _zone = normZone;
@@ -702,18 +711,23 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                 ] else ...[
                   ApprovedEntityDropdown(
                     onSelected: (name) {
-                      setState(() {
-                        _selectedCompany = name;
-                        _selectedContractId = null;
-                        _selectedContractData = null;
-                        _selectedContractStationIds = [];
-                        _selectedStationId = null;
-                        _zone = null;
-                        _division = null;
-                      });
-                      _loadEntityStations(name);
-                    },
-                  ),
+setState(() {
+        _selectedCompany = name;
+        _selectedContractId = null;
+        _selectedContractData = null;
+        _selectedContractStationIds = [];
+        _selectedStationId = null;
+        _zone = null;
+        _division = null;
+      });
+      _loadEntityStations(name);
+    },
+    onNameChanged: (entityName) {
+      setState(() {
+        _selectedCompanyName = (entityName ?? '').isNotEmpty ? entityName : null;
+      });
+    },
+  ),
                   const SizedBox(height: 12),
                   if (_selectedCompany != null && !_isContractorMaster())
                     ContractDropdown(

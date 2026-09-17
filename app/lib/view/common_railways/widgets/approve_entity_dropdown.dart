@@ -6,8 +6,9 @@ import '../../../services/api_services.dart';
 class ApprovedEntityDropdown extends StatefulWidget {
   final Function(String name) onSelected;
   final String? initialValue;
+  final void Function(String name)? onNameChanged;
 
-  const ApprovedEntityDropdown({super.key, required this.onSelected, this.initialValue});
+  const ApprovedEntityDropdown({super.key, required this.onSelected, this.initialValue, this.onNameChanged});
 
   @override
   State<ApprovedEntityDropdown> createState() => _ApprovedEntityDropdownState();
@@ -62,7 +63,10 @@ class _ApprovedEntityDropdownState extends State<ApprovedEntityDropdown> {
       }).toList(),
       onChanged: (value) {
         setState(() => selectedEntity = value);
-        if (value != null) widget.onSelected(value.uid ?? '');
+        if (value != null) {
+          widget.onSelected(value.uid ?? '');
+          widget.onNameChanged?.call(value.contractorName ?? '');
+        }
       },
       decoration: InputDecoration(
         border: OutlineInputBorder(

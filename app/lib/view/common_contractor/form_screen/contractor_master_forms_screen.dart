@@ -51,7 +51,6 @@ class _ContractorMasterFormsScreenState extends State<ContractorMasterFormsScree
   String? _coachErrorMessage;
   String? _premisesErrorMessage;
   String? _ctsErrorMessage;
-  String _selectedDateRange = 'All Time';
   String? _selectedFilterDivision;
   String? _selectedFilterDepot;
 
@@ -730,40 +729,6 @@ class _ContractorMasterFormsScreenState extends State<ContractorMasterFormsScree
     );
   }
 
-  Widget _buildDateRangeDropdown() {
-    final dateRangeOptions = ['All Time', 'Today', 'Last 7 Days', 'Last 30 Days', 'Last 90 Days'];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Date Range', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedDateRange,
-              items: dateRangeOptions.map((range) => DropdownMenuItem(value: range, child: Text(range, style: const TextStyle(fontSize: 12)))).toList(),
-              onChanged: (val) {
-                setState(() {
-                  _selectedDateRange = val ?? 'All Time';
-                });
-              },
-              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
-              isExpanded: true,
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-
   Widget _buildFilterSection() {
     final user = Provider.of<AuthProvider>(context).currentUser;
     return Container(
@@ -829,8 +794,6 @@ class _ContractorMasterFormsScreenState extends State<ContractorMasterFormsScree
                     children: [
                       Row(
                         children: [
-                          Expanded(child: _buildDateRangeDropdown()),
-                          const SizedBox(width: 10),
                           Expanded(
                             child: _buildFilterDropdown(
                               'Status',
@@ -861,7 +824,6 @@ class _ContractorMasterFormsScreenState extends State<ContractorMasterFormsScree
                         setState(() {
                           _searchController.clear();
                           _searchQuery = "";
-                          _selectedDateRange = 'All Time';
                           _selectedStatus = 'All Status';
                           _selectedFilterDivision = null;
                           _selectedFilterDepot = null;
@@ -982,34 +944,6 @@ class _ContractorMasterFormsScreenState extends State<ContractorMasterFormsScree
           form.submittedByDepot == _selectedFilterDepot;
 
       if (!matchesDepot) return false;
-
-      if (_selectedDateRange != 'All Time' && form.createdAt != null) {
-        final timestamp = form.createdAt!;
-        final formDate = DateTime.fromMillisecondsSinceEpoch(
-            timestamp.seconds * 1000 + (timestamp.nanoseconds / 1000000).round()
-        );
-
-        final now = DateTime.now();
-
-        switch (_selectedDateRange) {
-          case 'Today':
-            final todayStart = DateTime(now.year, now.month, now.day);
-            if (formDate.isBefore(todayStart)) return false;
-            break;
-          case 'Last 7 Days':
-            final sevenDaysAgo = now.subtract(const Duration(days: 7));
-            if (formDate.isBefore(sevenDaysAgo)) return false;
-            break;
-          case 'Last 30 Days':
-            final thirtyDaysAgo = now.subtract(const Duration(days: 30));
-            if (formDate.isBefore(thirtyDaysAgo)) return false;
-            break;
-          case 'Last 90 Days':
-            final ninetyDaysAgo = now.subtract(const Duration(days: 90));
-            if (formDate.isBefore(ninetyDaysAgo)) return false;
-            break;
-        }
-      }
 
       return true;
     }).toList();
@@ -1196,34 +1130,6 @@ class _ContractorMasterFormsScreenState extends State<ContractorMasterFormsScree
           form.submittedByDepot == _selectedFilterDepot;
 
       if (!matchesDepot) return false;
-
-      if (_selectedDateRange != 'All Time' && form.createdAt != null) {
-        final timestamp = form.createdAt!;
-        final formDate = DateTime.fromMillisecondsSinceEpoch(
-            timestamp.seconds * 1000 + (timestamp.nanoseconds / 1000000).round()
-        );
-
-        final now = DateTime.now();
-
-        switch (_selectedDateRange) {
-          case 'Today':
-            final todayStart = DateTime(now.year, now.month, now.day);
-            if (formDate.isBefore(todayStart)) return false;
-            break;
-          case 'Last 7 Days':
-            final sevenDaysAgo = now.subtract(const Duration(days: 7));
-            if (formDate.isBefore(sevenDaysAgo)) return false;
-            break;
-          case 'Last 30 Days':
-            final thirtyDaysAgo = now.subtract(const Duration(days: 30));
-            if (formDate.isBefore(thirtyDaysAgo)) return false;
-            break;
-          case 'Last 90 Days':
-            final ninetyDaysAgo = now.subtract(const Duration(days: 90));
-            if (formDate.isBefore(ninetyDaysAgo)) return false;
-            break;
-        }
-      }
 
       return true;
     }).toList();

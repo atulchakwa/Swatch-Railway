@@ -13,7 +13,7 @@ class AppValidators {
   static String? mobile(String? value, {bool required = true}) {
     final v = value?.trim() ?? '';
     if (v.isEmpty) return required ? 'Mobile number is required' : null;
-    if (!_mobileRegex.hasMatch(v)) return 'Enter valid 10-digit mobile number';
+    if (!_mobileRegex.hasMatch(v)) return 'Please enter a valid 10-digit Indian mobile number';
     return null;
   }
 

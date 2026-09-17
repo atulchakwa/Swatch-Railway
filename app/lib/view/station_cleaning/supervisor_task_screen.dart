@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,7 @@ import 'package:crm_train/repositories/task_type_repository.dart';
 import 'package:crm_train/model/task_type_model.dart';
 import 'package:crm_train/repositories/worker_repo.dart';
 import 'package:crm_train/helper/api_error_handler.dart';
+import 'package:crm_train/helper/app_snackbar.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'shift_summary_screen.dart';
 
@@ -585,6 +587,17 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
       return;
     }
 
+    if (task != null && !_canStartTask(task)) {
+      final expired = _startWindowExpired(task);
+      AppSnackbar.showInfo(
+        context,
+        expired
+            ? 'The task start window has expired. This task could only be started within 1 hour of its scheduled time.'
+            : 'This task cannot be started yet. You can start it at the scheduled time.',
+      );
+      return;
+    }
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
@@ -620,6 +633,91 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
       }
     }
   }
+
+  DateTime? _parseTaskISTDateTime(Map<String, dynamic> t) {
+    final sDate = (t['scheduledDate'] ?? t['date'] ?? '').toString();
+    final sTime = (t['scheduledTime'] ?? '').toString();
+    final dm = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(sDate);
+    final tm = RegExp(r'^(\d{2}):(\d{2})$').firstMatch(sTime);
+    if (dm == null || tm == null) return null;
+    return DateTime.utc(int.parse(dm.group(1)!), int.parse(dm.group(2)!), int.parse(dm.group(3)!),
+        int.parse(tm.group(1)!), int.parse(tm.group(2)!));
+  }
+
+  DateTime get _nowIST => DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+
+  bool _canStartTask(Map<String, dynamic> t) {
+    final scheduled = _parseTaskISTDateTime(t);
+    if (scheduled == null) return true;
+    final now = _nowIST;
+    final windowEnd = scheduled.add(const Duration(hours: 1));
+    return !now.isBefore(scheduled) && now.isBefore(windowEnd);
+  }
+
+  bool _startWindowExpired(Map<String, dynamic> t) {
+    final scheduled = _parseTaskISTDateTime(t);
+    if (scheduled == null) return false;
+    return !_nowIST.isBefore(scheduled.add(const Duration(hours: 1)));
+  }
+
+  String _fmt12(int hour, int minute) {
+    final h = hour % 12 == 0 ? 12 : hour % 12;
+    final min = minute.toString().padLeft(2, '0');
+    final ampm = hour >= 12 ? 'PM' : 'AM';
+    return '$h:$min $ampm';
+  }
+
+  String _startWindowLabel(Map<String, dynamic> t) {
+    final scheduled = _parseTaskISTDateTime(t);
+    if (scheduled == null) return '';
+    final end = scheduled.add(const Duration(hours: 1));
+    return '${_fmt12(scheduled.hour, scheduled.minute)} – ${_fmt12(end.hour, end.minute)}';
+  }
+
+  Widget _startButton(BuildContext context, Map<String, dynamic> t) {
+    if (_startWindowExpired(t)) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Task Start Window Expired',
+            style: TextStyle(fontSize: 11, color: kErrorRed, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          ElevatedButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.lock_clock, size: 16),
+            label: const Text('Start'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade300, foregroundColor: Colors.grey.shade600),
+          ),
+        ],
+      );
+    }
+    if (!_canStartTask(t)) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Available at ${_fmt12(_parseTaskISTDateTime(t)!.hour, _parseTaskISTDateTime(t)!.minute)} · Window ${_startWindowLabel(t)}',
+            style: const TextStyle(fontSize: 11, color: Color(0xFF1565C0), fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          ElevatedButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.lock_clock, size: 16),
+            label: const Text('Start'),
+          ),
+        ],
+      );
+    }
+    return ElevatedButton.icon(
+      icon: const Icon(Icons.play_arrow, size: 16),
+      label: const Text('Start'),
+      onPressed: () => _startTask(taskIdOf(t), t),
+    );
+  }
+
+  String taskIdOf(Map<String, dynamic> t) => t['uid'] ?? t['id'];
 
   void _showCompleteSheet(String taskId) {
     showModalBottomSheet(
@@ -987,11 +1085,7 @@ class _SupervisorTaskScreenState extends State<SupervisorTaskScreen>
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 if (status == 'pending')
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.play_arrow, size: 16),
-                    label: const Text('Start'),
-                    onPressed: () => _startTask(taskId, t),
-                  ),
+                  _startButton(context, t),
                 if (status == 'in_progress')
                   ElevatedButton.icon(
                     icon: const Icon(Icons.check, size: 16),
@@ -1059,6 +1153,7 @@ class _SupervisorTaskExecutionSheet extends StatefulWidget {
 
 class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionSheet> {
   final TextEditingController _commentCtrl = TextEditingController();
+  final TextEditingController _scoreCtrl = TextEditingController();
   bool isSubmitting = false;
   List<Map<String, dynamic>>? _selectedActivities;
   List<TaskType> _activityOptions = _defaultCleaningActivitiesFallback;
@@ -1073,6 +1168,7 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
   @override
   void dispose() {
     _commentCtrl.dispose();
+    _scoreCtrl.dispose();
     super.dispose();
   }
 
@@ -1252,6 +1348,22 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
                 ),
               ),
               const SizedBox(height: 20),
+              const Text('Grade the cleaning done (optional)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _scoreCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 3,
+                decoration: InputDecoration(
+                  hintText: 'Enter score 0 - 100',
+                  counterText: '',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -1291,6 +1403,18 @@ class _SupervisorTaskExecutionSheetState extends State<_SupervisorTaskExecutionS
           'label': a['label'],
         }).toList() ?? [],
       };
+      final scoreText = _scoreCtrl.text.trim();
+      if (scoreText.isNotEmpty) {
+        final score = int.tryParse(scoreText);
+        if (score == null || score < 0 || score > 100) {
+          if (mounted) {
+            AppSnackbar.showInfo(context, 'Please enter a valid score between 0 and 100.');
+            setState(() => isSubmitting = false);
+          }
+          return;
+        }
+        body['score'] = score;
+      }
       if (lat != null) { body['gpsLat'] = lat; body['gpsLng'] = lng; }
 
       final endpoint = widget.mode == 'complete' ? 'complete' : 'resubmit';

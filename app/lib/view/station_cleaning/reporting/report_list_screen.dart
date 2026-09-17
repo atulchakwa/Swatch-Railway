@@ -78,7 +78,7 @@ class _ReportListScreenState extends State<ReportListScreen>
       'title': 'Cleaning Activity Report',
       'frequency': 'Daily',
       'description':
-          'Track completed, pending, overdue, and rejected cleaning tasks.',
+          'Track completed, pending, and rejected cleaning tasks.',
       'color': Color(0xFF2E7D32),
     },
     'daily_inspection': {
@@ -99,10 +99,10 @@ class _ReportListScreenState extends State<ReportListScreen>
     },
     'missed_activity': {
       'icon': Icons.warning_amber,
-      'title': 'Overdue Task / Exception Report',
+      'title': 'Missed / Exception Report',
       'frequency': 'Daily',
       'description':
-          'Highlight missed, delayed, or overdue cleaning tasks and exceptions.',
+          'Highlight missed cleaning tasks and exceptions.',
       'color': Color(0xFFC62828),
     },
     'daily_petty_issue': {

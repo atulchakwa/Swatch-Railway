@@ -105,7 +105,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
   List<StationArea> _masterAreas = [];
   late List<_AreaEntry> _entries;
 
-  static const int _minAreas = 5;
+  static const int _minAreas = 1;
 
   @override
   void initState() {
@@ -262,7 +262,11 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
   int get _photoCount => _entries.where((e) => e.hasUsablePhoto).length;
   int get _remarkCount => _entries.where((e) => e.remarkCtrl.text.trim().isNotEmpty).length;
   double get _totalWorkDone => _entries.fold(0, (sum, e) => sum + e.workDone);
-  bool get _canSubmit => _entries.length >= _minAreas && _photoCount >= _minAreas && _remarkCount == _entries.length;
+  int get _requiredPhotoCount => _entries.length > 5 ? 5 : _entries.length;
+  String get _photoRequirementMessage => _entries.length > 5
+      ? 'At least 5 photos are required to submit the shift summary when more than 5 tasks are submitted.'
+      : 'Photos are required for every area worked.';
+  bool get _canSubmit => _entries.length >= _minAreas && _photoCount >= _requiredPhotoCount && _remarkCount == _entries.length;
 
   Future<Position?> _captureGps() async {
     try {
@@ -412,7 +416,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                 Text('${widget.shift} Shift — ${widget.date}',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text('${_entries.length} completed area(s) — End-of-shift photos: $_photoCount/$_minAreas',
+                Text('${_entries.length} completed area(s) — End-of-shift photos: $_photoCount/${_requiredPhotoCount}',
                     style: TextStyle(color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text('Total Work Done: ${_totalWorkDone.toStringAsFixed(0)} sqft',
@@ -443,7 +447,7 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                     ),
                   ),
                 ],
-                if (_photoCount < _minAreas) ...[
+                if (_photoCount < _requiredPhotoCount) ...[
                   const SizedBox(height: 8),
                   Container(
                     width: double.infinity,
@@ -453,14 +457,37 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: kWarningOrange),
                     ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: kWarningOrange, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$_photoRequirementMessage Photos Uploaded: $_photoCount/${_requiredPhotoCount}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (_photoCount >= 5) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: kSuccessGreen.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: kSuccessGreen),
+                    ),
                     child: const Row(
                       children: [
-                        Icon(Icons.warning_amber_rounded, color: kWarningOrange, size: 20),
+                        Icon(Icons.check_circle, color: kSuccessGreen, size: 20),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Please complete at least 5 end-of-shift area photos before ending attendance.',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            'Photos Uploaded: 5 / 5 — Minimum requirement completed',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kSuccessGreen),
                           ),
                         ),
                       ],
@@ -499,10 +526,10 @@ class _ShiftSummaryScreenState extends State<ShiftSummaryScreen> {
                           : const Icon(Icons.check_circle),
                       label: Text(_isSubmitting
                           ? 'Submitting...'
-                          : _entries.length < _minAreas
-                              ? 'Select ${_minAreas - _entries.length} more area(s)'
-                              : (_photoCount < _minAreas || _remarkCount < _entries.length)
-                                  ? 'End-of-shift photos: $_photoCount/$_minAreas'
+                          : _entries.isEmpty
+                              ? 'No areas to submit'
+                              : (_photoCount < _requiredPhotoCount || _remarkCount < _entries.length)
+                                  ? 'End-of-shift photos: $_photoCount/$_requiredPhotoCount'
                                   : (widget.existingSummaryUid != null
                                       ? 'Resubmit Summary ($_photoCount areas)'
                                       : 'Submit Summary ($_photoCount areas)')),

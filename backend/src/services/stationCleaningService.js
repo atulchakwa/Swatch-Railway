@@ -1198,7 +1198,7 @@ class StationCleaningService {
     const approved = tasks.filter(t => t.status === 'approved').length;
     const rejected = tasks.filter(t => t.status === 'rejected').length;
     const completionRate = total > 0 ? Math.round(completed / total * 100) : 0;
-    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total) : 0;
+    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + this._taskScore(t), 0) / total) : 0;
 
     return {
       stationId: stationId || null,
@@ -1463,7 +1463,7 @@ class StationCleaningService {
     const pending = tasks.filter(t => t.status === 'pending').length;
     const approved = tasks.filter(t => t.status === 'approved').length;
     const rejected = tasks.filter(t => t.status === 'rejected').length;
-    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total) : 0;
+    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + this._taskScore(t), 0) / total) : 0;
     return {
       workerId, workerName: worker.fullName || '',
       date: targetDate, totalTasks: total,
@@ -1471,6 +1471,18 @@ class StationCleaningService {
       pendingTasks: pending, approvedTasks: approved,
       rejectedTasks: rejected, averageScore: avgScore, tasks
     };
+  }
+
+  _gradeFromScore(score) {
+    const s = Number(score) || 0;
+    return s >= 90 ? 'A' : s >= 75 ? 'B' : s >= 60 ? 'C' : 'D';
+  }
+
+  _taskScore(t) {
+    const s = Number(t.score);
+    if (Number.isFinite(s) && s > 0) return s;
+    const ts = Number(t.totalScore);
+    return Number.isFinite(ts) && ts > 0 ? ts : 0;
   }
 
   async getSupervisorDashboard(supervisorId, query = {}, user) {
@@ -1526,12 +1538,34 @@ class StationCleaningService {
       console.error('Error fetching supervisor workers:', e.message);
     }
 
+    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + this._taskScore(t), 0) / total) : 0;
+    const gradedTasks = tasks.filter(t => this._taskScore(t) > 0);
+    const gradedAvg = gradedTasks.length > 0 ? Math.round(gradedTasks.reduce((s, t) => s + this._taskScore(t), 0) / gradedTasks.length) : 0;
+
+    // Per-area score snapshot so the supervisor can see the latest grade for
+    // each area they cleaned today (frontend renders `areaPerformance`).
+    const areaMap = {};
+    for (const t of tasks) {
+      const areaId = t.areaId || t.areaName || 'Unknown';
+      if (!areaMap[areaId]) areaMap[areaId] = { areaId, areaName: t.areaName || areaId, total: 0, completed: 0 };
+      areaMap[areaId].total += 1;
+      const st = t.status || '';
+      if (st === 'completed' || st === 'approved') {
+        areaMap[areaId].completed += 1;
+        areaMap[areaId].score = Math.max(areaMap[areaId].score || 0, this._taskScore(t));
+      }
+    }
+    const areaPerformance = Object.values(areaMap);
+
     return {
       supervisorId, supervisorName: supervisor.fullName || '',
       date: targetDate, totalTasks: total,
       completedTasks: completed, inProgressTasks: inProgress,
       pendingTasks: pending, approvedTasks: approved, rejectedTasks: rejected,
       overdueTasks: overdue,
+      averageScore: gradedAvg || avgScore,
+      grade: this._gradeFromScore(gradedAvg || avgScore),
+      areaPerformance,
       workerPerformance
     };
   }
@@ -1569,7 +1603,7 @@ class StationCleaningService {
       return new Date(`${taskDate}T${taskTime}:00`) < now;
     }).length;
     const avgScore = total > 0
-      ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total)
+      ? Math.round(tasks.reduce((s, t) => s + this._taskScore(t), 0) / total)
       : 0;
 
     // Group task counts per supervisor for the day
@@ -1639,7 +1673,7 @@ class StationCleaningService {
       rejectedTasks: rejected,
       overdueTasks: overdue,
       averageScore: avgScore,
-      grade: avgScore >= 90 ? 'A' : avgScore >= 75 ? 'B' : avgScore >= 60 ? 'C' : 'D',
+      grade: this._gradeFromScore(avgScore),
       supervisorCount: supervisors.length,
       supervisors,
     };
@@ -1664,12 +1698,12 @@ class StationCleaningService {
     const tasks = snapshot.docs.map(d => d.data());
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'completed' || t.status === 'approved').length;
-    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total) : 0;
+    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + this._taskScore(t), 0) / total) : 0;
     return {
       stationId, stationName: station.stationName || '',
       date: targetDate, totalTasks: total, completedTasks: completed,
       averageScore: avgScore,
-      grade: avgScore >= 90 ? 'A' : avgScore >= 75 ? 'B' : avgScore >= 60 ? 'C' : 'D',
+      grade: this._gradeFromScore(avgScore),
       generatedAt: new Date().toISOString()
     };
   }
@@ -1694,12 +1728,12 @@ class StationCleaningService {
       });
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'completed' || t.status === 'approved').length;
-    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total) : 0;
+    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + this._taskScore(t), 0) / total) : 0;
     return {
       stationId, stationName: station.stationName || '',
       startDate: startStr, endDate: end, totalTasks: total, completedTasks: completed,
       completionRate: total > 0 ? Math.round(completed / total * 100) : 0,
-      averageScore: avgScore, grade: avgScore >= 90 ? 'A' : avgScore >= 75 ? 'B' : avgScore >= 60 ? 'C' : 'D',
+      averageScore: avgScore, grade: this._gradeFromScore(avgScore),
       generatedAt: new Date().toISOString()
     };
   }
@@ -1727,13 +1761,13 @@ class StationCleaningService {
       });
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'completed' || t.status === 'approved').length;
-    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + (t.score || 0), 0) / total) : 0;
+    const avgScore = total > 0 ? Math.round(tasks.reduce((s, t) => s + this._taskScore(t), 0) / total) : 0;
     return {
       stationId, stationName: station.stationName || '',
       month: m, year: y, period: `${startStr} to ${endStr}`,
       totalTasks: total, completedTasks: completed,
       completionRate: total > 0 ? Math.round(completed / total * 100) : 0,
-      averageScore: avgScore, grade: avgScore >= 90 ? 'A' : avgScore >= 75 ? 'B' : avgScore >= 60 ? 'C' : 'D',
+      averageScore: avgScore, grade: this._gradeFromScore(avgScore),
       generatedAt: new Date().toISOString()
     };
   }
@@ -1761,7 +1795,7 @@ class StationCleaningService {
           return d >= startStr && d <= endStr;
         });
       const withScore = tasks.filter(t => t.score);
-      const avgScore = withScore.length > 0 ? Math.round(withScore.reduce((s, t) => s + (t.score || 0), 0) / withScore.length) : 0;
+      const avgScore = withScore.length > 0 ? Math.round(withScore.reduce((s, t) => s + this._taskScore(t), 0) / withScore.length) : 0;
       data.push({ month: m, year: y, label: `${y}-${String(m).padStart(2, '0')}`, averageScore: avgScore, taskCount: tasks.length });
     }
     return { stationId, trend: data };
@@ -2245,8 +2279,16 @@ class StationCleaningService {
   }
 
   _validateSummaryAreas(areas) {
-    if (!Array.isArray(areas) || areas.length < 5) {
-      throw new ValidationError(`At least 5 areas must be submitted for the shift summary. Received ${Array.isArray(areas) ? areas.length : 0}.`);
+    if (!Array.isArray(areas) || areas.length < 1) {
+      throw new ValidationError(`At least 1 area must be submitted for the shift summary. Received ${Array.isArray(areas) ? areas.length : 0}.`);
+    }
+    const photoCount = areas.filter(a => !!(a.photoUrl && String(a.photoUrl).trim())).length;
+    const requiredPhotos = areas.length > 5 ? 5 : areas.length;
+    if (photoCount < requiredPhotos) {
+      if (areas.length > 5) {
+        throw new ValidationError(`At least 5 photos are required to submit the shift summary when more than 5 tasks are submitted. Photos uploaded: ${photoCount}/5.`);
+      }
+      throw new ValidationError(`Photos are required for every area worked. Please add photos for all ${areas.length} area(s). Photos uploaded: ${photoCount}/${areas.length}.`);
     }
     for (const a of areas) {
       const hasPhoto = !!(a.photoUrl && String(a.photoUrl).trim());

@@ -46,6 +46,7 @@ import '../../station_cleaning/dashboard/supervisor_dashboard_screen.dart';
 import '../../station_cleaning/attendance/station_supervisor_attendance_screen.dart';
 import '../../station_cleaning/feedback/passenger_feedback_form_screen.dart';
 import '../../station_cleaning/feedback/passenger_feedback_list_screen.dart';
+import '../../station_cleaning/feedback/feedback_qr_screen.dart';
 
 class ContractorMasterDashboard extends StatefulWidget {
   final String? contractType;
@@ -430,7 +431,6 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
           {"title": "Workers", "route": "sc_supervisor_workers"},
           {"title": "Shift Summary", "route": "sc_supervisor_shift_summary"},
           {"title": "Passenger Feedback", "route": "sc_supervisor_passenger_feedback"},
-          {"title": "Reports", "route": "sc_supervisor_reports"},
         ]
       },
       {
@@ -1969,6 +1969,17 @@ class _PassengerFeedbackChooser extends StatelessWidget {
             subtitle: const Text('Browse feedback recorded against PNRs'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerFeedbackListScreen(
+              stationId: stationId,
+              stationName: stationName,
+            ))),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const CircleAvatar(backgroundColor: Colors.indigo, child: Icon(Icons.qr_code_2, color: Colors.white)),
+            title: const Text('Feedback QR Code'),
+            subtitle: const Text('Display the passenger feedback QR for scanning'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FeedbackQrScreen(
               stationId: stationId,
               stationName: stationName,
             ))),

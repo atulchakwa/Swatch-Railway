@@ -466,6 +466,8 @@ class TaskManagementService {
       throw new ValidationError(`Task cannot be started. Current status: ${task.status}`);
     }
 
+    this._assertStartWindow(task);
+
     // ─── Activities (station-cleaning only) ────────────────────────────────
     // Auto-generated tasks carry no activities. Starting does NOT require an
     // activity — the supervisor must choose one before COMPLETING the task
@@ -533,6 +535,33 @@ class TaskManagementService {
     await ref.update(updates);
     const warning = await this._shiftWarning(task, user.uid);
     return warning ? { message: 'Task started', taskId, ...warning } : { message: 'Task started', taskId };
+  }
+
+  _assertStartWindow(task) {
+    // Business rule: a task may be started only inside
+    //   scheduledTime <= now < scheduledTime + 1 hour.
+    // No starting before the scheduled time, and no starting 1 hour after it.
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const scheduledDate = task.scheduledDate || task.date || '';
+    const scheduledTime = task.scheduledTime || '';
+    if (!scheduledDate || !scheduledTime) return;
+
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(scheduledDate);
+    const timeMatch = /^(\d{2}):(\d{2})$/.exec(scheduledTime);
+    if (!dateMatch || !timeMatch) return;
+
+    const [, y, mo, d] = dateMatch.map(Number);
+    const [, hh, mm] = timeMatch.map(Number);
+    const scheduledIST = new Date(Date.UTC(y, mo - 1, d, hh, mm, 0));
+    const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+    const windowEndIST = new Date(scheduledIST.getTime() + 60 * 60 * 1000);
+
+    if (nowIST.getTime() < scheduledIST.getTime()) {
+      throw new ValidationError('This task cannot be started yet. You can start it at the scheduled time.');
+    }
+    if (nowIST.getTime() >= windowEndIST.getTime()) {
+      throw new ValidationError('The task start window has expired. This task could only be started within 1 hour of its scheduled time.');
+    }
   }
 
   async _resolveActivities(rawActivities, task, stationId) {
@@ -614,6 +643,24 @@ class TaskManagementService {
       throw new ValidationError('Select at least one activity before completing the task');
     }
 
+    // ─── Optional grade: capture a score/grade at completion so dashboards
+    // (which aggregate cleaningTasks by `score`/`grade`) reflect the latest
+    // value instead of stale 0/D data. ────────────────────────────────────────
+    const gradeUpdates = {};
+    const rawScore = data.score !== undefined ? Number(data.score) : data.totalScore !== undefined ? Number(data.totalScore) : NaN;
+    if (Number.isFinite(rawScore)) {
+      const score = Math.max(0, Math.min(100, Math.round(rawScore)));
+      gradeUpdates.score = score;
+      gradeUpdates.totalScore = score;
+      gradeUpdates.grade = (data.grade && String(data.grade).trim()) || (score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : 'D');
+      gradeUpdates.gradedAt = new Date().toISOString();
+      gradeUpdates.gradedBy = user.uid;
+    } else if (data.grade && String(data.grade).trim()) {
+      gradeUpdates.grade = String(data.grade).trim();
+      gradeUpdates.gradedAt = new Date().toISOString();
+      gradeUpdates.gradedBy = user.uid;
+    }
+
     const updates = {
       status: 'completed',
       completedAt: new Date().toISOString(),
@@ -622,7 +669,8 @@ class TaskManagementService {
       gpsLng: data.gpsLng || task.gpsLng || null,
       remarks: data.remarks || task.remarks || '',
       updatedAt: new Date().toISOString(),
-      ...activityUpdates
+      ...activityUpdates,
+      ...gradeUpdates
     };
     await ref.update(updates);
     const warning = await this._shiftWarning(task, user.uid);

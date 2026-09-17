@@ -24,6 +24,14 @@ class _AreaListScreenState extends State<AreaListScreen> {
   bool _isLoadingStations = true;
   bool _isLoadingAreas = false;
   String? _error;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -200,53 +208,18 @@ class _AreaListScreenState extends State<AreaListScreen> {
                                 )
                               : RefreshIndicator(
                                   onRefresh: _loadAreas,
-                                  child: ListView.builder(
+                                  child: ListView(
                                     padding: const EdgeInsets.all(12),
-                                    itemCount: _areas.length,
-                                    itemBuilder: (context, index) {
-                                      final a = _areas[index];
-                                      return Card(
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                        child: ListTile(
-                                          leading: CircleAvatar(
-                                            backgroundColor: kRailwayBlue.withOpacity(0.1),
-                                            child: Text('${a.order}', style: TextStyle(color: kRailwayBlue, fontWeight: FontWeight.bold)),
-                                          ),
-                                          title: Text(a.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                          subtitle: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              if (a.mainArea != null && a.mainArea!.isNotEmpty)
-                                                Text('Main: ${a.mainArea}', style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
-                                              if (a.basicAreaSqFt != null && a.basicAreaSqFt! > 0)
-                                                Text('Basic: ${a.basicAreaSqFt!.toStringAsFixed(a.basicAreaSqFt == a.basicAreaSqFt!.roundToDouble() ? 0 : 1)} sq.ft.'),
-                                              if (a.frequencyType != null)
-                                                Text('Freq: ${a.frequencyType} ${a.boqTimesPerPeriod ?? 1}x'),
-                                              if (a.tenderedAreaPerDay != null && a.tenderedAreaPerDay! > 0)
-                                                Text('Tendered/day: ${a.tenderedAreaPerDay!.toStringAsFixed(a.tenderedAreaPerDay == a.tenderedAreaPerDay!.roundToDouble() ? 0 : 1)} sq.ft.',
-                                                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                                              if (a.description.isNotEmpty && a.mainArea == null)
-                                                Text(a.description),
-                                            ],
-                                          ),
-                                          trailing: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(a.active ? Icons.check_circle : Icons.cancel, color: a.active ? kSuccessGreen : Colors.grey, size: 20),
-                                              IconButton(
-                                                icon: const Icon(Icons.edit, size: 18, color: kRailwayBlue),
-                                                onPressed: () => _openForm(existing: a.toJson()),
-                                              ),
-                                              IconButton(
-                                                icon: const Icon(Icons.delete, size: 18, color: kErrorRed),
-                                                onPressed: () => _deleteArea(a),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
+                                    children: [
+                                      _buildSummaryHeader(),
+                                      const SizedBox(height: 12),
+                                      _buildSearchField(),
+                                      const SizedBox(height: 8),
+                                      ...(_filteredAreas()).asMap().entries.map((entry) {
+                                        final a = entry.value;
+                                        return _buildAreaCard(a);
+                                      }),
+                                    ],
                                   ),
                                 ),
                     ),
@@ -259,6 +232,156 @@ class _AreaListScreenState extends State<AreaListScreen> {
               child: const Icon(Icons.add, color: Colors.white),
             )
           : null,
+    );
+  }
+
+  List<StationArea> _filteredAreas() {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _areas;
+    return _areas.where((a) => a.name.toLowerCase().contains(q)).toList();
+  }
+
+  Widget _buildSummaryHeader() {
+    final active = _areas.where((a) => a.active).length;
+    final inactive = _areas.length - active;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(2, 3))],
+      ),
+      child: Row(
+        children: [
+          Expanded(child: _summaryItem('${_areas.length}', 'Total Areas', kRailwayBlue, Icons.map_outlined)),
+          Container(width: 1, height: 34, color: Colors.grey.shade200),
+          Expanded(child: _summaryItem('$active', 'Active', kSuccessGreen, Icons.check_circle_outline)),
+          Container(width: 1, height: 34, color: Colors.grey.shade200),
+          Expanded(child: _summaryItem('$inactive', 'Inactive', kErrorRed, Icons.cancel_outlined)),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryItem(String value, String label, Color color, IconData icon) {
+    return Column(
+      children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 4),
+          Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+        ]),
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+      ],
+    );
+  }
+
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      onChanged: (v) => setState(() => _searchQuery = v),
+      decoration: InputDecoration(
+        hintText: 'Search areas...',
+        prefixIcon: const Icon(Icons.search, size: 20),
+        isDense: true,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        suffixIcon: _searchQuery.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _searchQuery = '');
+                },
+              )
+            : null,
+      ),
+    );
+  }
+
+  Widget _buildAreaCard(StationArea a) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              backgroundColor: kRailwayBlue.withOpacity(0.1),
+              child: Text('${a.order}', style: TextStyle(color: kRailwayBlue, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(a.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      ),
+                      _statusPill(a.active),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  if (a.mainArea != null && a.mainArea!.isNotEmpty) ...[
+                    Text('Main: ${a.mainArea}', style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
+                    const SizedBox(height: 2),
+                  ],
+                  if (a.basicAreaSqFt != null && a.basicAreaSqFt! > 0)
+                    Text('Basic: ${a.basicAreaSqFt!.toStringAsFixed(a.basicAreaSqFt == a.basicAreaSqFt!.roundToDouble() ? 0 : 1)} sq.ft.',
+                        style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      if (a.frequencyType != null)
+                        _infoChip('${a.frequencyType} ${a.boqTimesPerPeriod ?? 1}x'),
+                      if (a.tenderedAreaPerDay != null && a.tenderedAreaPerDay! > 0)
+                        _infoChip('${a.tenderedAreaPerDay!.toStringAsFixed(a.tenderedAreaPerDay == a.tenderedAreaPerDay!.roundToDouble() ? 0 : 1)} sq.ft./day'),
+                      if (a.description.isNotEmpty && a.mainArea == null)
+                        _infoChip(a.description),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit, size: 18, color: kRailwayBlue),
+                  onPressed: () => _openForm(existing: a.toJson()),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, size: 18, color: kErrorRed),
+                  onPressed: () => _deleteArea(a),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statusPill(bool active) {
+    final color = active ? kSuccessGreen : Colors.grey;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+      child: Text(active ? 'ACTIVE' : 'INACTIVE', style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Widget _infoChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.06), borderRadius: BorderRadius.circular(8)),
+      child: Text(text, style: const TextStyle(fontSize: 11, color: Colors.black54)),
     );
   }
 }

@@ -26,8 +26,8 @@ class UserService {
       if (!mobileQuery.empty) {
         throw new ValidationError("Mobile Number already registered.");
       }
-      if (!/^\d{10}$/.test(String(mobile).trim())) {
-        throw new ValidationError('Invalid mobile number. Must be 10 digits.');
+      if (!/^[6-9]\d{9}$/.test(String(mobile).trim())) {
+        throw new ValidationError('Please enter a valid 10-digit Indian mobile number. It must start with 6, 7, 8 or 9.');
       }
     }
 
@@ -282,8 +282,8 @@ class UserService {
     if (fullName !== undefined) updateData.fullName = fullName;
     if (designation !== undefined) updateData.designation = designation;
     if (mobile !== undefined) {
-      if (!/^\d{10}$/.test(String(mobile).trim())) {
-        throw new ValidationError('Invalid mobile number. Must be 10 digits.');
+      if (!/^[6-9]\d{9}$/.test(String(mobile).trim())) {
+        throw new ValidationError('Please enter a valid 10-digit Indian mobile number. It must start with 6, 7, 8 or 9.');
       }
       const mobileQuery = await db.collection('users').where('mobile', '==', mobile).limit(1).get();
       if (!mobileQuery.empty && mobileQuery.docs[0].id !== uid) {

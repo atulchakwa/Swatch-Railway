@@ -132,13 +132,23 @@ class _CommonProfileScreenState extends State<CommonProfileScreen> {
                     const SizedBox(height: 8),
                     _infoTile('Contract Type', _formatContractType(user.contractType!), Colors.orange[50]!),
                   ],
-                  if (user.contractId != null) ...[
+                  if (user.entityDetails != null || user.entityId != null) ...[
                     const SizedBox(height: 8),
-                    _infoTile('Contract ID', user.contractId!, Colors.teal[50]!),
+                    _infoTile(
+                      'Company',
+                      ((user.entityDetails?['companyName'] as String?)?.isNotEmpty ?? false)
+                          ? user.entityDetails!['companyName'] as String
+                          : (user.entityId ?? 'N/A'),
+                      Colors.indigo[50]!,
+                    ),
                   ],
-                  if (user.entityId != null) ...[
+                  if (user.stations.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    _infoTile('Company ID', user.entityId!, Colors.indigo[50]!),
+                    _infoTile(
+                      'Assigned Stations',
+                      '${user.stations.length} station${user.stations.length == 1 ? '' : 's'}',
+                      Colors.teal[50]!,
+                    ),
                   ],
                 ],
               ),

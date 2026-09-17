@@ -17,6 +17,9 @@ class ContractorBillingDashboard extends StatefulWidget {
 class _ContractorBillingDashboardState extends State<ContractorBillingDashboard> {
   Map<String, dynamic>? data;
   bool isLoading = true;
+  List<BillingReport> _allBills = [];
+  DateTime? _from;
+  DateTime? _to;
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class _ContractorBillingDashboardState extends State<ContractorBillingDashboard>
           } catch (_) {}
         }
         allBills.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        _allBills = allBills;
         double pending = 0, approved = 0, deductions = 0;
         for (final b in allBills) {
           deductions += b.totalDeduction;
@@ -80,13 +84,27 @@ class _ContractorBillingDashboardState extends State<ContractorBillingDashboard>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      _buildDateFilterBar(),
+                      const SizedBox(height: 16),
                       _buildCurrentMonthBill(context),
                       const SizedBox(height: 20),
                       _buildStatsRow(),
                       const SizedBox(height: 20),
-                      const Text('Recent Bills', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          const Text('Bills', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          if (_from != null || _to != null) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                              child: Text('${_fmtDate(_from)} - ${_fmtDate(_to)}', style: const TextStyle(fontSize: 11, color: kRailwayBlue, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ],
+                      ),
                       const SizedBox(height: 12),
-                      ...((data!['recentBills'] as List?) ?? []).map((b) => _buildBillHistoryCard(context, b as Map<String, dynamic>)),
+                      ..._getFilteredBills().map((b) => _buildBillHistoryCard(context, b)),
                       if ((data!['recentBills'] as List?)?.isEmpty ?? true)
                         Padding(
                           padding: const EdgeInsets.all(16),
@@ -104,6 +122,96 @@ class _ContractorBillingDashboardState extends State<ContractorBillingDashboard>
                   ),
                 ),
     );
+  }
+
+  Widget _buildDateFilterBar() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(2, 3))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Filter by Billing Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: _buildDateTile(_from, 'From Date', () => _pickDate(true))),
+              const SizedBox(width: 8),
+              Expanded(child: _buildDateTile(_to, 'To Date', () => _pickDate(false))),
+              const SizedBox(width: 8),
+              if (_from != null || _to != null)
+                IconButton(
+                  onPressed: () => setState(() { _from = null; _to = null; }),
+                  icon: const Icon(Icons.clear_all, color: kRailwayBlue),
+                  tooltip: 'Clear dates',
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateTile(DateTime? value, String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(color: value != null ? kRailwayBlue : Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.calendar_today, size: 14, color: value != null ? kRailwayBlue : Colors.grey),
+            const SizedBox(width: 6),
+            Expanded(child: Text(value != null ? _fmtDate(value) : label, style: TextStyle(fontSize: 12, color: value != null ? Colors.black87 : Colors.grey))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDate(bool isFrom) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isFrom ? (_from ?? _to ?? now) : (_to ?? _from ?? now),
+      firstDate: DateTime(now.year - 10),
+      lastDate: now,
+      helpText: isFrom ? 'Select From Date' : 'Select To Date',
+    );
+    if (picked != null) {
+      setState(() {
+        if (isFrom) _from = picked;
+        else _to = picked;
+      });
+    }
+  }
+
+  String _fmtDate(DateTime? d) => d == null ? 'Any' : '${d.day}/${d.month}/${d.year}';
+
+  List<Map<String, dynamic>> _getFilteredBills() {
+    final serverBills = ((data!['recentBills'] as List?) ?? []).cast<Map<String, dynamic>>();
+    if (_from == null && _to == null) {
+      return serverBills;
+    }
+    final from = _from?.copyWith(hour: 0, minute: 0, second: 0, millisecond: 0, microsecond: 0);
+    final to = _to?.copyWith(hour: 23, minute: 59, second: 59, millisecond: 999, microsecond: 999);
+    final filtered = _allBills.where((b) {
+      final c = b.createdAt;
+      if (from != null && c.isBefore(from)) return false;
+      if (to != null && c.isAfter(to)) return false;
+      return true;
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (filtered.isEmpty) return [];
+    return filtered.map((b) => b.toJson()).toList();
   }
 
   Widget _buildCurrentMonthBill(BuildContext context) {

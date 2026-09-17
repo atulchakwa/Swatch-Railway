@@ -16,6 +16,8 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
   bool _isLoading = true;
   String? _selectedAction;
   int _total = 0;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   static const _actionColors = {
     'PASSWORD_CHANGED': Colors.orange,
@@ -31,6 +33,37 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
     'INVOICE_GENERATED': Colors.amber,
     'GENERATED': Colors.grey,
   };
+
+  static const _actionLabels = {
+    'PASSWORD_CHANGED': 'Password Changed',
+    'COMPLAINT_ASSIGNED': 'Complaint Assigned',
+    'COMPLAINT_ESCALATED': 'Complaint Escalated',
+    'COMPLAINT_AUTO_ROUTED': 'Complaint Auto Routed',
+    'APPROVED': 'Approved',
+    'REJECTED': 'Rejected',
+    'CREATED': 'Created',
+    'SUBMITTED': 'Submitted',
+    'SCORED': 'Scored',
+    'LOCKED': 'Bill Locked',
+    'INVOICE_GENERATED': 'Invoice Generated',
+    'GENERATED': 'Generated',
+  };
+
+  String _humanAction(String action) {
+    for (final entry in _actionLabels.entries) {
+      if (action == entry.key) return entry.value;
+      if (action.contains(entry.key)) {
+        return action.replaceFirst(entry.key, entry.value).replaceAll('_', ' ');
+      }
+    }
+    return action.replaceAll('_', ' ');
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -64,6 +97,22 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
     } catch (_) {
       return '$ts';
     }
+  }
+
+  List<Map<String, dynamic>> _filteredLogs() {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _logs;
+    return _logs.where((log) {
+      final haystack = [
+        (log['action'] as String? ?? ''),
+        _humanAction(log['action'] as String? ?? ''),
+        (log['performedByName'] as String? ?? ''),
+        (log['entity'] as String? ?? ''),
+        (log['targetEntity'] as String? ?? ''),
+        (log['details'] as String? ?? ''),
+      ].join(' ').toLowerCase();
+      return haystack.contains(q);
+    }).toList();
   }
 
   @override
@@ -102,12 +151,37 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
                 if (_selectedAction != null) ...[
                   const SizedBox(width: 8),
                   Chip(
-                    label: Text(_selectedAction!, style: const TextStyle(fontSize: 11)),
+                    label: Text(_humanAction(_selectedAction!), style: const TextStyle(fontSize: 11)),
                     onDeleted: () { _selectedAction = null; _load(); },
                     deleteIcon: const Icon(Icons.close, size: 16),
                   ),
                 ],
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Search by action, user, or details',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+              ),
             ),
           ),
           Expanded(
@@ -119,10 +193,11 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
                         onRefresh: _load,
                         child: ListView.builder(
                           padding: const EdgeInsets.all(12),
-                          itemCount: _logs.length,
+                          itemCount: _filteredLogs().length,
                           itemBuilder: (_, i) {
-                            final log = _logs[i];
+                            final log = _filteredLogs()[i];
                             final action = log['action'] as String? ?? 'UNKNOWN';
+                            final humanAction = _humanAction(action);
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -144,7 +219,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(action, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: _colorForAction(action))),
+                                          Text(humanAction, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: _colorForAction(action))),
                                           const SizedBox(height: 4),
                                           Text(log['details'] as String? ?? '', style: const TextStyle(fontSize: 12, color: Colors.black87)),
                                           const SizedBox(height: 4),

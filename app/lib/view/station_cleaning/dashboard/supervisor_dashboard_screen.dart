@@ -99,7 +99,6 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
     final pending = d?['pendingTasks'] ?? 0;
     final approved = d?['approvedTasks'] ?? 0;
     final rejected = d?['rejectedTasks'] ?? 0;
-    final overdue = d?['overdueTasks'] ?? 0;
     final done = completed + approved;
     final fraction = total > 0 ? done / total : 0.0;
 
@@ -110,7 +109,7 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
         const SizedBox(height: 12),
         _buildProgressSection(total, done, fraction),
         const SizedBox(height: 12),
-        _buildTaskSummaryRow(pending, inProgress, done, overdue, rejected),
+        _buildTaskSummaryRow(pending, inProgress, done, rejected),
         const SizedBox(height: 12),
         _buildWorkerCount(d),
         const SizedBox(height: 12),
@@ -192,7 +191,7 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
     );
   }
 
-  Widget _buildTaskSummaryRow(int pending, int inProgress, int completed, int missed, int rejected) {
+  Widget _buildTaskSummaryRow(int pending, int inProgress, int completed, int rejected) {
     return Row(
       children: [
         _statCard('Pending', pending, kWarningOrange, Icons.schedule),
@@ -201,7 +200,7 @@ class _SupervisorDashboardScreenState extends State<SupervisorDashboardScreen> {
         const SizedBox(width: 6),
         _statCard('Done', completed, kSuccessGreen, Icons.check_circle),
         const SizedBox(width: 6),
-        _statCard('Overdue', missed, kErrorRed, Icons.cancel),
+        _statCard('Rejected', rejected, kErrorRed, Icons.cancel),
       ],
     );
   }
