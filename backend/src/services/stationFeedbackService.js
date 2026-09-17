@@ -3,6 +3,7 @@ import { db } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import config from '../config/index.js';
 import { paginate } from '../utils/paginate.js';
+import { notificationService } from '../notifications/index.js';
 
 const FEEDBACK_CATEGORIES = ['toilet_cleanliness', 'platform_cleanliness', 'waiting_room_cleanliness', 'garbage_dustbin', 'smell_odour', 'water_booth_cleanliness', 'staff_behaviour', 'other'];
 const MODERATION_STATUSES = ['pending', 'approved', 'rejected'];
@@ -22,6 +23,18 @@ class StationFeedbackService {
       expiresAt: new Date(Date.now() + 300000).toISOString(),
       createdAt: new Date().toISOString()
     });
+
+    // 1. Primary: Use notificationService.sendOtpSms (same implementation as working Auth service)
+    try {
+      console.log(`[StationFeedback] Sending OTP via notificationService.sendOtpSms to ${cleanPhone}...`);
+      const res = await notificationService.sendOtpSms(cleanPhone, otp);
+      if (res && (res.Status === 'Success' || res.status === 'Success')) {
+        console.log(`[StationFeedback] OTP call successfully triggered via notificationService`);
+        return { success: true, message: "OTP call / message initiated successfully." };
+      }
+    } catch (nsErr) {
+      console.warn(`[StationFeedback] Primary notificationService call failed:`, nsErr.message);
+    }
 
     const TWO_FACTOR_API_KEY = config.sms.twoFactorApiKey || process.env.TWOF_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWOFACTOR_API_KEY || process.env['2FACTOR_API_KEY'];
     if (!TWO_FACTOR_API_KEY) {
