@@ -510,25 +510,11 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
               children: [
                 const Text('Execution Counting', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 const SizedBox(height: 4),
-                const Text('Only these task statuses count as VERIFIED (completed + verified).',
-                    style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: ['pending', 'assigned', 'in_progress', 'completed', 'approved', 'rejected', 'resubmitted'].map((s) {
-                    final checked = _verifiedStatuses.contains(s);
-                    return FilterChip(
-                      label: Text(s),
-                      labelStyle: TextStyle(fontSize: 11, color: checked ? Colors.white : Colors.black87),
-                      selected: checked,
-                      selectedColor: kRailwayBlue,
-                      backgroundColor: Colors.grey[100],
-                      onSelected: (v) => setState(() {
-                        if (v) { if (!_verifiedStatuses.contains(s)) _verifiedStatuses.add(s); }
-                        else { _verifiedStatuses.remove(s); }
-                      }),
-                    );
-                  }).toList(),
+                const Text(
+                  'Completed executions are counted from APPROVED shift summaries — the approval unit. '
+                  'Tasks have no individual approval step: a task is COMPLETED directly by the supervisor and '
+                  'the approved shift summary is what feeds billing.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey, height: 1.4),
                 ),
               ],
             ),
@@ -546,10 +532,10 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                   'AREA → SQFT → RATE → ACTUAL EXECUTION → GROSS WORK VALUE\n\n'
                   'Each scheduled cleaning pass for an area is valued as area-sqft × ₹/sqft. '
                   'Scheduled Work Value = Σ(sqft × rate × required executions). '
-                  'Gross Work Value = Σ(sqft × rate × VERIFIED executions). '
+                  'Gross Work Value = Σ(sqft × rate × executions verified via APPROVED shift summaries). '
                   'Execution achievement = Gross ÷ Scheduled. '
                   'Final score = weighted 50% execution + 20% inspection + 30% feedback. '
-                  'Deductions apply off the scheduled value; the bill is capped at the gross (verified) work value.',
+                  'Deductions apply off the scheduled value; the bill is capped at the actual (approved) work value.',
                   style: TextStyle(fontSize: 11, color: Colors.grey[700], height: 1.4),
                 ),
               ],

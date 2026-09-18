@@ -1,55 +1,3 @@
-class AreaWeightage {
-  final String uid;
-  final String areaName;
-  final String areaId;
-  final String mainArea;
-  final double weightage;
-  final double tenderedAreaSqFt;
-  final String cleaningFrequency;
-  final int boqTimesPerPeriod;
-  final double? ratePerSqFt;
-  final int version;
-  final int? annexureItemNo;
-
-  AreaWeightage({
-    required this.uid,
-    required this.areaName,
-    this.areaId = '',
-    this.mainArea = '',
-    this.weightage = 0,
-    this.tenderedAreaSqFt = 0,
-    this.cleaningFrequency = 'daily',
-    this.boqTimesPerPeriod = 0,
-    this.ratePerSqFt,
-    this.version = 1,
-    this.annexureItemNo,
-  });
-
-  factory AreaWeightage.fromJson(Map<String, dynamic> json) => AreaWeightage(
-        uid: (json['id'] ?? json['uid'] ?? '').toString(),
-        areaName: (json['areaName'] ?? '').toString(),
-        areaId: (json['areaId'] ?? '').toString(),
-        mainArea: (json['mainArea'] ?? '').toString(),
-        weightage: (json['weightage'] ?? 0).toDouble(),
-        tenderedAreaSqFt: (json['tenderedAreaSqFt'] ?? 0).toDouble(),
-        cleaningFrequency: (json['cleaningFrequency'] ?? 'daily').toString(),
-        boqTimesPerPeriod: (json['boqTimesPerPeriod'] ?? 0) as int,
-        ratePerSqFt: json['ratePerSqFt'] == null ? null : (json['ratePerSqFt'] as num).toDouble(),
-        version: (json['version'] ?? 1) as int,
-        annexureItemNo: json['annexureItemNo'] == null ? null : (json['annexureItemNo'] as num).toInt(),
-      );
-
-  Map<String, dynamic> toJson() => {
-        'areaName': areaName,
-        'mainArea': mainArea,
-        'weightage': weightage,
-        'tenderedAreaSqFt': tenderedAreaSqFt,
-        'cleaningFrequency': cleaningFrequency,
-        'boqTimesPerPeriod': boqTimesPerPeriod,
-        if (ratePerSqFt != null) 'ratePerSqFt': ratePerSqFt,
-      };
-}
-
 class DailyTaskBillingResponse {
   final String uid;
   final String contractId;
@@ -60,15 +8,37 @@ class DailyTaskBillingResponse {
   final String contractStartDate;
   final String contractEndDate;
   final int contractDays;
-  final double dailyBaseTask;
+  final double ratePerSqft;
+
+  // Value pipeline (AREA -> SQFT -> RATE -> EXECUTION).
+  final double expectedWorkValue;
+  final double actualExecutionValue;
+  final double grossAmount;
   final double expectedSqFt;
   final double executedSqFt;
-  final double? dayExecutionRate;
-  final double grossAmount;
+  final double? taskExecutionScore;
+
+  // Performance summary (50 / 20 / 30).
+  final double? inspectionScore;
+  final double? feedbackScore;
+  final List<Map<String, dynamic>> categories;
+  final double overallScore;
+  final String grade;
+
+  // Financial pipeline.
+  final double lessExecutionPercent;
+  final double lessExecutionAmount;
+  final double eligibleAmount;
+  final bool penaltyApplied;
+  final double penalty;
+
   final double deduction;
   final double netAmount;
-  final List<Map<String, dynamic>> rows;
-  final Map<String, dynamic>? weighted;
+  final double gstRate;
+  final double gstAmount;
+  final double totalPayable;
+
+  final List<Map<String, dynamic>> areaRows;
   final String status;
   final String generatedByName;
 
@@ -82,24 +52,39 @@ class DailyTaskBillingResponse {
     this.contractStartDate = '',
     this.contractEndDate = '',
     this.contractDays = 0,
-    this.dailyBaseTask = 0,
+    this.ratePerSqft = 0,
+    this.expectedWorkValue = 0,
+    this.actualExecutionValue = 0,
+    this.grossAmount = 0,
     this.expectedSqFt = 0,
     this.executedSqFt = 0,
-    this.dayExecutionRate,
-    this.grossAmount = 0,
+    this.taskExecutionScore,
+    this.inspectionScore,
+    this.feedbackScore,
+    this.categories = const [],
+    this.overallScore = 0,
+    this.grade = 'E',
+    this.lessExecutionPercent = 0,
+    this.lessExecutionAmount = 0,
+    this.eligibleAmount = 0,
+    this.penaltyApplied = false,
+    this.penalty = 0,
     this.deduction = 0,
     this.netAmount = 0,
-    this.rows = const [],
-    this.weighted,
+    this.gstRate = 0,
+    this.gstAmount = 0,
+    this.totalPayable = 0,
+    this.areaRows = const [],
     this.status = '',
     this.generatedByName = '',
   });
 
   factory DailyTaskBillingResponse.fromJson(Map<String, dynamic> json) {
-    final summary = json['summary'] is Map<String, dynamic>
-        ? json['summary'] as Map<String, dynamic>
-        : json;
-    final rows = (summary['rows'] ?? []) as List;
+    final penalty = json['penalty'] is Map<String, dynamic>
+        ? json['penalty'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    double num2(String key) => (json[key] as num?)?.toDouble() ?? 0;
+    double? numOpt(String key) => json[key] == null ? null : (json[key] as num).toDouble();
     return DailyTaskBillingResponse(
       uid: (json['uid'] ?? json['id'] ?? '').toString(),
       contractId: (json['contractId'] ?? '').toString(),
@@ -110,21 +95,82 @@ class DailyTaskBillingResponse {
       contractStartDate: (json['contractStartDate'] ?? '').toString(),
       contractEndDate: (json['contractEndDate'] ?? '').toString(),
       contractDays: (json['contractDays'] ?? 0) as int,
-      dailyBaseTask: (summary['dailyBaseTask'] ?? 0).toDouble(),
-      expectedSqFt: (summary['expectedSqFt'] ?? 0).toDouble(),
-      executedSqFt: (summary['executedSqFt'] ?? 0).toDouble(),
-      dayExecutionRate: summary['dayExecutionRate'] == null
-          ? null
-          : (summary['dayExecutionRate'] as num).toDouble(),
-      grossAmount: (summary['grossAmount'] ?? 0).toDouble(),
-      deduction: (summary['deduction'] ?? 0).toDouble(),
-      netAmount: (summary['netAmount'] ?? 0).toDouble(),
-      rows: rows.map((e) => Map<String, dynamic>.from((e as Map))).toList(),
-      weighted: json['weighted'] is Map<String, dynamic>
-          ? Map<String, dynamic>.from(json['weighted'] as Map<String, dynamic>)
-          : null,
+      ratePerSqft: num2('ratePerSqft'),
+      expectedWorkValue: num2('expectedWorkValue'),
+      actualExecutionValue: num2('actualExecutionValue'),
+      grossAmount: num2('grossAmount'),
+      expectedSqFt: num2('expectedSqFt'),
+      executedSqFt: num2('executedSqFt'),
+      taskExecutionScore: numOpt('taskExecutionScore'),
+      inspectionScore: numOpt('inspectionScore'),
+      feedbackScore: numOpt('feedbackScore'),
+      categories: (json['categories'] is List)
+          ? (json['categories'] as List).map((e) => Map<String, dynamic>.from((e as Map))).toList()
+          : const [],
+      overallScore: num2('overallScore'),
+      grade: (json['grade'] ?? 'E').toString(),
+      lessExecutionPercent: num2('lessExecutionPercent'),
+      lessExecutionAmount: num2('lessExecutionAmount'),
+      eligibleAmount: num2('eligibleAmount'),
+      penaltyApplied: penalty['applied'] == true,
+      penalty: ((penalty['totalPenalty'] as num?) ?? 0).toDouble(),
+      deduction: num2('deduction'),
+      netAmount: num2('netAmount'),
+      gstRate: num2('gstRate'),
+      gstAmount: num2('gstAmount'),
+      totalPayable: num2('totalPayable'),
+      areaRows: (json['areaRows'] is List)
+          ? (json['areaRows'] as List).map((e) => Map<String, dynamic>.from((e as Map))).toList()
+          : const [],
       status: (json['status'] ?? '').toString(),
       generatedByName: (json['generatedByName'] ?? '').toString(),
+    );
+  }
+}
+
+class DailyBillingMonth {
+  final int count;
+  final double totalExpectedWorkValue;
+  final double totalActualExecutionValue;
+  final double totalGrossAmount;
+  final double totalDeduction;
+  final double totalNetAmount;
+  final double? avgTaskExecutionScore;
+  final double? avgInspectionScore;
+  final double? avgFeedbackScore;
+  final double? avgFinalScore;
+  final List<DailyTaskBillingResponse> bills;
+
+  DailyBillingMonth({
+    this.count = 0,
+    this.totalExpectedWorkValue = 0,
+    this.totalActualExecutionValue = 0,
+    this.totalGrossAmount = 0,
+    this.totalDeduction = 0,
+    this.totalNetAmount = 0,
+    this.avgTaskExecutionScore,
+    this.avgInspectionScore,
+    this.avgFeedbackScore,
+    this.avgFinalScore,
+    this.bills = const [],
+  });
+
+  factory DailyBillingMonth.fromJson(Map<String, dynamic> json) {
+    double num2(String key) => (json[key] as num?)?.toDouble() ?? 0;
+    double? numOpt(String key) => json[key] == null ? null : (json[key] as num).toDouble();
+    final list = (json['bills'] ?? []) as List;
+    return DailyBillingMonth(
+      count: (json['count'] ?? 0) as int,
+      totalExpectedWorkValue: num2('totalExpectedWorkValue'),
+      totalActualExecutionValue: num2('totalActualExecutionValue'),
+      totalGrossAmount: num2('totalGrossAmount'),
+      totalDeduction: num2('totalDeduction'),
+      totalNetAmount: num2('totalNetAmount'),
+      avgTaskExecutionScore: numOpt('avgTaskExecutionScore'),
+      avgInspectionScore: numOpt('avgInspectionScore'),
+      avgFeedbackScore: numOpt('avgFeedbackScore'),
+      avgFinalScore: numOpt('avgFinalScore'),
+      bills: list.map((e) => DailyTaskBillingResponse.fromJson(Map<String, dynamic>.from(e as Map))).toList(),
     );
   }
 }

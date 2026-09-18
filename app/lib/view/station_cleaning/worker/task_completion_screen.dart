@@ -189,7 +189,7 @@ class _TaskCompletionScreenState extends State<TaskCompletionScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Task submitted for review'), backgroundColor: kSuccessGreen),
+          const SnackBar(content: Text('Task completed'), backgroundColor: kSuccessGreen),
         );
         Navigator.pop(context, true);
       }

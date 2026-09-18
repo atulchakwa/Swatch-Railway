@@ -736,8 +736,8 @@ class _TaskExecutionSheetState extends State<_TaskExecutionSheet> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(widget.mode == 'complete'
-                ? (warning ? 'Submitted. You completed a task outside your ${resBody['assignedShift']} shift.' : 'Task submitted successfully!')
-                : (warning ? 'Resubmitted outside your ${resBody['assignedShift']} shift.' : 'Task resubmitted for review')),
+                ? (warning ? 'Task completed outside your ${resBody['assignedShift']} shift.' : 'Task completed!')
+                : (warning ? 'Resubmitted outside your ${resBody['assignedShift']} shift.' : 'Task resubmitted')),
             backgroundColor: warning ? kWarningOrange : kSuccessGreen,
           ),
         );

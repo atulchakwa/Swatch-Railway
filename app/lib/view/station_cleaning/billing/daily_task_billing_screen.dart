@@ -5,7 +5,7 @@ import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'area_weightage_screen.dart';
+import 'area_rate_config_screen.dart';
 
 class DailyTaskBillingScreen extends StatefulWidget {
   final String contractId;
@@ -24,8 +24,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   int _year = DateTime.now().year;
 
   DailyTaskBillingResponse? _bill;
-  List<DailyTaskBillingResponse> _bills = [];
-  List<AreaWeightage> _weightages = [];
+  DailyBillingMonth _monthData = DailyBillingMonth();
   bool _loading = false;
 
   static String _today() {
@@ -54,39 +53,22 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    await Future.wait([_loadWeightages(), _loadBills()]);
-  }
-
-  Future<void> _loadWeightages() async {
-    try {
-      final weightages = await TaskBillingRepository.getWeightages(widget.contractId, widget.stationId);
-      if (!mounted) return;
-      setState(() => _weightages = weightages);
-    } catch (e) {
-      if (!mounted) return;
-      _showStatus('Weightages unavailable: $e', isError: true);
-    }
+    _loadBills();
   }
 
   Future<void> _loadBills() async {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final bills = await TaskBillingRepository.list(widget.contractId, widget.stationId, _month, _year);
+      final month = await TaskBillingRepository.list(widget.contractId, widget.stationId, _month, _year);
       if (!mounted) return;
       setState(() {
-        _bills = bills;
+        _monthData = month;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-      });
+      setState(() => _loading = false);
       _showStatus('Bills unavailable: $e', isError: true);
     }
   }
@@ -140,16 +122,14 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         _bill = bill;
         _loading = false;
       });
-      if (bill.dayExecutionRate == null) {
-        _showStatus('No approved execution found for this date.', isError: true);
+      if (bill.areaRows.isEmpty) {
+        _showStatus('No cleaning tasks found for this date.', isError: true);
       } else {
         _showStatus('Preview loaded for ${bill.date}');
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-      });
+      setState(() => _loading = false);
       _showStatus(e.toString(), isError: true);
     }
   }
@@ -164,32 +144,21 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         _loading = false;
       });
       _showStatus(bill.status == 'generated' ? 'Daily bill generated (immutable).' : 'Existing bill reused.');
-      await _load();
+      await _loadBills();
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-      });
+      setState(() => _loading = false);
       _showStatus(e.toString(), isError: true);
     }
   }
 
-  Future<void> _manageWeightage() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AreaWeightageScreen(
-          contractId: widget.contractId,
-          stationId: widget.stationId,
-          stationName: widget.stationName,
-        ),
-      ),
-    );
-    _load();
-  }
+  // ── Formatting helpers ──────────────────────────────────────────────────────
+  String _money(double v) => _fmt.format(v);
+  String _pct(double? v) => v == null ? '—' : '${v.toStringAsFixed(1)}%';
 
   @override
   Widget build(BuildContext context) {
+    final b = _bill;
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
@@ -204,19 +173,27 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
-      body: _loading && _bill == null && _bills.isEmpty
+      body: _loading && _bill == null && _monthData.bills.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _load,
+              onRefresh: _loadBills,
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
                   _buildHeaderCard(),
                   const SizedBox(height: 14),
-                  _buildWeightagesCard(),
+                  _buildAreaRatesCard(),
                   const SizedBox(height: 14),
-                  _buildBillCard(),
-                  const SizedBox(height: 14),
+                  if (b == null)
+                    _buildEmptyHint()
+                  else ...[
+                    _buildBillSummaryCard(b),
+                    const SizedBox(height: 14),
+                    _buildPerformanceCard(b),
+                    const SizedBox(height: 14),
+                    _buildAreaTableCard(b),
+                    const SizedBox(height: 14),
+                  ],
                   _buildMonthBillsCard(),
                   const SizedBox(height: 24),
                 ],
@@ -225,7 +202,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     );
   }
 
-  // ── Header card ──────────────────────────────────────────────────────────────
+  // ── Header card ─────────────────────────────────────────────────────────────
   Widget _buildHeaderCard() {
     return Container(
       decoration: BoxDecoration(
@@ -242,7 +219,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '50% Task Execution — Per Sq.Ft. Daily Billing',
+                  'Daily Billing — Value = Area × Rate × Executions',
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                 ),
               ),
@@ -366,10 +343,8 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     );
   }
 
-  // ── Weightage summary card ────────────────────────────────────────────────────
-  Widget _buildWeightagesCard() {
-    final sum = _weightages.fold<double>(0, (s, w) => s + w.weightage);
-    final totalOk = (sum - 100).abs() <= 0.6;
+  // ── Area rates management ───────────────────────────────────────────────────
+  Widget _buildAreaRatesCard() {
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -378,88 +353,34 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            const Row(
               children: [
-                const Icon(Icons.pie_chart, size: 18, color: kRailwayBlue),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text('Area Weightage', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: totalOk ? kSuccessGreen : kErrorRed,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text('${sum.toStringAsFixed(1)}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                Icon(Icons.currency_rupee, size: 18, color: kRailwayBlue),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text('Area Rates (₹/sq.ft.)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: sum / 100,
-                minHeight: 6,
-                backgroundColor: Colors.grey[200],
-                color: totalOk ? kSuccessGreen : kWarningOrange,
-              ),
-            ),
             const SizedBox(height: 4),
-            Text(
-              'Weightages drive the weighted task-execution score. Each area bills at its own ₹/sq.ft. rate (contract-set) — areas without a rate use the derived rate.',
-              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            const Text(
+              'Each area bills at its own ₹/sq.ft. — fees are applied at preview/generate time.',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
             ),
-            const SizedBox(height: 8),
-            for (final w in _weightages)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 28,
-                      margin: const EdgeInsets.only(right: 10),
-                      decoration: BoxDecoration(
-                        color: w.ratePerSqFt != null && w.ratePerSqFt! > 1.8 ? kWarningOrange : kRailwayBlue,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(w.areaName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                          Text('${w.tenderedAreaSqFt.toStringAsFixed(0)} sq.ft. · ${w.cleaningFrequency}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                        ],
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text('${w.weightage.toStringAsFixed(1)}%', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kRailwayBlue)),
-                        if (w.ratePerSqFt != null) Text(_fmt.format(w.ratePerSqFt), style: TextStyle(fontSize: 10, color: Colors.grey[500])),
-                      ],
-                    ),
-                  ],
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _openAreaRates,
+                icon: const Icon(Icons.tune, size: 16),
+                label: const Text('Manage Area Rates'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: kRailwayBlue,
+                  side: BorderSide(color: kRailwayBlue.withOpacity(0.4)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
-            if (_weightages.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 16, color: Colors.grey[400]),
-                    const SizedBox(width: 6),
-                    Text('No weightages — flat sq.ft. ratio used.', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                  ],
-                ),
-              ),
-            TextButton.icon(
-              onPressed: _manageWeightage,
-              icon: const Icon(Icons.tune, size: 18),
-              label: Text(_canGenerate ? 'Manage Area Weightage' : 'View Area Weightage'),
-              style: TextButton.styleFrom(foregroundColor: kRailwayBlue),
             ),
           ],
         ),
@@ -467,99 +388,30 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     );
   }
 
-  // ── Active bill card ──────────────────────────────────────────────────────────
-  Widget _buildBillCard() {
-    final b = _bill;
+  Future<void> _openAreaRates() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => AreaRateConfigScreen(contractId: widget.contractId)));
+    if (!mounted) return;
+    if (_bill != null) await _preview();
+  }
+
+  Widget _buildEmptyHint() {
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: b == null
-            ? Row(
-                children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.grey[400]),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Select a date, Preview, then Generate to freeze the bill for this date.',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Title + status ──
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Daily Bill — ${b.date}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ),
-                      _statusChip(b.status),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Contract period: ${b.contractStartDate} → ${b.contractEndDate}  (${b.contractDays} days)',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── Execution progress ──
-                  if (b.dayExecutionRate != null) ...[
-                    Row(
-                      children: [
-                        const Text('Execution Rate', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: (b.dayExecutionRate ?? 0) / 100,
-                              minHeight: 8,
-                              backgroundColor: Colors.grey[200],
-                              color: (b.dayExecutionRate ?? 0) >= 80 ? kSuccessGreen : kWarningOrange,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${b.dayExecutionRate!.toStringAsFixed(1)}%',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: b.dayExecutionRate! >= 80 ? kSuccessGreen : kWarningOrange,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                  ],
-
-                  // ── Key figures ──
-                  _kvRow('Daily base task (contract÷30 days)', _fmt.format(b.dailyBaseTask)),
-                  _kvRow('Executed / Expected sq.ft.', '${b.executedSqFt.toStringAsFixed(0)} / ${b.expectedSqFt.toStringAsFixed(0)}'),
-                  if (b.weighted != null)
-                    _kvRow('Weighted execution score', '${(b.weighted!['weightedScore'] ?? 0).toStringAsFixed(1)}%'),
-                  const Divider(height: 18),
-                  _kvRow('Gross amount', _fmt.format(b.grossAmount)),
-                  if (b.deduction > 0) _kvRow('Deduction', _fmt.format(b.deduction), valueColor: kErrorRed),
-                  _kvRow('Net payable', _fmt.format(b.netAmount), bold: true, valueColor: kSuccessGreen),
-                  const SizedBox(height: 14),
-
-                  // ── Area detail table ──
-                  const Text('Area-wise Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(height: 8),
-                  _areaTableHeader(),
-                  for (var i = 0; i < b.rows.length; i++)
-                    _areaTableRow(b.rows[i], i.isEven),
-                ],
+        padding: EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 16, color: Colors.grey),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Select a date, Preview, then Generate to freeze the bill for that date.',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
               ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -573,44 +425,79 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     );
   }
 
-  Widget _areaTableHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.07), borderRadius: BorderRadius.circular(6)),
-      child: const Row(
-        children: [
-          Expanded(flex: 3, child: Text('Area', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue))),
-          Expanded(flex: 2, child: Text('Executed', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue))),
-          Expanded(flex: 2, child: Text('Rate/ft²', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue))),
-          Expanded(flex: 2, child: Text('Amount', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue))),
-        ],
-      ),
-    );
-  }
+  // ── Daily bill summary card ─────────────────────────────────────────────────
+  Widget _buildBillSummaryCard(DailyTaskBillingResponse b) {
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.receipt, size: 18, color: kRailwayBlue),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Daily Bill — ${b.date}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                ),
+                _statusChip(b.status),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Contract: ${b.contractNumber} · ${b.contractStartDate} → ${b.contractEndDate} (${b.contractDays} days) · ₹${b.ratePerSqft.toStringAsFixed(2)}/sq.ft.',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 14),
 
-  Widget _areaTableRow(Map<String, dynamic> r, bool even) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(color: even ? Colors.grey[50] : Colors.white),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Text('${r['areaName']}', style: const TextStyle(fontSize: 12)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('${r['executedSqFt']?.toStringAsFixed(0) ?? '0'}/${r['expectedSqFt']?.toStringAsFixed(0) ?? '0'}', textAlign: TextAlign.end, style: const TextStyle(fontSize: 11)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(_fmt.format(r['ratePerSqFt'] ?? 0), textAlign: TextAlign.end, style: const TextStyle(fontSize: 11)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(_fmt.format(r['areaAmount'] ?? 0), textAlign: TextAlign.end, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kRailwayBlue)),
-          ),
-        ],
+            const Text('Bill Summary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 6),
+            _kvRow('Expected Work Value', _money(b.expectedWorkValue)),
+            _kvRow('Actual Executed Value', _money(b.actualExecutionValue), bold: true, valueColor: kSuccessGreen),
+            _kvRow('Executed / Expected sq.ft.', '${b.executedSqFt.toStringAsFixed(0)} / ${b.expectedSqFt.toStringAsFixed(0)}'),
+            const SizedBox(height: 6),
+            if (b.taskExecutionScore != null) ...[
+              Row(
+                children: [
+                  const Expanded(child: Text('Task Execution', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: (b.taskExecutionScore ?? 0) / 100,
+                        minHeight: 8,
+                        backgroundColor: Colors.grey[200],
+                        color: (b.taskExecutionScore ?? 0) >= 80 ? kSuccessGreen : kWarningOrange,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${b.taskExecutionScore!.toStringAsFixed(1)}%',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: b.taskExecutionScore! >= 80 ? kSuccessGreen : kWarningOrange,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+            ],
+            const Divider(height: 18),
+            if (b.lessExecutionAmount > 0) _kvRow('Less on performance (${b.lessExecutionPercent.toStringAsFixed(0)}%)', _money(b.lessExecutionAmount), valueColor: kErrorRed),
+            _kvRow('Eligible Amount', _money(b.eligibleAmount)),
+            if (b.penaltyApplied && b.penalty > 0) _kvRow('Penalty', _money(b.penalty), valueColor: kErrorRed),
+            _kvRow('Deduction', _money(b.deduction), valueColor: kErrorRed),
+            _kvRow('Net Payable', _money(b.netAmount), bold: true, valueColor: kSuccessGreen),
+            if (b.gstRate > 0) _kvRow('GST (${b.gstRate.toStringAsFixed(0)}%)', _money(b.gstAmount)),
+            if (b.gstRate > 0) _kvRow('Total Payable', _money(b.totalPayable), bold: true, valueColor: kRailwayBlue),
+          ],
+        ),
       ),
     );
   }
@@ -626,9 +513,205 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         ),
       );
 
-  // ── Month bills list card ─────────────────────────────────────────────────────
+  // ── Performance summary card (50 / 20 / 30) ─────────────────────────────────
+  Widget _buildPerformanceCard(DailyTaskBillingResponse b) {
+    Widget row(String name, int weight, double? score, double? marks) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 4, height: 30,
+              margin: const EdgeInsets.only(right: 10),
+              decoration: BoxDecoration(color: kRailwayBlue, borderRadius: BorderRadius.circular(2)),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('$name', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Text(score == null ? 'No data (counts as full)' : 'achievement ${score.toStringAsFixed(1)}%',
+                      style: TextStyle(fontSize: 11, color: score == null ? Colors.grey[500] : Colors.grey[600])),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: kRailwayBlue.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('$weight%', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 90,
+              child: Text(
+                marks == null ? '—' : '${marks.toStringAsFixed(1)} / $weight',
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final cats = b.categories;
+    final Map<String, Map<String, dynamic>> bySrc = {};
+    for (final c in cats) {
+      bySrc[c['dataSource']] = c;
+    }
+    final exec = bySrc['execution'];
+    final insp = bySrc['inspection'];
+    final fb = bySrc['feedback'];
+
+    final scoreColor = b.overallScore >= 90
+        ? kSuccessGreen
+        : b.overallScore >= 70
+            ? kWarningOrange
+            : kErrorRed;
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.speed, size: 18, color: kRailwayBlue),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Performance Summary (50 / 20 / 30)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            row('Task Execution', 50, exec?['achievement'] as double?, (exec?['marks'] as num?)?.toDouble()),
+            row('Railway Inspection', 20, insp?['achievement'] as double?, (insp?['marks'] as num?)?.toDouble()),
+            row('Passenger Feedback', 30, fb?['achievement'] as double?, (fb?['marks'] as num?)?.toDouble()),
+            const Divider(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Final Performance Score', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(color: scoreColor, borderRadius: BorderRadius.circular(20)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('${b.overallScore.toStringAsFixed(1)}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                      const SizedBox(width: 6),
+                      Text('Grade ${b.grade}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Area-wise execution table ───────────────────────────────────────────────
+  Widget _buildAreaTableCard(DailyTaskBillingResponse b) {
+    const colW = {'area': 130.0, 'sqft': 78.0, 'rate': 92.0, 'req': 58.0, 'done': 58.0, 'exp': 108.0, 'act': 108.0};
+    Widget cell(Object? text, double w, {TextAlign align = TextAlign.right, bool bold = false, Color? color}) {
+      return SizedBox(
+        width: w,
+        child: Text(
+          text == null ? '—' : text.toString(),
+          textAlign: align,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11, fontWeight: bold ? FontWeight.bold : FontWeight.normal, color: color ?? Colors.black87),
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.table_chart, size: 18, color: kRailwayBlue),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Area-wise Execution', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                    decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.07), borderRadius: BorderRadius.circular(6)),
+                    child: Row(
+                      children: [
+                        cell('Area', colW['area']!, align: TextAlign.left, bold: true, color: kRailwayBlue),
+                        cell('SQFT', colW['sqft']!, bold: true, color: kRailwayBlue),
+                        cell('Rate/sq.ft.', colW['rate']!, bold: true, color: kRailwayBlue),
+                        cell('Req', colW['req']!, bold: true, color: kRailwayBlue),
+                        cell('Done', colW['done']!, bold: true, color: kRailwayBlue),
+                        cell('Expected', colW['exp']!, bold: true, color: kRailwayBlue),
+                        cell('Actual', colW['act']!, bold: true, color: kRailwayBlue),
+                      ],
+                    ),
+                  ),
+                  for (var i = 0; i < b.areaRows.length; i++)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      color: i.isEven ? Colors.grey[50] : Colors.white,
+                      child: Row(
+                        children: [
+                          cell(b.areaRows[i]['areaName'] ?? '—', colW['area']!, align: TextAlign.left),
+                          cell((b.areaRows[i]['areaSqft'] as num?)?.toDouble().toStringAsFixed(0) ?? '0', colW['sqft']!),
+                          cell('₹${((b.areaRows[i]['ratePerSqft'] as num?) ?? 0).toStringAsFixed(2)}', colW['rate']!),
+                          cell('${b.areaRows[i]['required'] ?? 0}', colW['req']!),
+                          cell('${b.areaRows[i]['completed'] ?? 0}', colW['done']!),
+                          cell(_money(((b.areaRows[i]['expectedValue'] as num?) ?? 0).toDouble()), colW['exp']!, bold: true),
+                          cell(_money(((b.areaRows[i]['actualExecutionValue'] as num?) ?? 0).toDouble()), colW['act']!, bold: true, color: kSuccessGreen),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Each scheduled pass is valued at area sq.ft. × ₹/sq.ft. Executions are counted from APPROVED shift summaries (the approval unit) — tasks have no individual approval step.',
+              style: TextStyle(fontSize: 10, color: Colors.grey[500], height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Monthly bills card ──────────────────────────────────────────────────────
   Widget _buildMonthBillsCard() {
-    final total = _bills.fold<double>(0, (s, b) => s + b.netAmount);
+    const colW = {'date': 92.0, 'exp': 104.0, 'act': 104.0, 'tex': 62.0, 'ins': 62.0, 'fb': 62.0, 'fin': 62.0, 'gross': 104.0, 'ded': 92.0, 'net': 104.0};
+    Widget h(String t, double w) => SizedBox(
+          width: w,
+          child: Text(t, textAlign: TextAlign.right, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+        );
+    Widget c(String t, double w, {bool bold = false, Color? color}) => SizedBox(
+          width: w,
+          child: Text(t, textAlign: TextAlign.right, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: bold ? FontWeight.bold : FontWeight.normal, color: color ?? Colors.black87)),
+        );
+
+    final month = _monthData;
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -647,7 +730,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                   color: kRailwayBlue,
                   onPressed: () {
                     setState(() { _month--; if (_month < 1) { _month = 12; _year--; } });
-                    _load();
+                    _loadBills();
                   },
                 ),
                 Container(
@@ -660,29 +743,12 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                   color: kRailwayBlue,
                   onPressed: () {
                     setState(() { _month++; if (_month > 12) { _month = 1; _year++; } });
-                    _load();
+                    _loadBills();
                   },
                 ),
               ],
             ),
-            if (_bills.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(color: kSuccessGreen.withOpacity(0.08), borderRadius: BorderRadius.circular(8)),
-                child: Row(
-                  children: [
-                    Text('${_bills.length} bill${_bills.length != 1 ? 's' : ''}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    const Spacer(),
-                    const Text('Total: ', style: TextStyle(fontSize: 12)),
-                    Text(_fmt.format(total), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kSuccessGreen)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-            if (_bills.isEmpty)
+            if (month.bills.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Row(
@@ -698,39 +764,84 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                   ],
                 ),
               )
-            else
-              for (final b in _bills)
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: kRailwayBlue.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(b.date.split('-').last, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kRailwayBlue)),
-                  ),
-                  title: Text(b.date, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  subtitle: Text(
-                    'exec ${b.executedSqFt.toStringAsFixed(0)} / ${b.expectedSqFt.toStringAsFixed(0)} sq.ft. · ${b.dayExecutionRate != null ? '${b.dayExecutionRate!.toStringAsFixed(0)}% rate' : '—'}',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                  ),
-                  trailing: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: kSuccessGreen.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(_fmt.format(b.netAmount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kSuccessGreen)),
-                  ),
-                  onTap: () => setState(() {
-                    _bill = b;
-                    _dateCtrl.text = b.date;
-                  }),
+            else ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(color: kSuccessGreen.withOpacity(0.08), borderRadius: BorderRadius.circular(8)),
+                child: Row(
+                  children: [
+                    Text('${month.count} bill${month.count != 1 ? 's' : ''} · ${month.totalDeduction > 0 ? 'Deduction ${_money(month.totalDeduction)} · ' : ''}Net ${_money(month.totalNetAmount)}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    Text('Expected ${_money(month.totalExpectedWorkValue)}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 10),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                      decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.07), borderRadius: BorderRadius.circular(6)),
+                      child: Row(children: [
+                        h('Date', colW['date']!),
+                        h('Expected ₹', colW['exp']!),
+                        h('Actual ₹', colW['act']!),
+                        h('TaskEx %', colW['tex']!),
+                        h('Insp %', colW['ins']!),
+                        h('Feedback %', colW['fb']!),
+                        h('Final %', colW['fin']!),
+                        h('Gross ₹', colW['gross']!),
+                        h('Deduct ₹', colW['ded']!),
+                        h('Net ₹', colW['net']!),
+                      ]),
+                    ),
+                    for (final bill in month.bills) ...[
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+                        decoration: BoxDecoration(
+                          color: kSuccessGreen.withOpacity(0.04),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(children: [
+                          c(bill.date, colW['date']!),
+                          c(_money(bill.expectedWorkValue), colW['exp']!),
+                          c(_money(bill.actualExecutionValue), colW['act']!),
+                          c(_pct(bill.taskExecutionScore), colW['tex']!),
+                          c(_pct(bill.inspectionScore), colW['ins']!),
+                          c(_pct(bill.feedbackScore), colW['fb']!),
+                          c('${bill.overallScore.toStringAsFixed(1)}', colW['fin']!, bold: true),
+                          c(_money(bill.grossAmount), colW['gross']!),
+                          c(_money(bill.deduction), colW['ded']!, color: bill.deduction > 0 ? kErrorRed : Colors.grey),
+                          c(_money(bill.netAmount), colW['net']!, bold: true, color: kSuccessGreen),
+                        ]),
+                      ),
+                      const Divider(height: 1, thickness: 1),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                      decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.10), borderRadius: BorderRadius.circular(6)),
+                      child: Row(children: [
+                        c('TOTAL', colW['date']!, bold: true, color: kRailwayBlue),
+                        c(_money(month.totalExpectedWorkValue), colW['exp']!, bold: true),
+                        c(_money(month.totalActualExecutionValue), colW['act']!, bold: true),
+                        c(_pct(month.avgTaskExecutionScore), colW['tex']!, bold: true),
+                        c(_pct(month.avgInspectionScore), colW['ins']!, bold: true),
+                        c(_pct(month.avgFeedbackScore), colW['fb']!, bold: true),
+                        c(_pct(month.avgFinalScore), colW['fin']!, bold: true),
+                        c(_money(month.totalGrossAmount), colW['gross']!, bold: true),
+                        c(_money(month.totalDeduction), colW['ded']!, bold: true),
+                        c(_money(month.totalNetAmount), colW['net']!, bold: true, color: kSuccessGreen),
+                      ]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

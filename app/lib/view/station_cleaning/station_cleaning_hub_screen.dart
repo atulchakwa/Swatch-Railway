@@ -6,7 +6,7 @@ import 'package:crm_train/utills/app_colors.dart';
 import 'package:crm_train/model/contracts_model.dart';
 import 'package:crm_train/model/station_models.dart';
 import 'attendance/station_supervisor_attendance_screen.dart';
-import 'billing/area_weightage_screen.dart';
+import 'billing/area_rate_config_screen.dart';
 import 'billing/billing_support_pack_screen.dart';
 import 'billing/contract_estimation_screen.dart';
 import 'billing/daily_task_billing_screen.dart';
@@ -131,7 +131,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
       _moduleCard(context, Icons.receipt, 'Billing', Colors.deepOrange, () => _openBilling(context)),
       _moduleCard(context, Icons.calendar_month, 'Daily\nBilling', Colors.teal, () => _openDailyBilling(context)),
       _moduleCard(context, Icons.payments, 'Performance\nBilling', Colors.redAccent, () => _openPerformanceBilling(context)),
-      _moduleCard(context, Icons.tune, 'Area\nWeightage', Colors.brown, () => _openAreaWeightage(context)),
+      _moduleCard(context, Icons.currency_rupee, 'Area\nRates', Colors.brown, () => _openAreaRates(context)),
       _moduleCard(context, Icons.calculate, 'Estimation /\nVariation / SWO', Colors.orange, () => _openEstimation(context)),
       _moduleCard(context, Icons.book, 'Daily\nAudit Log', Colors.blue, () => _openDailyLog(context)),
       _moduleCard(context, Icons.map, 'Area\nArrangement', Colors.lightGreen, () => _openAreaConfig(context)),
@@ -245,14 +245,14 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     }
   }
 
-  void _openAreaWeightage(BuildContext context) {
+  void _openAreaRates(BuildContext context) {
     if (_loadingContract) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checking contract for this station…')));
       return;
     }
     final contractId = _effectiveContractId();
     if (contractId != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => AreaWeightageScreen(contractId: contractId, stationId: _selectedStationId, stationName: _selectedStationName)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => AreaRateConfigScreen(contractId: contractId)));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
     }

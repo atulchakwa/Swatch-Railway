@@ -1,314 +1,340 @@
 /*
- * Task Execution billing engine (50% billing component).
+ * Task Execution billing engine (50% of the performance score).
  *
- * - Per-area weightage configuration (railway department can increase/decrease
- *   a weightage; every change is versioned and audited).
- * - Per-sq.ft. execution billing: approved shift summaries carry per-area
- *   workDone (= basicAreaSqFt × times-cleaned) and tenderedAreaPerDay, so a
- *   day's bill is executed sq.ft. × rate per sq.ft.
- * - Daily task bills are stored and immutable once generated (historical
- *   consistency); regenerating for the same contract/station/date returns the
- *   existing bill instead of silently recomputing it.
+ * Payment is derived from ACTUAL CLEANING WORK VALUED BY AREA:
  *
- * The calculation is monthly AND daily: the daily task bill is
- *   dailyBaseTask = contractValue / contractDays × 50%
- *   ratePerSqFt   = dailyBaseTask / Σ expected sq.ft. per day
- *   areaGross     = min(executedSqFt, expectedSqFt × excessAllowance) × ratePerSqFt
- * The monthly pack (stationBillingService) consumes the weighted execution
- * score derived from the same per-area rows.
+ *   area sqft x rate per sqft  ->  one execution value
+ *   AREA -> SQFT -> RATE -> FREQUENCY -> EXECUTION -> DAILY WORK VALUE
+ *
+ *   1. Daily Expected Work Value      = SUM over areas(sqft x rate x requiredExecutions)
+ *   2. Daily Actual Execution Value   = SUM over areas(sqft x rate x completedExecutions)
+ *   3. Task Execution Score           = executedSqft / expectedSqft x 100
+ *
+ * The final performance score weights three categories (must total 100):
+ *   - Task Execution      (50%)  <- value-weighted sq.ft. achievement
+ *   - Railway Inspection  (20%)  <- avg overallScore of the day's inspections
+ *   - Passenger Feedback  (30%)  <- avg overallRating / 5 * 100
+ * Categories with no data for a day are treated as fully achieved (neutral),
+ * mirroring the OBHS / monthly station-billing convention.
+ *
+ * Financial pipeline (mirrors the monthly performance bill, scaled per day):
+ *   lessExecutionPercent = 100 - overallScore
+ *   lessExecutionAmount  = expectedWorkValue x lessExecutionPercent / 100
+ *   eligibleAmount       = min(actualExecutionValue,
+ *                              expectedWorkValue - lessExecutionAmount)
+ *   penalty (configurable slabs keyed off overallScore) -> subtract
+ *   netAmount -> GST -> totalPayable
+ *
+ * Area weightage is NOT used anywhere in this engine. Each scheduled cleaning
+ * pass on a tender area is valued independently at its own sq.ft. x rate; the
+ * number of required executions comes from the actual cleaningTasks records for
+ * the day. There is NO individual task approval: a task is COMPLETED directly
+ * by the contractor supervisor. Completed executions are counted from the day's
+ * APPROVED shift summaries (the approval unit) — each approved summary's area
+ * entries contribute their `times` to that area's completed executions, capped
+ * at the number of tasks required for the area.
  */
 
 import { db } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import { auditService } from './auditService.js';
-import { roundMoney, ratioSafe, clampPct } from '../utils/money.js';
-import { computeContractDays, monthRange, parseDate } from '../utils/period.js';
+import { roundMoney, mulMoney } from '../utils/money.js';
+import { computeContractDays } from '../utils/period.js';
+import { performanceBillingService } from './performanceBillingService.js';
+
+const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+
+const DEFAULT_CATEGORIES = [
+  { code: 'EXECUTION', name: 'Task Execution', maxMarks: 50, dataSource: 'execution', enabled: true, order: 1 },
+  { code: 'INSPECTION', name: 'Railway Inspection', maxMarks: 20, dataSource: 'inspection', enabled: true, order: 2 },
+  { code: 'FEEDBACK', name: 'Passenger Feedback', maxMarks: 30, dataSource: 'feedback', enabled: true, order: 3 },
+];
 
 /* ─────────────────────────── Pure calculation helpers ─────────────────────── */
 
-/* Flatten approved shift-summary areas into per-area aggregates. */
-export function aggregateAreaExecution(approvedSummaries) {
-  const rows = {};
-  const push = (summary, area) => {
-    const key = String(area.areaName || area.areaId || 'other').trim();
-    const executed = parseFloat(area.workDone) || 0;
-    const expected = parseFloat(area.tenderedAreaPerDay) || 0;
-    if (!rows[key]) {
-      rows[key] = {
-        areaName: key,
-        areaId: area.areaId || '',
-        mainArea: area.mainArea || '',
-        executedSqFt: 0,
-        expectedSqFt: 0,
-        times: 0,
-        days: 0,
-        cleaningFrequency: area.cleaningFrequency || '',
-      };
-    }
-    rows[key].executedSqFt += executed;
-    rows[key].expectedSqFt += expected;
-    rows[key].times += parseInt(area.times, 10) || 0;
-    rows[key].days += 1;
-  };
-  for (const summary of approvedSummaries || []) {
-    for (const area of Array.isArray(summary.areas) ? summary.areas : []) push(summary, area);
-  }
-  const result = Object.values(rows);
-  for (const r of result) r.ratio = r.expectedSqFt > 0 ? Math.min(r.executedSqFt / r.expectedSqFt, 1) : 1;
-  return result;
-}
-
 /*
- * Weighted execution score (0-100) from per-area rows + weightage config.
- * weightages: { [areaName]: { weightage: number, ... } }. Uses configured
- * weightages when present, otherwise falls back to a flat (unweighted) ratio.
+ * Collapse the day's cleaningTasks into per-area rows.
+ * meta: { [areaId]: stationArea } with basicAreaSqFt/name/frequency/status.
+ * config: billing_configs record (ratePerSqft, areaRateOverrides).
+ * approvedSummaries: stationShiftSummaries with status 'approved' for the day.
+ * Exercutions are NOT read from task status (tasks have no approval step);
+ * they come from approved shift summary entries: each entry contributes its
+ * `times` to its area's completed count, capped at the tasks required.
+ * Unknown / inactive areas are excluded (a task on a removed area is not billed).
  */
-export function computeWeightedExecutionScore(areaRows, weightageConfig = []) {
-  const weightMap = {};
-  for (const w of weightageConfig || []) {
-    const name = String(w.areaName || '').trim();
-    if (name) weightMap[name] = parseFloat(w.weightage) || 0;
-  }
-  const configured = Object.keys(weightMap).length > 0;
-  let weightedSum = 0;
-  let weightTotal = 0;
-  let executedTotal = 0;
-  let expectedTotal = 0;
-  for (const row of areaRows || []) {
-    executedTotal += row.executedSqFt || 0;
-    expectedTotal += row.expectedSqFt || 0;
-    const w = configured ? weightMap[row.areaName] : undefined;
-    if (configured && w !== undefined) {
-      weightedSum += w * (row.ratio || 1);
-      weightTotal += w;
-    }
-  }
-  let weightedScore = null;
-  if (configured) {
-    weightedScore = weightTotal > 0 ? clampPct((weightedSum / weightTotal) * 100) : null;
-  } else if (expectedTotal > 0) {
-    weightedScore = clampPct(Math.min(executedTotal / expectedTotal, 1) * 100);
-  }
-  return {
-    configured,
-    areaRows,
-    executedSqFt: roundMoney(executedTotal),
-    expectedSqFt: roundMoney(expectedTotal),
-    weightedScore: weightedScore === null ? null : Math.round(weightedScore * 100) / 100,
+export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSummaries = []) {
+  const ratePerSqft = Number(config.ratePerSqft);
+  const overrides = config.areaRateOverrides || {};
+  const rateOf = (areaId) => {
+    const o = overrides[areaId];
+    if (o !== undefined && o !== null && o !== '' && !Number.isNaN(Number(o)) && Number(o) >= 0) return Number(o);
+    return ratePerSqft;
   };
+  const sqftOf = (a) => {
+    const sqft = Number(a.basicAreaSqFt || a.areaSqFt || a.sqft || 0);
+    return Number.isFinite(sqft) && sqft >= 0 ? sqft : 0;
+  };
+
+  const executedByArea = {};
+  (approvedSummaries || []).forEach((summary) => {
+    (summary.areas || []).forEach((entry) => {
+      const areaId = entry.areaId;
+      if (!areaId || !meta[areaId]) return;
+      const times = Number(entry.times) || 0;
+      executedByArea[areaId] = (executedByArea[areaId] || 0) + times;
+    });
+  });
+
+  const rows = [];
+  const rowMap = {};
+  for (const t of tasks || []) {
+    const areaId = t.areaId;
+    const area = meta[areaId];
+    if (!area) continue; // task belongs to an inactive/unknown area
+    if (!rowMap[areaId]) {
+      rowMap[areaId] = {
+        areaId,
+        areaName: t.areaName || area.areaName || area.name || '',
+        mainArea: area.mainArea || '',
+        areaSqft: sqftOf(area),
+        ratePerSqft: rateOf(areaId),
+        frequency: area.cleaningFrequency || area.frequencyType || '',
+        required: 0,
+        completed: 0,
+      };
+      rows.push(rowMap[areaId]);
+    }
+    rowMap[areaId].required += 1;
+  }
+
+  rows.forEach((r) => {
+    r.completed = Math.min(r.required, Math.max(0, executedByArea[r.areaId] || 0));
+    r.executedSqft = roundMoney(r.areaSqft * r.completed);
+    r.expectedSqft = roundMoney(r.areaSqft * r.required);
+    r.expectedValue = roundMoney(mulMoney(mulMoney(r.areaSqft, r.ratePerSqft), r.required));
+    r.actualExecutionValue = roundMoney(mulMoney(mulMoney(r.areaSqft, r.ratePerSqft), r.completed));
+    r.achievement = r.expectedSqft > 0 ? clamp(round2((r.executedSqft / r.expectedSqft) * 100), 0, 100) : null;
+  });
+  rows.sort((a, b) => (b.expectedValue || 0) - (a.expectedValue || 0));
+  return rows;
 }
 
 /*
- * Daily task-execution bill (50% component).
- * expectedSqFtForRate = Σ per-day expected sq.ft across the whole contract set
- * of tender areas; here approximated from the day's approved areas when the
- * configured tender totals are absent. weightageConfig may carry a configured
- * ratePerSqFt override per area.
+ * Daily task-execution bill (50% component). Pure, DB-free.
+ * - areaRows: output of aggregateTaskAreaRows
+ * - config:   billing_configs record (categories, penaltyRules, gstRate)
+ * - inspection: { count, achievement }  (achievement may be null when no data)
+ * - feedback:   { count, achievement }
+ * - neutralMissing: treat categories with no data as fully achieved (default).
  */
 export function computeDailyTaskBilling({
-  annualValue = 0,
-  contractDays = 1,
-  approvedSummaries = [],
-  weightageConfig = [],
-  excessThreshold = 1,
-  ratePerSqFtOverride = null,
+  areaRows = [],
+  config = {},
+  inspection = null,
+  feedback = null,
+  neutralMissing = true,
 }) {
-  const rows = aggregateAreaExecution(approvedSummaries);
-  const rateMap = {};
-  for (const w of weightageConfig || []) {
-    const name = String(w.areaName || '').trim();
-    if (name && parseFloat(w.ratePerSqFt)) rateMap[name] = parseFloat(w.ratePerSqFt);
-  }
-  const dailyBaseTask = roundMoney((annualValue / contractDays) * 0.50);
-  const expectedTotal = rows.reduce((s, r) => s + r.expectedSqFt, 0);
-  const executedTotal = rows.reduce((s, r) => s + r.executedSqFt, 0);
-  const derivedRate = expectedTotal > 0 ? dailyBaseTask / expectedTotal : 0;
-  const excessAllowed = Math.max(parseFloat(excessThreshold) || 1, 0);
+  const requiredTotal = areaRows.reduce((s, r) => s + (r.required || 0), 0);
+  const completedTotal = areaRows.reduce((s, r) => s + (r.completed || 0), 0);
+  const expectedWorkValue = roundMoney(areaRows.reduce((s, r) => s + (r.expectedValue || 0), 0));
+  const actualExecutionValue = roundMoney(areaRows.reduce((s, r) => s + (r.actualExecutionValue || 0), 0));
+  const expectedSqFt = roundMoney(areaRows.reduce((s, r) => s + (r.expectedSqft || 0), 0));
+  const executedSqFt = roundMoney(areaRows.reduce((s, r) => s + (r.executedSqft || 0), 0));
+  const taskExecutionScore = expectedSqFt > 0 ? clamp(round2((executedSqFt / expectedSqFt) * 100), 0, 100) : null;
+  const inspectionScore = inspection && inspection.count > 0 ? clamp(round2(inspection.achievement), 0, 100) : null;
+  const feedbackScore = feedback && feedback.count > 0 ? clamp(round2(feedback.achievement), 0, 100) : null;
 
-  let grossAmount = 0;
-  let deduction = 0;
-  const lines = rows.map((r) => {
-    const rate = ratePerSqFtOverride !== null ? parseFloat(ratePerSqFtOverride) : (rateMap[r.areaName] || derivedRate);
-    const billableSqFt = Math.min(r.executedSqFt, r.expectedSqFt * excessAllowed);
-    const amount = roundMoney(billableSqFt * rate);
-    const areaExpectedAmount = roundMoney(r.expectedSqFt * rate);
-    const areaDeduction = areaExpectedAmount > amount ? roundMoney(areaExpectedAmount - amount) : 0;
-    grossAmount += amount;
-    deduction += areaDeduction;
+  const cats = (config.categories || DEFAULT_CATEGORIES)
+    .filter((c) => c.enabled !== false)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const categories = cats.map((c) => {
+    let achievement = null;
+    let notApplicable = false;
+    let count = null;
+    if (c.dataSource === 'execution') {
+      achievement = taskExecutionScore;
+      count = { required: requiredTotal, completed: completedTotal };
+    } else if (c.dataSource === 'inspection') {
+      count = inspection && inspection.count > 0 ? inspection.count : 0;
+      achievement = inspectionScore;
+    } else if (c.dataSource === 'feedback') {
+      count = feedback && feedback.count > 0 ? feedback.count : 0;
+      achievement = feedbackScore;
+    }
+    if (achievement === null) {
+      notApplicable = true;
+      achievement = neutralMissing ? 100 : 0;
+    }
+    const marks = round2(clamp(achievement, 0, 100) * ((Number(c.maxMarks) || 0) / 100));
     return {
-      areaName: r.areaName,
-      areaId: r.areaId,
-      mainArea: r.mainArea,
-      executedSqFt: r.executedSqFt,
-      expectedSqFt: r.expectedSqFt,
-      executionRatio: Math.round(r.ratio * 1000) / 1000,
-      billableSqFt,
-      ratePerSqFt: roundMoney(rate),
-      areaAmount: amount,
-      deduction: areaDeduction,
+      code: c.code, name: c.name, dataSource: c.dataSource, maxMarks: c.maxMarks,
+      enabled: c.enabled !== false, achievement, marks, notApplicable, count,
     };
   });
-  grossAmount = roundMoney(grossAmount);
-  deduction = roundMoney(deduction);
-  const dayExecutionRate = expectedTotal > 0 ? roundMoney(Math.min(executedTotal / expectedTotal, 1) * 100) : null;
+
+  const overallScore = clamp(round2(categories.reduce((s, c) => s + c.marks, 0)), 0, 100);
+  const grade = overallScore >= 90 ? 'A' : overallScore >= 80 ? 'B' : overallScore >= 70 ? 'C' : overallScore >= 60 ? 'D' : 'E';
+
+  const lessExecutionPercent = round2(clamp(100 - overallScore, 0, 100));
+  const lessExecutionAmount = roundMoney((expectedWorkValue * lessExecutionPercent) / 100);
+  const eligibleAmount = roundMoney(Math.max(0, Math.min(actualExecutionValue, expectedWorkValue - lessExecutionAmount)));
+  const penalty = applyPenaltyRules(config.penaltyRules, overallScore, expectedWorkValue, eligibleAmount);
+  const netAmount = roundMoney(Math.max(0, eligibleAmount - penalty.totalPenalty));
+  const gstRate = Number(config.gstRate) || 0;
+  const gstAmount = roundMoney((netAmount * gstRate) / 100);
+  const totalPayable = roundMoney(netAmount * (1 + gstRate / 100));
+  const deduction = roundMoney(Math.max(0, expectedWorkValue - netAmount));
+
   return {
-    rows: lines,
-    dailyBaseTask,
-    expectedSqFt: roundMoney(expectedTotal),
-    executedSqFt: roundMoney(executedTotal),
-    dayExecutionRate,
-    grossAmount,
+    expectedWorkValue,
+    actualExecutionValue,
+    grossAmount: actualExecutionValue,
+    expectedSqFt,
+    executedSqFt,
+    taskExecutionScore,
+    inspectionScore,
+    feedbackScore,
+    execution: { achievement: taskExecutionScore, required: requiredTotal, completed: completedTotal },
+    areaRows,
+    categories,
+    inspection: inspection && inspection.count > 0
+      ? { count: inspection.count, achievement: inspectionScore }
+      : { count: 0, achievement: null },
+    feedback: feedback && feedback.count > 0
+      ? { count: feedback.count, achievement: feedbackScore }
+      : { count: 0, achievement: null },
+    overallScore,
+    grade,
+    lessExecutionPercent,
+    lessExecutionAmount,
+    eligibleAmount,
+    penalty,
     deduction,
-    netAmount: roundMoney(Math.max(grossAmount, 0)),
-    excessAllowed: excessAllowed === 1 ? false : excessAllowed,
+    netAmount,
+    gstRate,
+    gstAmount,
+    totalPayable,
   };
 }
 
-/* ─────────────────────── Area weightage configuration ─────────────────────── */
+/* First matching enabled slab (score >= from AND score < to) wins. */
+export function applyPenaltyRules(rules, overallScore, monthlyBase, eligibleAmount) {
+  const enabled = (rules || []).filter((r) => r.enabled !== false).sort((a, b) => a.fromScore - b.fromScore);
+  if (enabled.length === 0) return { applied: false, rows: [], totalPenalty: 0 };
+  const match = enabled.find((r) => overallScore >= r.fromScore && overallScore < r.toScore) || enabled[enabled.length - 1];
+  if (!match || match.action === 'NONE') return { applied: false, rows: [], totalPenalty: 0 };
+  let amount = 0;
+  if (match.action === 'PERCENT_OF_ELIGIBLE') amount = roundMoney((eligibleAmount * Number(match.value)) / 100);
+  else if (match.action === 'PERCENT_OF_MONTHLY_BASE') amount = roundMoney((monthlyBase * Number(match.value)) / 100);
+  else if (match.action === 'FIXED_AMOUNT') amount = roundMoney(Number(match.value) || 0);
+  if (match.maxAmount && amount > Number(match.maxAmount)) amount = roundMoney(Number(match.maxAmount));
+  return {
+    applied: true,
+    rows: [{
+      uid: match.uid, name: match.name, action: match.action, value: match.value,
+      fromScore: match.fromScore, toScore: match.toScore, amount,
+    }],
+    totalPenalty: amount,
+  };
+}
+
+/* ───────────────────────── Daily task execution billing ───────────────────── */
 
 class TaskExecutionBillingService {
-  async getWeightages({ contractId, stationId, status = 'active' } = {}) {
-    let query = db.collection('contract_area_weightages');
-    if (status) query = query.where('status', '==', status);
-    const snap = await query.get();
-    const result = [];
-    snap.forEach((doc) => {
-      const d = doc.data();
-      if (contractId && d.contractId !== contractId) return;
-      if (stationId && d.stationId !== stationId) return;
-      result.push({ id: doc.id, ...d });
-    });
-    result.sort((a, b) => (a.areaName || '').localeCompare(b.areaName || ''));
-    const totalWeightage = result.reduce((s, r) => s + (parseFloat(r.weightage) || 0), 0);
-    return { count: result.length, totalWeightage: roundMoney(totalWeightage), weightages: result };
-  }
-
-  async upsertWeightage(userData, body) {
-    const { contractId, stationId, areaName, weightage } = body;
-    if (!contractId || !stationId || !areaName) {
-      throw new ValidationError('contractId, stationId, and areaName are required');
-    }
-    const w = parseFloat(weightage);
-    if (weightage === undefined || weightage === null || Number.isNaN(w) || w < 0 || w > 100) {
-      throw new ValidationError('weightage must be a percentage between 0 and 100');
-    }
-    const contractDoc = await db.collection('contracts').doc(contractId).get();
-    if (!contractDoc.exists) throw new NotFoundError('Contract not found');
-
-    const weightageValue = roundMoney(w);
-    const tenderedAreaSqFt = parseFloat(body.tenderedAreaSqFt) || 0;
-    const ratePerSqFt = body.ratePerSqFt !== undefined && body.ratePerSqFt !== null && body.ratePerSqFt !== ''
-      ? roundMoney(parseFloat(body.ratePerSqFt))
-      : null;
-    const now = new Date().toISOString();
-
-    const existingSnap = await db.collection('contract_area_weightages')
-      .where('contractId', '==', contractId)
-      .where('stationId', '==', stationId)
-      .where('areaName', '==', String(areaName).trim())
-      .limit(1)
-      .get();
-
-    if (existingSnap.empty) {
-      const ref = db.collection('contract_area_weightages').doc();
-      const data = {
-        uid: ref.id,
-        contractId,
-        contractNumber: body.contractNumber || contractDoc.data().contractNumber || '',
-        stationId,
-        stationName: body.stationName || contractDoc.data().stationName || '',
-        areaName: String(areaName).trim(),
-        mainArea: body.mainArea || '',
-        annexureItemNo: body.annexureItemNo !== undefined && body.annexureItemNo !== null && body.annexureItemNo !== ''
-          ? parseInt(body.annexureItemNo, 10) || null
-          : null,
-        weightage: weightageValue,
-        tenderedAreaSqFt,
-        cleaningFrequency: body.cleaningFrequency || 'daily',
-        boqTimesPerPeriod: parseInt(body.boqTimesPerPeriod, 10) || 0,
-        ratePerSqFt,
-        status: 'active',
-        version: 1,
-        history: [],
-        createdBy: userData.uid,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await ref.set(data);
-      await auditService.logAudit('TASK_EXECUTION_WEIGHTAGE_CREATED', userData.uid, userData.fullName || 'User', ref.id, 'contract_area_weightages', `Area weightage ${areaName} created (${weightageValue}%)`);
-      return { message: 'Area weightage created', uid: ref.id, weightage: data };
-    }
-
-    const ref = existingSnap.docs[0].ref;
-    const current = existingSnap.docs[0].data();
-    const history = Array.isArray(current.history) ? current.history : [];
-    history.push({
-      weightage: parseFloat(current.weightage) || 0,
-      tenderedAreaSqFt: current.tenderedAreaSqFt || 0,
-      ratePerSqFt: current.ratePerSqFt || null,
-      changedBy: userData.uid,
-      changedByName: userData.fullName || 'User',
-      changedAt: current.updatedAt || now,
-    });
-    const updates = {
-      weightage: weightageValue,
-      version: (current.version || 1) + 1,
-      history,
-      updatedBy: userData.uid,
-      updatedByName: userData.fullName || 'User',
-      updatedAt: now,
-    };
-    if (tenderedAreaSqFt > 0) updates.tenderedAreaSqFt = tenderedAreaSqFt;
-    if (body.mainArea !== undefined) updates.mainArea = body.mainArea || '';
-    if (body.annexureItemNo !== undefined) updates.annexureItemNo = body.annexureItemNo === null || body.annexureItemNo === '' ? null : (parseInt(body.annexureItemNo, 10) || null);
-    if (body.cleaningFrequency !== undefined) updates.cleaningFrequency = body.cleaningFrequency;
-    if (parseInt(body.boqTimesPerPeriod, 10) > 0) updates.boqTimesPerPeriod = parseInt(body.boqTimesPerPeriod, 10);
-    updates.ratePerSqFt = ratePerSqFt;
-    await ref.update(updates);
-    await auditService.logAudit('TASK_EXECUTION_WEIGHTAGE_UPDATED', userData.uid, userData.fullName || 'User', ref.id, 'contract_area_weightages', `Area weightage ${areaName} updated to ${weightageValue}% (v${(current.version || 1) + 1})`);
-    return { message: 'Area weightage updated', uid: ref.id, version: (current.version || 1) + 1 };
-  }
-
-  async deleteWeightage(uid, userData) {
-    const ref = db.collection('contract_area_weightages').doc(uid);
-    const doc = await ref.get();
-    if (!doc.exists) throw new NotFoundError('Area weightage not found');
-    await ref.update({ status: 'inactive', updatedBy: userData.uid, updatedAt: new Date().toISOString() });
-    await auditService.logAudit('TASK_EXECUTION_WEIGHTAGE_DEACTIVATED', userData.uid, userData.fullName || 'User', uid, 'contract_area_weightages', `Area weightage ${doc.data().areaName} deactivated`);
-    return { message: 'Area weightage deactivated', uid };
-  }
-
-  /* ─────────────────────── Daily task execution billing ─────────────────────── */
-
-  async _loadApprovedSummaries({ contractId, stationId, date, month, year }) {
-    let query = db.collection('stationShiftSummaries').where('stationId', '==', stationId);
-    let snapshot;
-    try {
-      snapshot = month && year
-        ? await query.where('date', '>=', monthRange(month, year).start).where('date', '<=', monthRange(month, year).end).get()
-        : await query.where('date', '==', date).get();
-    } catch {
-      snapshot = await query.get();
-    }
-    const approved = [];
-    snapshot.forEach((doc) => {
-      const r = doc.data();
-      if (r.status !== 'approved') return;
-      if (month && year) {
-        const prefix = `${year}-${String(month).padStart(2, '0')}`;
-        if (!(r.date || '').startsWith(prefix)) return;
-      } else if (date && r.date !== date) {
-        return;
-      }
-      approved.push({ id: doc.id, ...r });
-    });
-    return approved;
-  }
-
   async _loadContractOrFail(contractId) {
     const doc = await db.collection('contracts').doc(contractId).get();
     if (!doc.exists) throw new NotFoundError('Contract not found');
     return { id: doc.id, ...doc.data() };
+  }
+
+  async _loadConfigOrFail(contractId) {
+    const config = await performanceBillingService.getOrCreateConfig(contractId);
+    const rate = Number(config.ratePerSqft);
+    if (Number.isNaN(rate) || rate <= 0) {
+      throw new ValidationError('Cleaning rate (₹/sqft per execution) is not configured. Set it in Billing Configuration → General.');
+    }
+    return config;
+  }
+
+  async _loadTasksForDate(stationId, date) {
+    let tasks = [];
+    try {
+      const snap = await db.collection('cleaningTasks').where('stationId', '==', stationId).get();
+      snap.forEach((d) => tasks.push({ id: d.id, ...d.data() }));
+    } catch {
+      /* keep empty */
+    }
+    return tasks.filter((t) => {
+      const d = t.date || t.scheduledDate || '';
+      return d === String(date);
+    });
+  }
+
+  async _loadAreas(stationId) {
+    let areas = [];
+    try {
+      const snap = await db.collection('stationAreas').where('stationId', '==', stationId).get();
+      snap.forEach((d) => areas.push({ id: d.id, uid: d.id, ...d.data() }));
+    } catch {
+      /* keep empty */
+    }
+    return areas.filter((a) => {
+      const s = String(a.status || 'active').toLowerCase();
+      return s !== 'inactive' && s !== 'removed';
+    });
+  }
+
+  async _loadDayInspections(stationId, date) {
+    const scores = [];
+    try {
+      const snap = await db.collection('inspections').where('stationId', '==', stationId).get();
+      snap.forEach((d) => {
+        const r = d.data();
+        const day = String(r.inspectionDate || r.createdAt || '').substring(0, 10);
+        if (day === String(date) && ['COMPLETED', 'APPROVED'].includes(r.status) && typeof r.overallScore === 'number' && Number.isFinite(r.overallScore)) {
+          scores.push(r.overallScore);
+        }
+      });
+    } catch {
+      /* keep empty */
+    }
+    if (scores.length === 0) return { count: 0, achievement: null };
+    return { count: scores.length, achievement: round2(scores.reduce((s, v) => s + v, 0) / scores.length) };
+  }
+
+  async _loadDayFeedback(stationId, date) {
+    const ratings = [];
+    try {
+      const snap = await db.collection('passenger_feedback').where('stationId', '==', stationId).get();
+      snap.forEach((d) => {
+        const r = d.data();
+        if (r.status === 'CANCELLED') return;
+        const day = String(r.createdAt || '').substring(0, 10);
+        if (day === String(date) && typeof r.overallRating === 'number' && Number.isFinite(r.overallRating)) {
+          ratings.push(clamp(r.overallRating, 0, 5));
+        }
+      });
+    } catch {
+      /* keep empty */
+    }
+    if (ratings.length === 0) return { count: 0, achievement: null };
+    const avg = ratings.reduce((s, v) => s + v, 0) / ratings.length;
+    return { count: ratings.length, achievement: round2((avg / 5) * 100) };
+  }
+
+  async _loadApprovedShiftSummaries(stationId, date) {
+    let summaries = [];
+    try {
+      const snap = await db.collection('stationShiftSummaries').where('stationId', '==', stationId).get();
+      snap.forEach((d) => summaries.push({ id: d.id, ...d.data() }));
+    } catch {
+      /* keep empty */
+    }
+    return summaries.filter((s) => {
+      const approved = String(s.status || '').toLowerCase() === 'approved';
+      return approved && String(s.date || '') === String(date);
+    });
   }
 
   async prepareDailyBill({ contractId, stationId, date }) {
@@ -320,18 +346,22 @@ class TaskExecutionBillingService {
     if (contractDays <= 0) {
       throw new ValidationError('Contract start/end dates are invalid; cannot determine contract days');
     }
-    if (!date || (contract.startDate && date < String(contract.startDate).slice(0, 10)) || (contract.endDate && date > String(contract.endDate).slice(0, 10))) {
+    if ((contract.startDate && date < String(contract.startDate).slice(0, 10)) || (contract.endDate && date > String(contract.endDate).slice(0, 10))) {
       throw new ValidationError(`Date ${date} is outside the contract period`);
     }
-    const approved = await this._loadApprovedSummaries({ contractId, stationId, date });
-    const weightages = await this.getWeightages({ contractId, stationId });
-    const calc = computeDailyTaskBilling({
-      annualValue: contract.contractValue || 0,
-      contractDays,
-      approvedSummaries: approved,
-      weightageConfig: weightages.weightages,
-    });
-    const weighted = computeWeightedExecutionScore(calc.rows, weightages.weightages);
+    const config = await this._loadConfigOrFail(contractId);
+    const [tasks, areas, summaries, inspection, feedback] = await Promise.all([
+      this._loadTasksForDate(stationId, date),
+      this._loadAreas(stationId),
+      this._loadApprovedShiftSummaries(stationId, date),
+      this._loadDayInspections(stationId, date),
+      this._loadDayFeedback(stationId, date),
+    ]);
+    const areaMeta = {};
+    areas.forEach((a) => { areaMeta[a.id || a.uid] = a; });
+    const areaRows = aggregateTaskAreaRows(tasks, areaMeta, config, summaries);
+    const calc = computeDailyTaskBilling({ areaRows, config, inspection, feedback });
+
     return {
       contractId,
       contractNumber: contract.contractNumber || '',
@@ -341,8 +371,10 @@ class TaskExecutionBillingService {
       contractStartDate: contract.startDate || '',
       contractEndDate: contract.endDate || '',
       contractDays,
-      summary: calc,
-      weighted,
+      ratePerSqft: Number(config.ratePerSqft),
+      executionSource: 'approved_shift_summaries',
+      approvedShiftSummaries: summaries.length,
+      ...calc,
     };
   }
 
@@ -404,8 +436,24 @@ class TaskExecutionBillingService {
       bills.push({ id: doc.id, ...d });
     });
     bills.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-    const gross = bills.reduce((s, b) => s + (b.summary?.netAmount || 0), 0);
-    return { count: bills.length, totalNetAmount: roundMoney(gross), bills };
+    const sum = (k) => roundMoney(bills.reduce((s, b) => s + (Number(b[k]) || 0), 0));
+    const avg = (k) => {
+      const present = bills.map((b) => Number(b[k])).filter((v) => Number.isFinite(v));
+      return present.length > 0 ? round2(present.reduce((s, v) => s + v, 0) / present.length) : null;
+    };
+    return {
+      count: bills.length,
+      totalExpectedWorkValue: sum('expectedWorkValue'),
+      totalActualExecutionValue: sum('actualExecutionValue'),
+      totalGrossAmount: sum('grossAmount'),
+      totalDeduction: sum('deduction'),
+      totalNetAmount: sum('netAmount'),
+      avgTaskExecutionScore: avg('taskExecutionScore'),
+      avgInspectionScore: avg('inspectionScore'),
+      avgFeedbackScore: avg('feedbackScore'),
+      avgFinalScore: avg('overallScore'),
+      bills,
+    };
   }
 }
 

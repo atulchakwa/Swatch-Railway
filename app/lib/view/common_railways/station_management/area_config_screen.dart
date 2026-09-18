@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:crm_train/model/area_cleaning_models.dart';
-import 'package:crm_train/model/contracts_model.dart';
 import 'package:crm_train/model/station_models.dart';
-import 'package:crm_train/model/task_billing_models.dart';
 import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
-import 'package:crm_train/repositories/task_billing_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
-import 'package:crm_train/view/station_cleaning/billing/area_weightage_screen.dart';
 import 'area_form_screen.dart';
 
 class AreaConfigScreen extends StatefulWidget {
@@ -27,9 +23,6 @@ class _AreaConfigScreenState extends State<AreaConfigScreen> {
   bool _isLoadingStations = true;
   bool _isLoadingAreas = false;
   String? _error;
-  ContractModel? _contract;
-  List<AreaWeightage> _weightages = [];
-  double _weightageTotal = 0;
 
   @override
   void initState() {
@@ -83,52 +76,6 @@ class _AreaConfigScreenState extends State<AreaConfigScreen> {
     } finally {
       if (mounted) setState(() => _isLoadingAreas = false);
     }
-    _loadBillingMeta();
-  }
-
-  Future<void> _loadBillingMeta() async {
-    if (_selectedStation == null) return;
-    final stationId = _selectedStation!.uid ?? _selectedStation!.stationCode;
-    setState(() {
-      _contract = null;
-      _weightages = [];
-      _weightageTotal = 0;
-    });
-    try {
-      final contracts = await ApiService.getStationContracts(stationId, contractType: 'station_cleaning');
-      final contract = contracts.where((c) => c.isActive ?? false).firstOrNull ?? (contracts.isNotEmpty ? contracts.first : null);
-      if (contract == null || !mounted) return;
-      final weightages = await TaskBillingRepository.getWeightages(contract.uid, stationId);
-      if (!mounted) return;
-      setState(() {
-        _contract = contract;
-        _weightages = weightages;
-        _weightageTotal = weightages.fold<double>(0, (s, w) => s + w.weightage);
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _openWeightage() async {
-    if (_selectedStation == null) return;
-    final station = _selectedStation!;
-    final stationId = station.uid ?? station.stationCode;
-    if (_contract == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('No station-cleaning contract linked to set weightages for this station'),
-      ));
-      return;
-    }
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AreaWeightageScreen(
-          contractId: _contract!.uid,
-          stationId: stationId,
-          stationName: station.stationName,
-        ),
-      ),
-    );
-    _loadBillingMeta();
   }
 
   Color _priorityColor(int p) {
@@ -190,7 +137,6 @@ class _AreaConfigScreenState extends State<AreaConfigScreen> {
                         },
                       ),
                     ),
-                    _buildWeightageStrip(),
                     Expanded(
                       child: _isLoadingAreas
                           ? const Center(child: CircularProgressIndicator())
@@ -282,8 +228,6 @@ children: [
                                                 const SizedBox(height: 4),
                                                 Text('Times: ${a.frequencyTimes.join(', ')}', style: const TextStyle(color: kTextSecondary, fontSize: 12)),
                                               ],
-                                              if (_weightages.isNotEmpty)
-                                                ..._weightageLine(a),
                                             ],
                                           ),
                                         ),
@@ -322,99 +266,9 @@ children: [
     );
   }
 
-  Widget _buildWeightageStrip() {
-    final noContract = _contract == null;
-    final totalOk = _weightageTotal > 0 && (_weightageTotal - 100).abs() <= 0.6;
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      color: kRailwayBlue.withOpacity(0.05),
-      child: Row(
-        children: [
-          const Icon(Icons.tune, size: 18, color: kRailwayBlue),
-          const SizedBox(width: 8),
-          Expanded(
-            child: noContract
-                ? const Text(
-                    'No station-cleaning contract — weightage not available. Add a billing contract to unlock per-area weightage & ₹/sq.ft.',
-                    style: TextStyle(fontSize: 12, color: kTextSecondary),
-                  )
-                : Text(
-                    '${_weightages.isNotEmpty ? '${_weightages.length} areas' : 'No weightages set'} · total ${_weightageTotal.toStringAsFixed(1)}% · ${_contract!.contractNumber ?? ''} · per-area ₹/sq.ft. rates',
-                    style: const TextStyle(fontSize: 12, color: kTextSecondary),
-                  ),
-          ),
-          const SizedBox(width: 8),
-          if (_weightages.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: totalOk ? kSuccessGreen : kWarningOrange,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                totalOk ? 'OK 100%' : 'Split needed',
-                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-              ),
-            ),
-          TextButton.icon(
-            onPressed: _openWeightage,
-            icon: const Icon(Icons.tune, size: 16),
-            label: const Text('Weightage'),
-            style: TextButton.styleFrom(foregroundColor: kRailwayBlue, visualDensity: VisualDensity.compact),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _tenderedText(AreaConfig a) {
     final t = a.tenderedAreaSqFt;
     if (t == null) return '';
     return t == t.roundToDouble() ? '${t.toInt()} ft²/day' : '${t.toStringAsFixed(1)} ft²/day';
-  }
-
-  List<Widget> _weightageLine(AreaConfig a) {
-    AreaWeightage? match;
-    for (final w in _weightages) {
-      if (w.areaName.trim() == a.areaName.trim()) {
-        match = w;
-        break;
-      }
-    }
-    if (match == null) return const [];
-    final rate = match.ratePerSqFt;
-    return [
-      const SizedBox(height: 6),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: kRailwayBlue.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.pie_chart_outline, size: 13, color: kRailwayBlue),
-            const SizedBox(width: 4),
-            Text(
-              'Weightage ${match.weightage.toStringAsFixed(1)}%',
-              style: const TextStyle(color: kRailwayBlue, fontSize: 11, fontWeight: FontWeight.w600),
-            ),
-            if (rate != null) ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 4),
-                child: Text('·', style: TextStyle(color: kRailwayBlue, fontSize: 11)),
-              ),
-              const Icon(Icons.currency_rupee, size: 12, color: kErrorRed),
-              Text(
-                rate == rate.roundToDouble() ? '${rate.toInt()}/ft²' : '${rate.toStringAsFixed(2)}/ft²',
-                style: const TextStyle(color: kErrorRed, fontSize: 11, fontWeight: FontWeight.w600),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ];
   }
 }

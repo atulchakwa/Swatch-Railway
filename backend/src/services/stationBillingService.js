@@ -11,7 +11,6 @@ import { NotFoundError, ValidationError } from '../errors/index.js';
 import logger from '../logger/index.js';
 import { auditService } from './auditService.js';
 import { executionSheetService } from './executionSheetService.js';
-import { computeWeightedExecutionScore } from './taskExecutionBillingService.js';
 import { contractEstimationService } from './contractEstimationService.js';
 
 class StationBillingService {
@@ -202,25 +201,23 @@ class StationBillingService {
     const shiftExecutionRate = totalTenderedArea > 0 ? Math.round(Math.min(totalWorkDone / totalTenderedArea, 1) * 100) : null;
     const approvedDayCount = new Set(approvedShiftSummaries.map(r => r.date)).size;
     const submittedDayCount = new Set(submittedShiftSummaries.map(r => r.date)).size;
-    // Area-wise weighted execution (railway-department-configurable weightages).
-    let areaWeightages = { weightages: [], totalWeightage: 0 };
-    try {
-      const weightageSnap = await db.collection('contract_area_weightages')
-        .where('contractId', '==', contractId)
-        .where('stationId', '==', stationId)
-        .where('status', '==', 'active')
-        .get();
-      const weightages = [];
-      weightageSnap.forEach(d => weightages.push(d.data()));
-      areaWeightages = { weightages, totalWeightage: weightages.reduce((s, w) => s + (parseFloat(w.weightage) || 0), 0) };
-    } catch { /* keep empty */ }
-    const weighted = computeWeightedExecutionScore(approvedShiftSummaries.flatMap(r => Array.isArray(r.areas) ? r.areas : []), areaWeightages.weightages);
+    // Area-wise execution (flat, sq.ft. based — area weightage is not used).
+    const flatAreas = approvedShiftSummaries.flatMap(r => Array.isArray(r.areas) ? r.areas : []);
+    const flatAgg = {};
+    flatAreas.forEach(a => {
+      const key = String(a.areaName || a.areaId || 'other').trim();
+      if (!flatAgg[key]) flatAgg[key] = { areaName: key, areaId: a.areaId || '', executedSqFt: 0, expectedSqFt: 0 };
+      flatAgg[key].executedSqFt += parseFloat(a.workDone) || 0;
+      flatAgg[key].expectedSqFt += parseFloat(a.tenderedAreaPerDay) || 0;
+    });
+    const flatRows = Object.values(flatAgg);
+    const flatExecuted = flatRows.reduce((s, r) => s + r.executedSqFt, 0);
+    const flatExpected = flatRows.reduce((s, r) => s + r.expectedSqFt, 0);
+    const flatRatio = flatExpected > 0 ? Math.min(flatExecuted / flatExpected, 1) * 100 : null;
     const executionParts = [];
     if (shiftExecutionRate !== null) executionParts.push(shiftExecutionRate);
     if (shiftPhotoComplianceRate !== null) executionParts.push(shiftPhotoComplianceRate);
-    // When per-area weightages are configured, prefer the weighted score; also
-    // blend it into the parts used for the final 50% task-execution score.
-    if (weighted.configured && weighted.weightedScore !== null) executionParts.push(weighted.weightedScore);
+    if (flatRatio !== null) executionParts.push(flatRatio);
     const taskExecutionScore = executionParts.length > 0
       ? Math.round((executionParts.reduce((s, v) => s + v, 0) / executionParts.length) * 100) / 100
       : null;
@@ -238,13 +235,9 @@ class StationBillingService {
       shiftAreasWithPhoto: approvedAreasWithPhoto,
       shiftPhotoComplianceRate,
       taskExecutionScore,
-      weightedExecutionScore: weighted.configured ? weighted.weightedScore : shiftExecutionRate,
-      weightageConfigured: weighted.configured,
-      weightages: areaWeightages.weightages,
-      totalWeightageConfigured: areaWeightages.totalWeightage,
-      areaRows: weighted.areaRows,
-      executedAreaSqFt: weighted.executedSqFt,
-      expectedAreaSqFt: weighted.expectedSqFt,
+      areaRows: flatRows,
+      executedAreaSqFt: Math.round(flatExecuted * 100) / 100,
+      expectedAreaSqFt: Math.round(flatExpected * 100) / 100,
       monthlyBase,
       taskExecutionComponentNetBase: taskExecutionNetBase,
       achievedAmount: taskExecutionScore !== null ? Math.round(taskExecutionNetBase * (taskExecutionScore / 100)) : 0,

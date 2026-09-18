@@ -29,8 +29,12 @@
  *     -> other recoveries (manual deductions like advances)
  *     -> netAmount -> GST -> totalPayable
  *
- * A task counts as a VERIFIED execution when its status is in the configured
- * verified set (default: ['approved']). REJECTED / MISSED never count.
+ * There is NO individual task approval. A task is COMPLETED directly by the
+ * contractor supervisor. A VERIFIED execution is a cleaning pass acknowledged
+ * in an APPROVED shift summary (the approval unit): each approved summary's
+ * area entries contribute their `times` to that area's verified count for the
+ * period, capped at the area's required executions. Tasks submitted but with no
+ * approved shift summary are never counted.
  */
 
 import { db } from '../database/index.js';
@@ -214,6 +218,21 @@ class PerformanceBillingService {
 
   /* ────────────────────────── scorecard ────────────────────────────── */
 
+  async _loadApprovedShiftSummaries(stationId, startDate, endDate) {
+    let summaries = [];
+    try {
+      const snap = await db.collection('stationShiftSummaries').where('stationId', '==', stationId).get();
+      snap.forEach(d => summaries.push({ id: d.id, ...d.data() }));
+    } catch (err) {
+      logger.warn(`stationShiftSummaries read failed for ${stationId}: ${err.message}`);
+    }
+    return summaries.filter(s => {
+      const approved = String(s.status || '').toLowerCase() === 'approved';
+      const d = String(s.date || '');
+      return approved && d >= startDate && d <= endDate;
+    });
+  }
+
   async computeScorecard({ contractId, stationId, month, year }) {
     if (!contractId || !stationId || !month || !year) throw new ValidationError('contractId, stationId, month, and year are required');
     const config = await this.getOrCreateConfig(contractId);
@@ -256,10 +275,22 @@ class PerformanceBillingService {
     }
     areas = areas.filter(a => (a.status || 'active') !== 'inactive' && (a.status || 'active') !== 'removed');
 
-    const verifiedSet = new Set((config.verifiedStatuses || ['approved']).map(s => String(s).toLowerCase()));
-    const areaOverrides = config.areaRateOverrides || {};
+    // Execution source = APPROVED shift summaries (the approval unit). Tasks have
+    // no individual approval step, so task status is never read for counting.
+    const summaries = await this._loadApprovedShiftSummaries(stationId, period.startDate, period.endDate);
+    const executedByArea = {};
+    summaries.forEach(s => {
+      (s.areas || []).forEach(entry => {
+        const areaId = entry.areaId;
+        if (!areaId) return;
+        const times = Number(entry.times) || 0;
+        if (times > 0) executedByArea[areaId] = (executedByArea[areaId] || 0) + times;
+      });
+    });
+
+    const overrides = config.areaRateOverrides || {};
     const rateOf = (areaId) => {
-      const o = areaOverrides[areaId];
+      const o = overrides[areaId];
       if (o !== undefined && o !== null && o !== '' && !Number.isNaN(Number(o)) && Number(o) >= 0) return Number(o);
       return ratePerSqft;
     };
@@ -291,13 +322,11 @@ class PerformanceBillingService {
       }
       rowMap[areaId].required += 1;
       totals.required += 1;
-      if (verifiedSet.has(String(t.status || '').toLowerCase())) {
-        rowMap[areaId].verified += 1;
-        totals.verified += 1;
-      }
     });
 
     areaRows.forEach(r => {
+      r.verified = Math.min(r.required, Math.max(0, executedByArea[r.areaId] || 0));
+      totals.verified += r.verified;
       r.achievement = r.required > 0 ? clamp(Math.round((r.verified / r.required) * 10000) / 100, 0, 100) : null;
       r.scheduledValue = Math.round(r.sqft * r.rate * r.required);
       r.actualValue = Math.round(r.sqft * r.rate * r.verified);
@@ -392,6 +421,8 @@ class PerformanceBillingService {
         applicableDays: period.applicableDays,
       },
       ratePerSqft: ratePerSqft,
+      executionSource: 'approved_shift_summaries',
+      approvedShiftSummaries: summaries.length,
       // Value pipeline (AREA -> SQFT -> RATE -> ACTUAL EXECUTION).
       scheduledWorkValue,
       grossWorkValue,

@@ -675,8 +675,8 @@ class TaskManagementService {
     await ref.update(updates);
     const warning = await this._shiftWarning(task, user.uid);
     return warning
-      ? { message: 'Task completed and submitted for review', taskId, ...warning }
-      : { message: 'Task completed and submitted for review', taskId };
+      ? { message: 'Task completed', taskId, ...warning }
+      : { message: 'Task completed', taskId };
   }
 
   async resubmitTask(taskId, data, user) {
