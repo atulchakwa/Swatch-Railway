@@ -11,9 +11,14 @@ export const getAuditStats = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+export const getStationAuditLogs = asyncHandler(async (req, res) => {
+  const result = await auditService.getStationAuditLogs(req.params.stationId, req.query);
+  res.status(200).json(result);
+});
+
 export const getEvidenceAudit = asyncHandler(async (req, res) => {
   const result = await auditService.getEvidenceAudit(req.query);
   res.status(200).json(result);
 });
 
-export default { getAuditLogs, getAuditStats, getEvidenceAudit };
+export default { getAuditLogs, getAuditStats, getStationAuditLogs, getEvidenceAudit };

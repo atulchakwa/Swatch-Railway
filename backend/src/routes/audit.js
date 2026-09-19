@@ -7,6 +7,7 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 const router = Router();
 
 router.get('/api/audit/logs', verifyToken, auditController.getAuditLogs);
+router.get('/api/audit/logs/station/:stationId', verifyToken, auditController.getStationAuditLogs);
 router.get('/api/audit-logs', verifyToken, asyncHandler(async (req, res) => {
   const isWorker = ['WORKER', 'RAILWAY_WORKER', 'JANITOR', 'ATTENDANT'].includes(req.user.role);
   if (isWorker) {

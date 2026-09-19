@@ -4427,6 +4427,23 @@ class ApiService {
     }
   }
 
+  static Future<List<Map<String, dynamic>>> getStationAuditLogs({required String stationId, String? action, int limit = 100}) async {
+    try {
+      final token = await getToken();
+      final params = <String, String>{'limit': limit.toString()};
+      if (action != null) params['action'] = action;
+      final uri = Uri.parse('$baseUrl/api/audit/logs/station/$stationId').replace(queryParameters: params);
+      final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return List<Map<String, dynamic>>.from(data['logs'] ?? []);
+      }
+      throw Exception('Failed to fetch station audit logs');
+    } catch (e) {
+      throw Exception('Error fetching station audit logs: $e');
+    }
+  }
+
   static Future<Map<String, dynamic>> getAuditLogStats() async {
     try {
       final token = await getToken();
