@@ -17,7 +17,7 @@ export const approveUser = asyncHandler(async (req, res) => {
 });
 
 export const getPendingUsers = asyncHandler(async (req, res) => {
-  const result = await userService.getPendingUsers();
+  const result = await userService.getPendingUsers(req.user);
   res.status(200).json(result);
 });
 

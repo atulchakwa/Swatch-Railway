@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:get/get.dart';
 import '../../../controller/contractor_nav_controller.dart';
+import '../../../model/contracts_model.dart';
+import '../../../model/user_registeration_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/station_cleaning_provider.dart';
 import '../../../services/api_services.dart';
@@ -20,6 +22,7 @@ import '../profile/contractor_master_profile_screen.dart';
 import '../form_screen/forms/new_coach_form.dart';
 import '../form_screen/forms/new_premises_form.dart';
 import '../form_screen/contractor_master_forms_screen.dart';
+import '../my_company/contractor_master_my_contracts_screen.dart';
 
 import '../../common_railways/entities/common_entity_managment_screen.dart';
 import '../../common_railways/trains/common_train_screen.dart';
@@ -153,6 +156,12 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
   StreamSubscription<int>? _navSub;
 
+  List<ContractModel> ownerContracts = [];
+  List<UserRegistrationModel> ownerTeam = [];
+  List<UserRegistrationModel> ownerPending = [];
+  bool isOwnerLoading = true;
+  bool isOwnerError = false;
+
   int _getDaysFromRange() {
     switch (dateRange) {
       case 'Last 7 days':
@@ -194,11 +203,52 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
   }
 
   Future<void> _loadAllData() async {
+    if (_isStationCleaning && _isContractorMaster) {
+      await Future.wait([_loadOwnerData()]);
+      return;
+    }
     await Future.wait([
       _loadFormStatusCounts(),
       _loadCleaningStats(),
       _loadScDashboard(),
     ]);
+  }
+
+  Future<void> _loadOwnerData() async {
+    setState(() {
+      isOwnerLoading = true;
+      isOwnerError = false;
+    });
+    try {
+      final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+      if (user == null || user.entityId == null || user.entityId!.isEmpty) {
+        if (mounted) setState(() { isOwnerLoading = false; isOwnerError = true; });
+        return;
+      }
+      final results = await Future.wait([
+        ApiService.getContractsContractor(user.entityId!, contractType: 'station_cleaning'),
+        ApiService.getApprovedUsers(),
+        ApiService.getPendingUsers(),
+      ]);
+      final contracts = (results[0] as List).cast<ContractModel>();
+      final approved = (results[1] as List).cast<UserRegistrationModel>();
+      final pending = (results[2] as List).cast<UserRegistrationModel>();
+      final team = approved
+          .where((u) => u.entityId == user.entityId && u.role != 'Contractor Master')
+          .toList();
+      if (mounted) {
+        setState(() {
+          ownerContracts = contracts;
+          ownerTeam = team;
+          ownerPending = pending;
+          isOwnerLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() { isOwnerLoading = false; isOwnerError = true; });
+      }
+    }
   }
 
   Future<void> _loadScDashboard() async {
@@ -232,6 +282,10 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
   String? get _effectiveContractType => widget.contractType;
   bool get _isStationCleaning => _effectiveContractType == 'station_cleaning';
   bool get _isOBHS => _effectiveContractType == 'obhs';
+  bool get _isContractorMaster {
+    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
+    return user?.role == 'Contractor Master';
+  }
 
   Future<void> _loadFormStatusCounts() async {
     final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
@@ -908,7 +962,8 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
 
                 const SizedBox(height: 16),
 
-                Container(
+                if (!(_isStationCleaning && _isContractorMaster))
+                  Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -945,7 +1000,10 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
                 const SizedBox(height: 18),
 
                 if (_isStationCleaning) ...[
-                  _buildStationCleaningDashboard(),
+                  if (_isContractorMaster)
+                    _buildMasterOwnerDashboard()
+                  else
+                    _buildStationCleaningDashboard(),
                 ] else ...[
 
                 // OBHS and railway users see the full forms dashboard
@@ -1236,6 +1294,349 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     );
   }
 
+
+  Widget _buildMasterOwnerDashboard() {
+    if (isOwnerLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 60),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (isOwnerError) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              const Icon(Icons.error_outline, size: 44, color: kErrorRed),
+              const SizedBox(height: 10),
+              const Text('Could not load entity overview',
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                  onPressed: _loadOwnerData, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.currentUser;
+    final entityDetails = authProvider.entityDetails;
+    final companyName =
+        entityDetails?['companyName']?.toString() ?? user?.fullName ?? 'My Entity';
+
+    final activeContracts = ownerContracts
+        .where((c) => c.status == 'Active' || c.isActive == true)
+        .toList();
+    final stationSet = <String>{};
+    for (final c in ownerContracts) {
+      stationSet.addAll(c.stationNames);
+    }
+    final stationNames = stationSet.where((s) => s.isNotEmpty).toList();
+
+    final todayLabel = DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
+    final zone = user?.zone ?? 'N/A';
+    final division = user?.division ?? 'N/A';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: const LinearGradient(colors: [kRailwayBlue, Colors.lightBlue],
+                begin: Alignment.topLeft, end: Alignment.bottomRight),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(todayLabel,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        const SizedBox(height: 6),
+                        const Text('Entity Overview',
+                            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text('$companyName  •  $zone / $division',
+                            style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 54,
+                    height: 54,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                    ),
+                    child: const Icon(Icons.apartment, color: Colors.white, size: 28),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: const LinearProgressIndicator(
+                  value: 0.0,
+                  minHeight: 10,
+                  backgroundColor: Colors.white24,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        Row(children: [
+          _ownerStatCard(Icons.assignment_outlined, 'Contracts', activeContracts.length.toString(), kRailwayBlue),
+          const SizedBox(width: 8),
+          _ownerStatCard(Icons.apartment, 'Stations', stationNames.length.toString(), kSuccessGreen),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          _ownerStatCard(Icons.people_outline, 'Team', ownerTeam.length.toString(), Colors.teal),
+          const SizedBox(width: 8),
+          _ownerStatCard(Icons.hourglass_top, 'Pending Approvals', ownerPending.length.toString(),
+              ownerPending.isEmpty ? Colors.grey : kWarningOrange),
+        ]),
+        const SizedBox(height: 18),
+
+        _ownerSectionHeader(Icons.pending_actions, 'Approvals',
+            onSeeAll: _openUserManagement),
+        const SizedBox(height: 8),
+        if (ownerPending.isEmpty)
+          _ownerEmptyCard('No pending approvals', Icons.task_alt)
+        else
+          ...ownerPending.take(4).map((u) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _pendingApprovalTile(u),
+              )),
+        const SizedBox(height: 14),
+
+        _ownerSectionHeader(Icons.assignment_outlined, 'Your Contracts (Station Cleaning)',
+            onSeeAll: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const ContractorMasterMyContractsScreen()),
+              );
+            }),
+        const SizedBox(height: 8),
+        if (ownerContracts.isEmpty)
+          _ownerEmptyCard('No station cleaning contracts found', Icons.assignment_late)
+        else
+          ...ownerContracts.take(4).map((c) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _contractTile(c),
+              )),
+        const SizedBox(height: 14),
+
+        _ownerSectionHeader(Icons.train_outlined, 'Stations at a glance',
+            onSeeAll: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const StationCleaningRunsListScreen()),
+              );
+            }),
+        const SizedBox(height: 8),
+        if (stationNames.isEmpty)
+          _ownerEmptyCard('No stations linked to your contracts', Icons.apartment)
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: stationNames.take(12)
+                .map((s) => Chip(
+                      avatar: const Icon(Icons.place, size: 16, color: kRailwayBlue),
+                      label: Text(s),
+                      labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      backgroundColor: Colors.white,
+                      side: BorderSide(color: Colors.black12),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                    ))
+                .toList(),
+          ),
+      ],
+    );
+  }
+
+  void _openUserManagement() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CommonUserManagementScreen()),
+    );
+  }
+
+  Widget _ownerStatCard(IconData icon, String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 3))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: color),
+                const Spacer(),
+                Text(value,
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(label,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ownerSectionHeader(IconData icon, String title, {VoidCallback? onSeeAll}) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: kRailwayBlue),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(title,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        ),
+        if (onSeeAll != null)
+          TextButton(onPressed: onSeeAll,
+              child: const Text('See all', style: TextStyle(fontSize: 13))),
+      ],
+    );
+  }
+
+  Widget _ownerEmptyCard(String message, IconData icon) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 3))],
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.grey[400]),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: const TextStyle(color: Colors.black45, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _contractTile(ContractModel c) {
+    final status = c.status ?? (c.isActive == true ? 'Active' : 'Inactive');
+    final statusColor = status.toLowerCase() == 'active' ? kSuccessGreen : kWarningOrange;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 3))],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+                color: kRailwayBlue.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.description_outlined, color: kRailwayBlue),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(c.contractName ?? c.contractNumber ?? 'Contract',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                const SizedBox(height: 3),
+                Text([
+                      c.contractNumber ?? '',
+                      c.zone ?? '',
+                      c.division ?? '',
+                    ].where((s) => s.isNotEmpty).join('  •  '),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                if (c.stationNames.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text('${c.stationNames.length} station(s)',
+                      style: const TextStyle(fontSize: 12, color: Colors.black45)),
+                ],
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(status,
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: statusColor)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pendingApprovalTile(UserRegistrationModel u) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 3))],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: kWarningOrange.withValues(alpha: 0.15),
+            child: const Icon(Icons.person_outline, color: kWarningOrange),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(u.fullName ?? 'Pending user',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                const SizedBox(height: 3),
+                Text(u.role ?? '',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: Colors.black38),
+        ],
+      ),
+    );
+  }
 
   Widget _buildStationCleaningDashboard() {
     if (isScLoading) {

@@ -75,14 +75,6 @@ class EntityModel {
 
 
   factory EntityModel.fromJson(Map<String, dynamic> json) {
-    print('=== Entity Model fromJson Debug ===');
-    print('createdAt raw: ${json['createdAt']}');
-    print('createdBy: ${json['createdBy']}');
-    print('createdByName: ${json['createdByName']}');
-
-    final parsedCreatedAt = _parseDateTime(json['createdAt']);
-    print('createdAt parsed: $parsedCreatedAt');
-
     return EntityModel(
       uid: json['uid'] ?? '',
 
@@ -99,7 +91,7 @@ class EntityModel {
       gemId: json['gemId'],
       status: json['status'],
 
-      createdAt: parsedCreatedAt,
+      createdAt: _parseDateTime(json['createdAt']),
       createdBy: json['createdBy'],
       createdByName: json['createdByName'],
 
@@ -163,7 +155,6 @@ class EntityModel {
 
   static DateTime? _parseDateTime(dynamic value) {
     if (value == null) {
-      print('_parseDateTime: value is null');
       return null;
     }
 
@@ -172,42 +163,36 @@ class EntityModel {
         final parsed = DateTime.parse(value);
         return parsed.toLocal();
       } catch (e) {
-        print('_parseDateTime: ISO format failed, trying custom formats...');
+        // Not ISO format, try custom formats below.
       }
 
       try {
         final format = DateFormat('dd/MM/yy, h:mm a');
         final parsed = format.parse(value);
-        print('_parseDateTime: Successfully parsed custom format (dd/MM/yy, h:mm a) to DateTime: $parsed');
         return parsed;
       } catch (e) {
-        print('_parseDateTime: Custom format 1 failed: $e');
+        // Not custom format 1.
       }
 
       try {
         final format = DateFormat('dd/MM/yy, HH:mm');
         final parsed = format.parse(value);
-        print('_parseDateTime: Successfully parsed custom format (dd/MM/yy, HH:mm) to DateTime: $parsed');
         return parsed;
       } catch (e) {
-        print('_parseDateTime: Custom format 2 failed: $e');
+        // Not custom format 2.
       }
 
-      print('_parseDateTime: All string parsing attempts failed');
       return null;
     }
 
     if (value is Map && value['_seconds'] != null) {
       final seconds = value['_seconds'];
-      final parsed = DateTime.fromMillisecondsSinceEpoch(
+      return DateTime.fromMillisecondsSinceEpoch(
         seconds * 1000,
         isUtc: true,
       ).toLocal();
-      print('_parseDateTime: Parsed from Map seconds: $parsed');
-      return parsed;
     }
 
-    print('_parseDateTime: No matching format, returning null');
     return null;
   }
 

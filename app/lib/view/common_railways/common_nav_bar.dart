@@ -32,6 +32,7 @@ class CommonNavBar extends StatelessWidget {
   bool get _isStationCleaning => contractType == 'station_cleaning';
   bool get _isContractorSupervisor =>
       userDisplayRole != null && userDisplayRole == 'Contractor Supervisor';
+  bool get _isContractorMaster => userDisplayRole == 'Contractor Master';
   bool get _isContractorEmployee =>
       userDisplayRole == 'Contractor Admin' ||
           userDisplayRole == 'Contractor Supervisor';
@@ -39,11 +40,11 @@ class CommonNavBar extends StatelessWidget {
   List<Widget> _contractorScreens() {
     final screens = <Widget>[
       ContractorMasterDashboard(contractType: contractType),
-      if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee))
+      if (!_isContractorSupervisor && !(_isStationCleaning && (_isContractorEmployee || _isContractorMaster)))
         ContractorMasterFormsScreen(contractType: contractType),
       if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee))
         ContractorMasterMyContractsScreen(),
-      if (!(_isStationCleaning && _isContractorEmployee))
+      if (!(_isStationCleaning && (_isContractorEmployee || _isContractorMaster)))
         ContractorReportScreen(contractType: contractType),
       if (!_isContractorSupervisor) CommonUserManagementScreen(),
     ];
@@ -61,7 +62,7 @@ class CommonNavBar extends StatelessWidget {
         activeColorPrimary: Colors.blue,
         inactiveColorPrimary: Colors.grey,
       ),
-      if (!_isContractorSupervisor && !(_isStationCleaning && _isContractorEmployee))
+      if (!_isContractorSupervisor && !(_isStationCleaning && (_isContractorEmployee || _isContractorMaster)))
         PersistentBottomNavBarItem(
           icon: const Icon(Icons.description_rounded),
           title: "Forms",
@@ -75,7 +76,7 @@ class CommonNavBar extends StatelessWidget {
           activeColorPrimary: Colors.blue,
           inactiveColorPrimary: Colors.grey,
         ),
-      if (!(_isStationCleaning && _isContractorEmployee))
+      if (!(_isStationCleaning && (_isContractorEmployee || _isContractorMaster)))
         PersistentBottomNavBarItem(
           icon: const Icon(Icons.bar_chart),
           title: "Report",

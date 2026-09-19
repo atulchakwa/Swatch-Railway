@@ -435,7 +435,8 @@ class UserService {
   async approveUser(approverData, uid) {
     const { uid: approverId, name, fullName, role, entityId } = approverData;
     const approverName = fullName || name || role || 'Master Admin';
-    const approverRole = (role || '').toUpperCase();
+    const normalizeRole = (r) => (r || '').toUpperCase().replace(/\s+/g, '_');
+    const approverRole = normalizeRole(role);
 
     if (!uid) {
       throw new ValidationError("User ID is required.");
@@ -449,7 +450,7 @@ class UserService {
 
     const userData = doc.data();
     const userName = userData.fullName || "User";
-    const targetRole = (userData.role || '').toUpperCase();
+    const targetRole = normalizeRole(userData.role);
 
     if (approverRole === 'CONTRACTOR_ADMIN') {
       if (targetRole !== 'CONTRACTOR_SUPERVISOR') {
@@ -463,6 +464,22 @@ class UserService {
     if (approverRole === 'CONTRACTOR_MASTER') {
       if (targetRole !== 'CONTRACTOR_ADMIN') {
         throw new ForbiddenError('Contractor Master can only approve Contractor Admin users.');
+      }
+      if (!approverData.entityId || !userData.entityId || approverData.entityId !== userData.entityId) {
+        throw new ForbiddenError('You can only approve Contractor Admin users created under your own entity.');
+      }
+      if (approverData.contractId && userData.contractId && approverData.contractId !== userData.contractId) {
+        throw new ForbiddenError('You can only approve Contractor Admin users created under your own contract.');
+      }
+      if (userData.contractId) {
+        const targetContractDoc = await db.collection('contracts').doc(userData.contractId).get();
+        if (!targetContractDoc.exists) {
+          throw new ForbiddenError('Contract assigned to the Contractor Admin no longer exists.');
+        }
+        const targetContractData = targetContractDoc.data();
+        if (targetContractData.entityId && targetContractData.entityId !== approverData.entityId) {
+          throw new ForbiddenError('You can only approve Contractor Admin users created under your own contract.');
+        }
       }
       if (approverData.zone && userData.zone && approverData.zone !== userData.zone) {
         throw new ForbiddenError('You can only approve Contractor Admin users under your own zone.');
@@ -484,9 +501,19 @@ class UserService {
     return { message: `User ${userName} has been approved successfully.`, approvedBy: approverName };
   }
 
-  async getPendingUsers() {
+  async getPendingUsers(requesterData) {
+    const requesterRole = (requesterData?.role || '').toUpperCase().replace(/\s+/g, '_');
     const usersRef = db.collection('users');
-    const snapshot = await usersRef.where('status', '==', 'PENDING').limit(200).get();
+    let snapshot;
+    if (requesterRole === 'CONTRACTOR_MASTER' && requesterData?.entityId) {
+      snapshot = await usersRef
+        .where('status', '==', 'PENDING')
+        .where('entityId', '==', requesterData.entityId)
+        .limit(200)
+        .get();
+    } else {
+      snapshot = await usersRef.where('status', '==', 'PENDING').limit(200).get();
+    }
 
     if (snapshot.empty) {
       return { count: 0, users: [], message: 'No pending users found.' };
@@ -495,6 +522,10 @@ class UserService {
     const pendingUsers = [];
     snapshot.forEach(doc => {
       const userData = doc.data();
+      const userRole = (userData.role || '').toUpperCase().replace(/\s+/g, '_');
+      if (requesterRole === 'CONTRACTOR_MASTER' && userRole !== 'CONTRACTOR_ADMIN') {
+        return;
+      }
       delete userData.password;
       userData.createdAt = safeFormat(userData.createdAt);
       userData.submitted_at = safeFormat(userData.submitted_at);
@@ -508,7 +539,8 @@ class UserService {
   async rejectUser(rejectorData, uid) {
     const { uid: adminId, name, fullName, role, entityId } = rejectorData;
     const adminName = fullName || name || role || 'Master Admin';
-    const rejectorRole = (role || '').toUpperCase();
+    const normalizeRole = (r) => (r || '').toUpperCase().replace(/\s+/g, '_');
+    const rejectorRole = normalizeRole(role);
 
     if (!uid) {
       throw new ValidationError("User ID is required.");
@@ -522,7 +554,7 @@ class UserService {
 
     const userData = doc.data();
     const userName = userData.fullName || "User";
-    const targetRole = (userData.role || '').toUpperCase();
+    const targetRole = normalizeRole(userData.role);
 
     if (rejectorRole === 'CONTRACTOR_ADMIN') {
       if (targetRole !== 'CONTRACTOR_SUPERVISOR') {
@@ -530,6 +562,18 @@ class UserService {
       }
       if (entityId && userData.entityId && entityId !== userData.entityId) {
         throw new ForbiddenError('You can only reject users under your own entity.');
+      }
+    }
+
+    if (rejectorRole === 'CONTRACTOR_MASTER') {
+      if (targetRole !== 'CONTRACTOR_ADMIN') {
+        throw new ForbiddenError('Contractor Master can only reject Contractor Admin users.');
+      }
+      if (!rejectorData.entityId || !userData.entityId || rejectorData.entityId !== userData.entityId) {
+        throw new ForbiddenError('You can only reject Contractor Admin users created under your own entity.');
+      }
+      if (rejectorData.contractId && userData.contractId && rejectorData.contractId !== userData.contractId) {
+        throw new ForbiddenError('You can only reject Contractor Admin users created under your own contract.');
       }
     }
 
