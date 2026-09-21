@@ -19,7 +19,7 @@ class DailyTaskBillingScreen extends StatefulWidget {
 
 class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   final _dateCtrl = TextEditingController(text: _today());
-  final _fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
+  final _fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
   int _month = DateTime.now().month;
   int _year = DateTime.now().year;
 
@@ -152,9 +152,36 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     }
   }
 
+  Future<void> _openAreaRates() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => AreaRateConfigScreen(contractId: widget.contractId)));
+    if (!mounted) return;
+    if (_bill != null) await _preview();
+  }
+
+  Future<void> _openBill(DailyTaskBillingResponse b) async {
+    setState(() => _loading = true);
+    try {
+      final bill = await TaskBillingRepository.getByDate(widget.contractId, widget.stationId, b.date);
+      if (!mounted) return;
+      setState(() {
+        _bill = bill ?? b;
+        _dateCtrl.text = b.date;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _bill = b;
+        _dateCtrl.text = b.date;
+        _loading = false;
+      });
+    }
+  }
+
   // ── Formatting helpers ──────────────────────────────────────────────────────
   String _money(double v) => _fmt.format(v);
   String _pct(double? v) => v == null ? '—' : '${v.toStringAsFixed(1)}%';
+  Color _scoreColor(double v) => v >= 90 ? kSuccessGreen : v >= 70 ? kWarningOrange : kErrorRed;
 
   @override
   Widget build(BuildContext context) {
@@ -180,20 +207,22 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
-                  _buildHeaderCard(),
-                  const SizedBox(height: 14),
-                  _buildAreaRatesCard(),
+                  _buildHeader(),
                   const SizedBox(height: 14),
                   if (b == null)
-                    _buildEmptyHint()
+                    _buildHowItWorks()
                   else ...[
-                    _buildBillSummaryCard(b),
+                    _buildHero(b),
+                    const SizedBox(height: 14),
+                    _buildAmountCard(b),
                     const SizedBox(height: 14),
                     _buildPerformanceCard(b),
                     const SizedBox(height: 14),
                     _buildAreaTableCard(b),
-                    const SizedBox(height: 14),
                   ],
+                  const SizedBox(height: 14),
+                  _buildAreaRatesRow(),
+                  const SizedBox(height: 14),
                   _buildMonthBillsCard(),
                   const SizedBox(height: 24),
                 ],
@@ -202,12 +231,12 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     );
   }
 
-  // ── Header card ─────────────────────────────────────────────────────────────
-  Widget _buildHeaderCard() {
+  // ── Header ──────────────────────────────────────────────────────────────────
+  Widget _buildHeader() {
     return Container(
       decoration: BoxDecoration(
         gradient: kRailwayBannerGradient,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -215,64 +244,66 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         children: [
           const Row(
             children: [
-              Icon(Icons.receipt_long, color: Colors.white, size: 22),
+              Icon(Icons.receipt_long, color: Colors.white, size: 20),
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Daily Billing — Value = Area × Rate × Executions',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                  'Daily Billing',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              IconButton(
-                onPressed: _loading ? null : () => _shiftDate(-1),
-                icon: const Icon(Icons.chevron_left, color: Colors.white),
-                tooltip: 'Previous day',
-                visualDensity: VisualDensity.compact,
-              ),
-              Expanded(
-                flex: 4,
-                child: TextField(
-                  controller: _dateCtrl,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: InputDecoration(
-                    labelText: 'Date',
-                    labelStyle: const TextStyle(color: Colors.white70),
-                    hintText: 'YYYY-MM-DD',
-                    hintStyle: const TextStyle(color: Colors.white38),
-                    filled: true,
-                    fillColor: Colors.white12,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white24)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.white)),
-                    prefixIcon: const Icon(Icons.calendar_today, color: Colors.white60, size: 18),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.date_range, color: Colors.white70, size: 20),
-                      tooltip: 'Pick date',
-                      onPressed: _loading ? null : _pickDate,
+          const SizedBox(height: 4),
+          const Text(
+            'Value = Area × Rate × Executions',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(8)),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: _loading ? null : () => _shiftDate(-1),
+                  icon: const Icon(Icons.chevron_left, color: Colors.white),
+                  tooltip: 'Previous day',
+                  visualDensity: VisualDensity.compact,
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _dateCtrl,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                    decoration: InputDecoration(
+                      hintText: 'YYYY-MM-DD',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      border: InputBorder.none,
+                      isDense: true,
                     ),
+                    onSubmitted: (_) => _preview(),
                   ),
-                  onSubmitted: (_) => _preview(),
                 ),
-              ),
-              IconButton(
-                onPressed: _loading ? null : () => _shiftDate(1),
-                icon: const Icon(Icons.chevron_right, color: Colors.white),
-                tooltip: 'Next day',
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
+                IconButton(
+                  onPressed: _loading ? null : _pickDate,
+                  icon: const Icon(Icons.calendar_month, color: Colors.white70, size: 20),
+                  tooltip: 'Pick date',
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  onPressed: _loading ? null : () => _shiftDate(1),
+                  icon: const Icon(Icons.chevron_right, color: Colors.white),
+                  tooltip: 'Next day',
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
-                flex: 3,
                 child: OutlinedButton.icon(
                   onPressed: _loading ? null : _preview,
                   icon: const Icon(Icons.visibility, size: 18),
@@ -288,217 +319,286 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
               if (_canGenerate) ...[
                 const SizedBox(width: 10),
                 Expanded(
-                  flex: 3,
                   child: ElevatedButton.icon(
                     onPressed: _loading ? null : _generate,
                     icon: Icon(_loading ? Icons.hourglass_empty : Icons.check_circle_outline, size: 18),
                     label: Text(_loading ? 'Working…' : 'Generate'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFFD54F),
+                      backgroundColor: kAccentYellow,
                       foregroundColor: kTextPrimary,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                 ),
-              ] else
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white12,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.visibility, color: Colors.white, size: 16),
-                        SizedBox(width: 6),
-                        Text('View-only billing access', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                ),
+              ],
             ],
           ),
-          if (_isReadOnly)
-            const Padding(
-              padding: EdgeInsets.only(top: 10),
-              child: Row(
-                children: [
-                  Icon(Icons.lock_outline, color: Colors.white70, size: 13),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'You can check all billed dates and past months. Generation is done by contractor admin / railway.',
-                      style: TextStyle(color: Colors.white70, fontSize: 11),
-                    ),
+          if (_isReadOnly) ...[
+            const SizedBox(height: 10),
+            const Row(
+              children: [
+                Icon(Icons.lock_outline, color: Colors.white70, size: 13),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'View-only access. You can check all billed dates — bill generation is done by contractor admin / railway.',
+                    style: TextStyle(color: Colors.white70, fontSize: 11),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ],
         ],
       ),
     );
   }
 
-  // ── Area rates management ───────────────────────────────────────────────────
-  Widget _buildAreaRatesCard() {
+  // ── How it works (no bill loaded) ───────────────────────────────────────────
+  Widget _buildHowItWorks() {
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Row(
               children: [
-                Icon(Icons.currency_rupee, size: 18, color: kRailwayBlue),
+                Icon(Icons.tips_and_updates, size: 18, color: kRailwayBlue),
                 SizedBox(width: 8),
-                Expanded(
-                  child: Text('Area Rates (₹/sq.ft.)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                ),
+                Text('How daily billing works', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               ],
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Each area bills at its own ₹/sq.ft. — fees are applied at preview/generate time.',
-              style: TextStyle(fontSize: 11, color: Colors.grey),
+            const SizedBox(height: 12),
+            _stepRow('1', 'Pick a date above', 'Choose the day you want to bill for this station.'),
+            _stepRow('2', 'Tap Preview / View', 'See the computed value for every cleaning area.'),
+            _stepRow('3', 'Generate (contract admin)', 'Freezes the bill for that date — it becomes permanent.'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _stepRow(String n, String title, String sub) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: kRailwayBlue, shape: BoxShape.circle),
+            child: Text(n, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(sub, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              ],
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _openAreaRates,
-                icon: const Icon(Icons.tune, size: 16),
-                label: const Text('Manage Area Rates'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: kRailwayBlue,
-                  side: BorderSide(color: kRailwayBlue.withOpacity(0.4)),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Hero summary ────────────────────────────────────────────────────────────
+  Widget _buildHero(DailyTaskBillingResponse b) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: kRailwayBannerGradient,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Bill for ${b.date}',
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openAreaRates() async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => AreaRateConfigScreen(contractId: widget.contractId)));
-    if (!mounted) return;
-    if (_bill != null) await _preview();
-  }
-
-  Widget _buildEmptyHint() {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline, size: 16, color: Colors.grey),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Select a date, Preview, then Generate to freeze the bill for that date.',
-                style: TextStyle(fontSize: 13, color: Colors.grey),
+              _statusChip(b.status, onDark: true),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Net Payable', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    Text(
+                      _money(b.netAmount),
+                      style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('${b.overallScore.toStringAsFixed(1)}%', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 2),
+                  Text('Grade ${b.grade}', style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _miniStat('Executed', _money(b.actualExecutionValue)),
+              _miniStat('Expected', _money(b.expectedWorkValue)),
+              _miniStat('Deducted', b.deduction > 0 ? _money(b.deduction) : '₹0'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStat(String label, String value) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(8)),
+        child: Column(
+          children: [
+            Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
           ],
         ),
       ),
     );
   }
 
-  Widget _statusChip(String status) {
+  Widget _statusChip(String status, {bool onDark = false}) {
     final color = status == 'generated' ? kSuccessGreen : kRailwayBlue;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)),
-      child: Text(status.toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
+      decoration: BoxDecoration(
+        color: onDark ? (status == 'generated' ? const Color(0xFF43A047) : Colors.white24) : color,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(
+          color: onDark ? Colors.white : Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 10,
+        ),
+      ),
     );
   }
 
-  // ── Daily bill summary card ─────────────────────────────────────────────────
-  Widget _buildBillSummaryCard(DailyTaskBillingResponse b) {
+  Widget _sectionCard({required IconData icon, required String title, String? subtitle, required List<Widget> children}) {
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.receipt, size: 18, color: kRailwayBlue),
+                Icon(icon, size: 18, color: kRailwayBlue),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Daily Bill — ${b.date}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      if (subtitle != null)
+                        Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    ],
+                  ),
                 ),
-                _statusChip(b.status),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Contract: ${b.contractNumber} · ${b.contractStartDate} → ${b.contractEndDate} (${b.contractDays} days) · ₹${b.ratePerSqft.toStringAsFixed(2)}/sq.ft.',
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 14),
-
-            const Text('Bill Summary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            const SizedBox(height: 6),
-            _kvRow('Expected Work Value', _money(b.expectedWorkValue)),
-            _kvRow('Actual Executed Value', _money(b.actualExecutionValue), bold: true, valueColor: kSuccessGreen),
-            _kvRow('Executed / Expected sq.ft.', '${b.executedSqFt.toStringAsFixed(0)} / ${b.expectedSqFt.toStringAsFixed(0)}'),
-            const SizedBox(height: 6),
-            if (b.taskExecutionScore != null) ...[
-              Row(
-                children: [
-                  const Expanded(child: Text('Task Execution', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: (b.taskExecutionScore ?? 0) / 100,
-                        minHeight: 8,
-                        backgroundColor: Colors.grey[200],
-                        color: (b.taskExecutionScore ?? 0) >= 80 ? kSuccessGreen : kWarningOrange,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${b.taskExecutionScore!.toStringAsFixed(1)}%',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: b.taskExecutionScore! >= 80 ? kSuccessGreen : kWarningOrange,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-            ],
-            const Divider(height: 18),
-            if (b.lessExecutionAmount > 0) _kvRow('Less on performance (${b.lessExecutionPercent.toStringAsFixed(0)}%)', _money(b.lessExecutionAmount), valueColor: kErrorRed),
-            _kvRow('Eligible Amount', _money(b.eligibleAmount)),
-            if (b.penaltyApplied && b.penalty > 0) _kvRow('Penalty', _money(b.penalty), valueColor: kErrorRed),
-            _kvRow('Deduction', _money(b.deduction), valueColor: kErrorRed),
-            _kvRow('Net Payable', _money(b.netAmount), bold: true, valueColor: kSuccessGreen),
-            if (b.gstRate > 0) _kvRow('GST (${b.gstRate.toStringAsFixed(0)}%)', _money(b.gstAmount)),
-            if (b.gstRate > 0) _kvRow('Total Payable', _money(b.totalPayable), bold: true, valueColor: kRailwayBlue),
+            const SizedBox(height: 12),
+            ...children,
           ],
         ),
       ),
+    );
+  }
+
+  Widget _groupLabel(String t) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      child: Text(
+        t,
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5, color: kTextSecondary),
+      ),
+    );
+  }
+
+  // ── Amount breakdown ────────────────────────────────────────────────────────
+  Widget _buildAmountCard(DailyTaskBillingResponse b) {
+    return _sectionCard(
+      icon: Icons.receipt,
+      title: 'Amount Breakdown',
+      subtitle: '${b.contractNumber} · ${b.contractStartDate} → ${b.contractEndDate} (${b.contractDays} days)',
+      children: [
+        _groupLabel('WORK VALUE'),
+        _kvRow('Expected work value', _money(b.expectedWorkValue)),
+        _kvRow('Actual executed value', _money(b.actualExecutionValue), bold: true, valueColor: kSuccessGreen),
+        _kvRow('Sq.ft. executed / expected', '${b.executedSqFt.toStringAsFixed(0)} / ${b.expectedSqFt.toStringAsFixed(0)}'),
+        if (b.taskExecutionScore != null) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(child: Text('Task execution', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: (b.taskExecutionScore ?? 0) / 100,
+                    minHeight: 8,
+                    backgroundColor: Colors.grey[200],
+                    color: _scoreColor(b.taskExecutionScore ?? 0),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${b.taskExecutionScore!.toStringAsFixed(1)}%',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _scoreColor(b.taskExecutionScore!)),
+              ),
+            ],
+          ),
+        ],
+        const Divider(height: 22),
+        _groupLabel('ADJUSTMENTS'),
+        if (b.lessExecutionAmount > 0)
+          _kvRow('Less on performance (${b.lessExecutionPercent.toStringAsFixed(0)}%)', _money(b.lessExecutionAmount), valueColor: kErrorRed),
+        _kvRow('Eligible amount', _money(b.eligibleAmount)),
+        if (b.penaltyApplied && b.penalty > 0) _kvRow('Penalty', _money(b.penalty), valueColor: kErrorRed),
+        _kvRow('Deduction', _money(b.deduction), valueColor: kErrorRed),
+        const Divider(height: 22),
+        _groupLabel('PAYABLE'),
+        _kvRow('Net payable', _money(b.netAmount), bold: true, valueColor: kSuccessGreen),
+        if (b.gstRate > 0) _kvRow('GST (${b.gstRate.toStringAsFixed(0)}%)', _money(b.gstAmount)),
+        if (b.gstRate > 0) _kvRow('Total payable', _money(b.totalPayable), bold: true, valueColor: kRailwayBlue),
+      ],
     );
   }
 
@@ -513,37 +613,31 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         ),
       );
 
-  // ── Performance summary card (50 / 20 / 30) ─────────────────────────────────
+  // ── Performance summary (50 / 20 / 30) ─────────────────────────────────────
   Widget _buildPerformanceCard(DailyTaskBillingResponse b) {
     Widget row(String name, int weight, double? score, double? marks) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(
           children: [
-            Container(
-              width: 4, height: 30,
-              margin: const EdgeInsets.only(right: 10),
-              decoration: BoxDecoration(color: kRailwayBlue, borderRadius: BorderRadius.circular(2)),
-            ),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('$name', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text(score == null ? 'No data (counts as full)' : 'achievement ${score.toStringAsFixed(1)}%',
-                      style: TextStyle(fontSize: 11, color: score == null ? Colors.grey[500] : Colors.grey[600])),
+                  Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Text(
+                    score == null ? 'No data (counts as full)' : 'Achievement ${score.toStringAsFixed(1)}%',
+                    style: TextStyle(fontSize: 11, color: score == null ? Colors.grey[500] : Colors.grey[600]),
+                  ),
                 ],
               ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: kRailwayBlue.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-              ),
+              decoration: BoxDecoration(color: kRailwayBlue.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
               child: Text('$weight%', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue)),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             SizedBox(
               width: 90,
               child: Text(
@@ -565,62 +659,42 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     final exec = bySrc['execution'];
     final insp = bySrc['inspection'];
     final fb = bySrc['feedback'];
+    final scoreColor = _scoreColor(b.overallScore);
 
-    final scoreColor = b.overallScore >= 90
-        ? kSuccessGreen
-        : b.overallScore >= 70
-            ? kWarningOrange
-            : kErrorRed;
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return _sectionCard(
+      icon: Icons.speed,
+      title: 'Performance Summary',
+      subtitle: 'Weights: Task Execution 50 · Railway Inspection 20 · Passenger Feedback 30',
+      children: [
+        row('Task Execution', 50, exec?['achievement'] as double?, (exec?['marks'] as num?)?.toDouble()),
+        row('Railway Inspection', 20, insp?['achievement'] as double?, (insp?['marks'] as num?)?.toDouble()),
+        row('Passenger Feedback', 30, fb?['achievement'] as double?, (fb?['marks'] as num?)?.toDouble()),
+        const Divider(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.speed, size: 18, color: kRailwayBlue),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text('Performance Summary (50 / 20 / 30)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            row('Task Execution', 50, exec?['achievement'] as double?, (exec?['marks'] as num?)?.toDouble()),
-            row('Railway Inspection', 20, insp?['achievement'] as double?, (insp?['marks'] as num?)?.toDouble()),
-            row('Passenger Feedback', 30, fb?['achievement'] as double?, (fb?['marks'] as num?)?.toDouble()),
-            const Divider(height: 18),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Final Performance Score', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(color: scoreColor, borderRadius: BorderRadius.circular(20)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('${b.overallScore.toStringAsFixed(1)}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      const SizedBox(width: 6),
-                      Text('Grade ${b.grade}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-              ],
+            const Text('Final Performance Score', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(color: scoreColor, borderRadius: BorderRadius.circular(20)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${b.overallScore.toStringAsFixed(1)}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(width: 6),
+                  Text('Grade ${b.grade}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                ],
+              ),
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 
-  // ── Area-wise execution table ───────────────────────────────────────────────
+  // ── Area-wise execution table ──────────────────────────────────────────────
   Widget _buildAreaTableCard(DailyTaskBillingResponse b) {
-    const colW = {'area': 130.0, 'sqft': 78.0, 'rate': 92.0, 'req': 58.0, 'done': 58.0, 'exp': 108.0, 'act': 108.0};
+    const colW = {'area': 140.0, 'sqft': 64.0, 'rate': 80.0, 'req': 46.0, 'done': 46.0, 'exp': 96.0, 'act': 96.0};
     Widget cell(Object? text, double w, {TextAlign align = TextAlign.right, bool bold = false, Color? color}) {
       return SizedBox(
         width: w,
@@ -633,75 +707,102 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
       );
     }
 
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    double? totalAct, totalExp, totalReq, totalDone;
+    for (final r in b.areaRows) {
+      totalAct = (totalAct ?? 0) + ((r['actualExecutionValue'] as num?) ?? 0).toDouble();
+      totalExp = (totalExp ?? 0) + ((r['expectedValue'] as num?) ?? 0).toDouble();
+      totalReq = (totalReq ?? 0) + ((r['required'] as num?) ?? 0).toDouble();
+      totalDone = (totalDone ?? 0) + ((r['completed'] as num?) ?? 0).toDouble();
+    }
+
+    return _sectionCard(
+      icon: Icons.table_chart,
+      title: 'Area-wise Execution',
+      subtitle: 'Area sq.ft. × ₹/sq.ft. counts APPROVED shift summaries',
+      children: [
+        Scrollbar(
+          thumbVisibility: true,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.table_chart, size: 18, color: kRailwayBlue),
-                const SizedBox(width: 8),
-                const Expanded(child: Text('Area-wise Execution', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(color: kRailwayBlue.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    children: [
+                      cell('Area', colW['area']!, align: TextAlign.left, bold: true, color: kRailwayBlue),
+                      cell('SQFT', colW['sqft']!, bold: true, color: kRailwayBlue),
+                      cell('Rate', colW['rate']!, bold: true, color: kRailwayBlue),
+                      cell('Req', colW['req']!, bold: true, color: kRailwayBlue),
+                      cell('Done', colW['done']!, bold: true, color: kRailwayBlue),
+                      cell('Expected₹', colW['exp']!, bold: true, color: kRailwayBlue),
+                      cell('Actual₹', colW['act']!, bold: true, color: kRailwayBlue),
+                    ],
+                  ),
+                ),
+                for (var i = 0; i < b.areaRows.length; i++)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-                    decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.07), borderRadius: BorderRadius.circular(6)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                    color: i.isEven ? Colors.grey[50] : Colors.white,
                     child: Row(
                       children: [
-                        cell('Area', colW['area']!, align: TextAlign.left, bold: true, color: kRailwayBlue),
-                        cell('SQFT', colW['sqft']!, bold: true, color: kRailwayBlue),
-                        cell('Rate/sq.ft.', colW['rate']!, bold: true, color: kRailwayBlue),
-                        cell('Req', colW['req']!, bold: true, color: kRailwayBlue),
-                        cell('Done', colW['done']!, bold: true, color: kRailwayBlue),
-                        cell('Expected', colW['exp']!, bold: true, color: kRailwayBlue),
-                        cell('Actual', colW['act']!, bold: true, color: kRailwayBlue),
+                        cell(b.areaRows[i]['areaName'] ?? '—', colW['area']!, align: TextAlign.left),
+                        cell((b.areaRows[i]['areaSqft'] as num?)?.toDouble().toStringAsFixed(0) ?? '0', colW['sqft']!),
+                        cell('₹${((b.areaRows[i]['ratePerSqft'] as num?) ?? 0).toStringAsFixed(2)}', colW['rate']!),
+                        cell('${b.areaRows[i]['required'] ?? 0}', colW['req']!),
+                        cell('${b.areaRows[i]['completed'] ?? 0}', colW['done']!),
+                        cell(_money(((b.areaRows[i]['expectedValue'] as num?) ?? 0).toDouble()), colW['exp']!, bold: true),
+                        cell(_money(((b.areaRows[i]['actualExecutionValue'] as num?) ?? 0).toDouble()), colW['act']!, bold: true, color: kSuccessGreen),
                       ],
                     ),
                   ),
-                  for (var i = 0; i < b.areaRows.length; i++)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      color: i.isEven ? Colors.grey[50] : Colors.white,
-                      child: Row(
-                        children: [
-                          cell(b.areaRows[i]['areaName'] ?? '—', colW['area']!, align: TextAlign.left),
-                          cell((b.areaRows[i]['areaSqft'] as num?)?.toDouble().toStringAsFixed(0) ?? '0', colW['sqft']!),
-                          cell('₹${((b.areaRows[i]['ratePerSqft'] as num?) ?? 0).toStringAsFixed(2)}', colW['rate']!),
-                          cell('${b.areaRows[i]['required'] ?? 0}', colW['req']!),
-                          cell('${b.areaRows[i]['completed'] ?? 0}', colW['done']!),
-                          cell(_money(((b.areaRows[i]['expectedValue'] as num?) ?? 0).toDouble()), colW['exp']!, bold: true),
-                          cell(_money(((b.areaRows[i]['actualExecutionValue'] as num?) ?? 0).toDouble()), colW['act']!, bold: true, color: kSuccessGreen),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                  decoration: BoxDecoration(color: kRailwayBlue.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    children: [
+                      cell('TOTAL', colW['area']!, align: TextAlign.left, bold: true, color: kRailwayBlue),
+                      cell('', colW['sqft']!),
+                      cell('', colW['rate']!),
+                      cell((totalReq ?? 0).toStringAsFixed(0), colW['req']!, bold: true),
+                      cell((totalDone ?? 0).toStringAsFixed(0), colW['done']!, bold: true),
+                      cell(_money(totalExp ?? 0), colW['exp']!, bold: true),
+                      cell(_money(totalAct ?? 0), colW['act']!, bold: true, color: kSuccessGreen),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Each scheduled pass is valued at area sq.ft. × ₹/sq.ft. Executions are counted from APPROVED shift summaries (the approval unit) — tasks have no individual approval step.',
-              style: TextStyle(fontSize: 10, color: Colors.grey[500], height: 1.4),
-            ),
-          ],
+          ),
         ),
+      ],
+    );
+  }
+
+  // ── Area rates shortcut ─────────────────────────────────────────────────────
+  Widget _buildAreaRatesRow() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: ListTile(
+        leading: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(color: kRailwayBlue.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+          child: const Icon(Icons.currency_rupee, color: kRailwayBlue, size: 20),
+        ),
+        title: const Text('Area Rates', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        subtitle: Text('Review the ₹/sq.ft. used for each area', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        trailing: const Icon(Icons.chevron_right, color: kRailwayBlue),
+        onTap: _openAreaRates,
       ),
     );
   }
 
-  // ── Monthly bills card ──────────────────────────────────────────────────────
+  // ── Monthly bills ───────────────────────────────────────────────────────────
   Widget _buildMonthBillsCard() {
-    const colW = {'date': 92.0, 'exp': 104.0, 'act': 104.0, 'tex': 62.0, 'ins': 62.0, 'fb': 62.0, 'fin': 62.0, 'gross': 104.0, 'ded': 92.0, 'net': 104.0};
     Widget h(String t, double w) => SizedBox(
           width: w,
           child: Text(t, textAlign: TextAlign.right, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
@@ -712,139 +813,134 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         );
 
     final month = _monthData;
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return _sectionCard(
+      icon: Icons.date_range,
+      title: 'Monthly Bills',
+      subtitle: month.bills.isEmpty ? null : '${month.count} bill${month.count != 1 ? 's' : ''} in $_month / $_year',
+      children: [
+        Row(
           children: [
-            Row(
+            IconButton(
+              icon: const Icon(Icons.chevron_left, size: 20),
+              color: kRailwayBlue,
+              onPressed: () {
+                setState(() { _month--; if (_month < 1) { _month = 12; _year--; } });
+                _loadBills();
+              },
+            ),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: kRailwayBlue.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(10)),
+                child: Text('$_month / $_year', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right, size: 20),
+              color: kRailwayBlue,
+              onPressed: () {
+                setState(() { _month++; if (_month > 12) { _month = 1; _year++; } });
+                _loadBills();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (month.bills.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
               children: [
-                const Icon(Icons.date_range, size: 18, color: kRailwayBlue),
+                Icon(Icons.info_outline, size: 16, color: Colors.grey[400]),
                 const SizedBox(width: 8),
-                const Expanded(child: Text('Monthly Bills', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
-                IconButton(
-                  icon: const Icon(Icons.chevron_left, size: 20),
-                  color: kRailwayBlue,
-                  onPressed: () {
-                    setState(() { _month--; if (_month < 1) { _month = 12; _year--; } });
-                    _loadBills();
-                  },
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.07), borderRadius: BorderRadius.circular(16)),
-                  child: Text('$_month / $_year', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kRailwayBlue)),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right, size: 20),
-                  color: kRailwayBlue,
-                  onPressed: () {
-                    setState(() { _month++; if (_month > 12) { _month = 1; _year++; } });
-                    _loadBills();
-                  },
+                Expanded(
+                  child: Text(
+                    'No bills generated for $_month/$_year. Browse other months, or pick a date above to view/preview any day.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  ),
                 ),
               ],
             ),
-            if (month.bills.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 16, color: Colors.grey[400]),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'No bills generated for $_month/$_year. Use ◀ ▶ to browse past months, or pick a date above to view/preview any day.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(color: kSuccessGreen.withOpacity(0.08), borderRadius: BorderRadius.circular(8)),
-                child: Row(
-                  children: [
-                    Text('${month.count} bill${month.count != 1 ? 's' : ''} · ${month.totalDeduction > 0 ? 'Deduction ${_money(month.totalDeduction)} · ' : ''}Net ${_money(month.totalNetAmount)}',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    const Spacer(),
-                    Text('Expected ${_money(month.totalExpectedWorkValue)}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                      decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.07), borderRadius: BorderRadius.circular(6)),
-                      child: Row(children: [
-                        h('Date', colW['date']!),
-                        h('Expected ₹', colW['exp']!),
-                        h('Actual ₹', colW['act']!),
-                        h('TaskEx %', colW['tex']!),
-                        h('Insp %', colW['ins']!),
-                        h('Feedback %', colW['fb']!),
-                        h('Final %', colW['fin']!),
-                        h('Gross ₹', colW['gross']!),
-                        h('Deduct ₹', colW['ded']!),
-                        h('Net ₹', colW['net']!),
-                      ]),
-                    ),
-                    for (final bill in month.bills) ...[
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+          )
+        else ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(color: kSuccessGreen.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              children: [
+                Text('Net ${_money(month.totalNetAmount)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: kSuccessGreen)),
+                const SizedBox(width: 8),
+                if (month.totalDeduction > 0)
+                  Text('· Deduction ${_money(month.totalDeduction)}', style: const TextStyle(fontSize: 11, color: kErrorRed)),
+                const Spacer(),
+                Text('Expected ${_money(month.totalExpectedWorkValue)}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Scrollbar(
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                    decoration: BoxDecoration(color: kRailwayBlue.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(8)),
+                    child: Row(children: [
+                      h('Date', 84),
+                      h('Expected ₹', 96),
+                      h('Actual ₹', 96),
+                      h('Final %', 64),
+                      h('Deduct ₹', 90),
+                      h('Net ₹', 96),
+                    ]),
+                  ),
+                  for (final bill in month.bills)
+                    InkWell(
+                      onTap: _loading ? null : () => _openBill(bill),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                         decoration: BoxDecoration(
-                          color: kSuccessGreen.withOpacity(0.04),
-                          borderRadius: BorderRadius.circular(4),
+                          color: kSuccessGreen.withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(children: [
-                          c(bill.date, colW['date']!),
-                          c(_money(bill.expectedWorkValue), colW['exp']!),
-                          c(_money(bill.actualExecutionValue), colW['act']!),
-                          c(_pct(bill.taskExecutionScore), colW['tex']!),
-                          c(_pct(bill.inspectionScore), colW['ins']!),
-                          c(_pct(bill.feedbackScore), colW['fb']!),
-                          c('${bill.overallScore.toStringAsFixed(1)}', colW['fin']!, bold: true),
-                          c(_money(bill.grossAmount), colW['gross']!),
-                          c(_money(bill.deduction), colW['ded']!, color: bill.deduction > 0 ? kErrorRed : Colors.grey),
-                          c(_money(bill.netAmount), colW['net']!, bold: true, color: kSuccessGreen),
+                          c(bill.date, 84),
+                          c(_money(bill.expectedWorkValue), 96),
+                          c(_money(bill.actualExecutionValue), 96),
+                          c(bill.overallScore.toStringAsFixed(1), 64, color: _scoreColor(bill.overallScore)),
+                          c(_money(bill.deduction), 90, color: bill.deduction > 0 ? kErrorRed : Colors.grey),
+                          c(_money(bill.netAmount), 96, bold: true, color: kSuccessGreen),
                         ]),
                       ),
-                      const Divider(height: 1, thickness: 1),
-                    ],
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                      decoration: BoxDecoration(color: kRailwayBlue.withOpacity(0.10), borderRadius: BorderRadius.circular(6)),
-                      child: Row(children: [
-                        c('TOTAL', colW['date']!, bold: true, color: kRailwayBlue),
-                        c(_money(month.totalExpectedWorkValue), colW['exp']!, bold: true),
-                        c(_money(month.totalActualExecutionValue), colW['act']!, bold: true),
-                        c(_pct(month.avgTaskExecutionScore), colW['tex']!, bold: true),
-                        c(_pct(month.avgInspectionScore), colW['ins']!, bold: true),
-                        c(_pct(month.avgFeedbackScore), colW['fb']!, bold: true),
-                        c(_pct(month.avgFinalScore), colW['fin']!, bold: true),
-                        c(_money(month.totalGrossAmount), colW['gross']!, bold: true),
-                        c(_money(month.totalDeduction), colW['ded']!, bold: true),
-                        c(_money(month.totalNetAmount), colW['net']!, bold: true, color: kSuccessGreen),
-                      ]),
                     ),
-                  ],
-                ),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                    decoration: BoxDecoration(color: kRailwayBlue.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
+                    child: Row(children: [
+                      c('TOTAL', 84, bold: true, color: kRailwayBlue),
+                      c(_money(month.totalExpectedWorkValue), 96, bold: true),
+                      c(_money(month.totalActualExecutionValue), 96, bold: true),
+                      c(_pct(month.avgFinalScore), 64, bold: true),
+                      c(_money(month.totalDeduction), 90, bold: true),
+                      c(_money(month.totalNetAmount), 96, bold: true, color: kSuccessGreen),
+                    ]),
+                  ),
+                ],
               ),
-            ],
-          ],
-        ),
-      ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Tap any row to open that day\u2019s bill.',
+            style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
+          ),
+        ],
+      ],
     );
   }
 }
