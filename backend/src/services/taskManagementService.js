@@ -659,6 +659,16 @@ class TaskManagementService {
       gradeUpdates.grade = String(data.grade).trim();
       gradeUpdates.gradedAt = new Date().toISOString();
       gradeUpdates.gradedBy = user.uid;
+    } else {
+      // No self-grade was submitted, but the task was completed. Credit it as
+      // fully completed so supervisor/admin dashboards (which aggregate
+      // cleaningTasks by `score`/`grade`) reflect the completed work instead
+      // of treating the task as an unscored 0 that never changes the grade.
+      gradeUpdates.score = 100;
+      gradeUpdates.totalScore = 100;
+      gradeUpdates.grade = 'A';
+      gradeUpdates.gradedAt = new Date().toISOString();
+      gradeUpdates.gradedBy = user.uid;
     }
 
     const updates = {

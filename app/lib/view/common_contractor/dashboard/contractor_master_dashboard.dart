@@ -1678,8 +1678,15 @@ class _ContractorMasterDashboardState extends State<ContractorMasterDashboard> {
     final rate = (fraction * 100).round();
     final todayLabel = DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
     final rep = scDailyReport;
-    final grade = rep?['grade']?.toString() ?? d['grade']?.toString() ?? 'N/A';
-    final avgScore = (rep?['averageScore'] ?? d['averageScore'] ?? 0).toInt();
+    final grade = (!isAdminDashboard
+            ? d['grade']?.toString()
+            : rep?['grade']?.toString() ?? d['grade']?.toString()) ??
+        'N/A';
+    final avgScoreRaw = (!isAdminDashboard
+            ? d['averageScore']
+            : rep?['averageScore'] ?? d['averageScore']) ??
+        0;
+    final avgScore = avgScoreRaw.toInt();
     Color gradeColor = grade == 'A'
         ? Colors.greenAccent
         : grade == 'B'
