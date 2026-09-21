@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crm_train/model/contracts_model.dart';
 import 'package:crm_train/model/station_cleaning_models.dart';
 import 'package:crm_train/model/task_billing_models.dart';
 import 'package:crm_train/providers/station_cleaning_provider.dart';
@@ -294,7 +295,15 @@ class _ReportListScreenState extends State<ReportListScreen>
     try {
       String contractId = '';
       try {
-        final lists = await ApiService.getStationContracts(widget.stationId, contractType: 'station_cleaning');
+        List<ContractModel> lists = [];
+        try {
+          lists = await ApiService.getStationContracts(widget.stationId, contractType: 'station_cleaning');
+        } catch (_) {
+          /* fall through to untyped lookup */
+        }
+        if (lists.isEmpty) {
+          lists = await ApiService.getStationContracts(widget.stationId);
+        }
         final active = lists.where((c) => c.isActive ?? false).firstOrNull;
         final any = lists.isNotEmpty ? lists.first : null;
         contractId = (active ?? any)?.uid ?? '';
@@ -1147,11 +1156,15 @@ class _ReportListScreenState extends State<ReportListScreen>
   Widget _buildGenerateTab() {
     return RefreshIndicator(
       onRefresh: () async {
-        _loadReports();
+        await Future.wait([_loadReports(), _loadBillCart()]);
       },
       child: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          _buildSectionHeader('Billing Reports', Icons.receipt_long),
+          const SizedBox(height: 8),
+          _buildBillingReportsCard(),
+          const SizedBox(height: 20),
           _buildSectionHeader('Daily Reports', Icons.wb_sunny),
           const SizedBox(height: 8),
           ..._dailyKeys.map((k) => _buildReportCard(k)),
