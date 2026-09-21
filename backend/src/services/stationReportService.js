@@ -493,40 +493,60 @@ class StationReportService {
     const overdue = records.filter(r => r.status === 'PENDING' && r.scheduledEnd && r.scheduledEnd < now);
     const delayed = records.filter(r => r.status === 'IN_PROGRESS' && r.scheduledEnd && r.scheduledEnd < now);
     const missed = records.filter(r => r.status === 'MISSED');
-    // Overdue clearing tasks: pending/assigned tasks whose scheduled time has passed.
+    // Cleaning tasks: an un-started task is OVERDUE once its scheduled start has
+    // arrived and the 1-hour start window (scheduledTime <= now < scheduledTime + 1h,
+    // IST) is still open, and MISSED once that window has fully elapsed without the
+    // task ever being started — the same rule as _isTaskMissed/_assertStartWindow.
     let overdueTasks = [];
+    let missedTasks = [];
+    let scheduledTaskCount = 0;
     try {
       const taskSnap = await db.collection('cleaningTasks').where('stationId', '==', stationId).get();
-      const nowHm = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+      const nowIST = Date.now() + 5.5 * 60 * 60 * 1000;
       taskSnap.forEach(d => {
         const t = d.data();
         const d2 = t.scheduledDate || t.date || '';
         if (d2 < date || d2 > rangeEnd) return;
+        const sched = t.scheduledTime || '';
+        const m = /^(\d{2}):(\d{2})$/.exec(sched);
+        if (!m) return;
+        const startMs = new Date(Date.UTC(
+          parseInt(d2.substring(0, 4), 10), parseInt(d2.substring(5, 7), 10) - 1,
+          parseInt(d2.substring(8, 10), 10), parseInt(m[1], 10), parseInt(m[2], 10), 0,
+        )).getTime();
+        if (!Number.isFinite(startMs)) return;
+        scheduledTaskCount++;
         if (!(t.status === 'pending' || t.status === 'assigned')) return;
-        if (t.scheduledTime && t.scheduledTime <= nowHm) {
-          overdueTasks.push({
-            taskId: t.uid, date: d2, area: t.areaName || t.areaId || '',
-            activity: t.taskTypeName || t.activityType || 'Cleaning',
-            shift: t.shift || '', scheduledTime: t.scheduledTime,
-            supervisor: t.supervisorName || t.workerName || '',
-          });
-        }
+        if (nowIST < startMs) return; // start window has not opened yet
+        const row = {
+          taskId: t.uid, date: d2, area: t.areaName || t.areaId || '',
+          activity: t.taskTypeName || t.activityType || 'Cleaning',
+          shift: t.shift || '', scheduledTime: sched,
+          supervisor: t.supervisorName || t.workerName || '',
+        };
+        if (nowIST >= startMs + 60 * 60 * 1000) missedTasks.push(row);
+        else overdueTasks.push(row);
       });
     } catch (_) { /* optional */ }
-    const totalIssues = overdue.length + delayed.length + missed.length + overdueTasks.length;
+    const totalIssues = overdue.length + delayed.length + missed.length + overdueTasks.length + missedTasks.length;
+    const denominator = records.length + scheduledTaskCount;
     const report = await this._storeReport({
       stationId, stationName, reportType: 'missed_activity', date, endDate: rangeEnd, month: parseInt(date.substring(5, 7)), year: parseInt(date.substring(0, 4)),
       summary: {
-        totalScheduled: records.length, totalIssues, missedCount: missed.length,
-        overdueCount: overdue.length + overdueTasks.length, delayedCount: delayed.length,
+        totalScheduled: denominator, totalIssues,
+        missedCount: missed.length + missedTasks.length,
+        overdueCount: overdue.length + overdueTasks.length,
+        delayedCount: delayed.length,
         pendingTaskOverdueCount: overdueTasks.length,
-        issueRate: (records.length + overdueTasks.length) > 0 ? Math.round(totalIssues / (records.length + overdueTasks.length) * 100) : 0,
+        missedTaskCount: missedTasks.length,
+        issueRate: denominator > 0 ? Math.round((totalIssues / denominator) * 100) : 0,
         overdueActivities: overdue.map(m => ({ activityId: m.activityId, areaId: m.areaId, scheduledStart: m.scheduledStart, scheduledEnd: m.scheduledEnd, assignedWorkers: m.assignedWorkers })),
         delayedActivities: delayed.map(m => ({ activityId: m.activityId, areaId: m.areaId, scheduledStart: m.scheduledStart, scheduledEnd: m.scheduledEnd, assignedWorkers: m.assignedWorkers })),
         missedActivities: missed.map(m => ({ activityId: m.activityId, areaId: m.areaId, scheduledStart: m.scheduledStart, scheduledEnd: m.scheduledEnd, assignedWorkers: m.assignedWorkers })),
         overdueTasks,
+        missedTasks,
       },
-generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
+      generatedBy: user.uid, generatedByName: user.fullName || '', generatedAt: new Date().toISOString(),
     });
     return report;
   }
