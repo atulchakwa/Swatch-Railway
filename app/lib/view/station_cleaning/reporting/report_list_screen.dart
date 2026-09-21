@@ -56,6 +56,8 @@ class _ReportListScreenState extends State<ReportListScreen>
   bool _billCartLoading = false;
   String _billContractId = '';
   String? _downloadingDayPdf;
+  int _billMonth = DateTime.now().month;
+  int _billYear = DateTime.now().year;
 
   bool get _showLiveDashboard {
     final r = (widget.role ?? '').toUpperCase().replaceAll(' ', '_');
@@ -285,11 +287,6 @@ class _ReportListScreenState extends State<ReportListScreen>
     if (_showLiveDashboard) _loadLiveDashboard();
   }
 
-  String _todayStr() {
-    final n = DateTime.now();
-    return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
-  }
-
   Future<void> _loadBillCart() async {
     if (mounted) setState(() => _billCartLoading = true);
     try {
@@ -319,13 +316,16 @@ class _ReportListScreenState extends State<ReportListScreen>
         }
         return;
       }
+      final lastDay = DateTime(_billYear, _billMonth + 1, 0).day;
+      final mm = _billMonth.toString().padLeft(2, '0');
+      final y4 = _billYear.toString();
       final cart = await TaskBillingRepository.list(
         contractId,
         widget.stationId,
-        _filterMonth,
-        _filterYear,
-        startDate: '2018-01-01',
-        endDate: _todayStr(),
+        _billMonth,
+        _billYear,
+        startDate: '$y4-$mm-01',
+        endDate: '$y4-$mm-$lastDay',
       );
       if (!mounted) return;
       setState(() {
@@ -1337,181 +1337,279 @@ class _ReportListScreenState extends State<ReportListScreen>
       );
     }
 
+    Widget statBox(String label, String value, Color color) {
+      return Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.2)),
+          ),
+          child: Column(
+            children: [
+              Text(value,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color)),
+              const SizedBox(height: 2),
+              Text(label, style: TextStyle(fontSize: 9, color: Colors.grey[600])),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      elevation: 1,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [kRailwayBlue, Color(0xFF2F6BB3)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 42,
+                  height: 42,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF00695C).withValues(alpha: 0.12),
+                    color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.receipt_long, color: Color(0xFF00695C), size: 22),
+                  child: const Icon(Icons.receipt_long, color: Colors.white, size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Daily Billing Reports', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                      if (items.isNotEmpty)
-                        Text(
-                          '${items.length} report(s) · Net ${money(_billCart.totalNetAmount)} · synced from the Daily Billing cart',
-                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      Text(
+                        widget.stationName.toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.6,
                         ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Daily Billing Reports',
+                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                 ),
-                if (_billCartLoading) ...[
-                  const SizedBox(width: 8),
-                  const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                ],
+                if (_billCartLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                  ),
               ],
             ),
-            const SizedBox(height: 10),
-            if (_billContractId.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'No billing contract linked to this station — generate bills from the Daily Billing screen first.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              )
-            else if (items.isEmpty && !_billCartLoading)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'No daily bills generated for this station yet.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              )
-            else if (items.isNotEmpty) ...[
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Text('DATE', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
-                  ),
-                  Text('NET \u20B9', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
-                  const SizedBox(width: 34),
-                ],
-              ),
-              const Divider(height: 8),
-              for (final b in items)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 4),
-                  decoration: BoxDecoration(
-                    color: kRailwayBlue.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: InkWell(
-                    onTap: () {
-                      if (_billContractId.isEmpty) return;
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => DailyTaskBillingScreen(
-                            contractId: _billContractId,
-                            stationId: widget.stationId,
-                            stationName: widget.stationName,
-                          ),
-                        ),
-                      );
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_month, size: 15, color: kRailwayBlue),
+                const SizedBox(width: 6),
+                const Text('Period', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const Spacer(),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _billMonth,
+                    isDense: true,
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    items: List.generate(
+                      12,
+                      (i) => DropdownMenuItem(value: i + 1, child: Text(DateFormat('MMM').format(DateTime(2000, i + 1)))),
+                    ),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() => _billMonth = v);
+                      _loadBillCart();
                     },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                      child: Column(
+                  ),
+                ),
+                const SizedBox(width: 8),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _billYear,
+                    isDense: true,
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    items: List.generate(
+                      5,
+                      (i) => DropdownMenuItem(value: DateTime.now().year - 2 + i, child: Text('${DateTime.now().year - 2 + i}')),
+                    ),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() => _billYear = v);
+                      _loadBillCart();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Divider(height: 1, color: Colors.grey.shade200),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: _billContractId.isEmpty
+                ? Text(
+                    'No billing contract linked to this station — generate bills from the Daily Billing screen first.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  )
+                : items.isEmpty && !_billCartLoading
+                    ? Text(
+                        'No daily bills for ${_billMonth}/${_billYear}. Pick another month above, or generate bills from the Daily Billing screen.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      )
+                    : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              Expanded(
-                                flex: 3,
-                                child: Text(b.date, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                              ),
-                              if (b.deduction > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 10),
-                                  child: Text('− ${money(b.deduction)}', style: const TextStyle(fontSize: 10, color: kErrorRed)),
-                                ),
-                              Text(money(b.netAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
-                              const SizedBox(width: 6),
-                              IconButton(
-                                onPressed: _downloadingDayPdf != null && _downloadingDayPdf == b.date
-                                    ? null
-                                    : () {
-                                        setState(() => _downloadingDayPdf = b.date);
-                                        _downloadDayBillingPdf(b).whenComplete(() {
-                                          if (mounted) setState(() => _downloadingDayPdf = null);
-                                        });
-                                      },
-                                icon: _downloadingDayPdf == b.date
-                                    ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Icon(Icons.download, size: 17),
-                                color: kRailwayBlue,
-                                tooltip: 'Download ${b.date} PDF',
-                                visualDensity: VisualDensity.compact,
-                                padding: EdgeInsets.zero,
-                              ),
+                              statBox('Net \u20B9', money(_billCart.totalNetAmount), kSuccessGreen),
+                              const SizedBox(width: 8),
+                              statBox('Deduction', money(_billCart.totalDeduction), kErrorRed),
+                              const SizedBox(width: 8),
+                              statBox('Bills', '${items.length}', kRailwayBlue),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 14),
                           Row(
                             children: [
-                              scoreChip('TASK', b.taskExecutionScore),
-                              const SizedBox(width: 6),
-                              scoreChip('INSP', b.inspectionScore),
-                              const SizedBox(width: 6),
-                              scoreChip('FEED', b.feedbackScore),
-                              const SizedBox(width: 6),
-                              scoreChip('FINAL', b.overallScore),
+                              Expanded(
+                                flex: 3,
+                                child: Text('DATE', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+                              ),
+                              Text('DEDUCT \u20B9', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+                              const SizedBox(width: 34),
                             ],
+                          ),
+                          const Divider(height: 8),
+                          for (final b in items)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 4),
+                              decoration: BoxDecoration(
+                                color: kRailwayBlue.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: InkWell(
+                                onTap: () {
+                                  if (_billContractId.isEmpty) return;
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => DailyTaskBillingScreen(
+                                        contractId: _billContractId,
+                                        stationId: widget.stationId,
+                                        stationName: widget.stationName,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            flex: 3,
+                                            child: Text(b.date, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                          ),
+                                          if (b.deduction > 0)
+                                            Padding(
+                                              padding: const EdgeInsets.only(right: 10),
+                                              child: Text('− ${money(b.deduction)}', style: const TextStyle(fontSize: 10, color: kErrorRed)),
+                                            ),
+                                          Text(money(b.netAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
+                                          const SizedBox(width: 6),
+                                          IconButton(
+                                            onPressed: _downloadingDayPdf != null && _downloadingDayPdf == b.date
+                                                ? null
+                                                : () {
+                                                    setState(() => _downloadingDayPdf = b.date);
+                                                    _downloadDayBillingPdf(b).whenComplete(() {
+                                                      if (mounted) setState(() => _downloadingDayPdf = null);
+                                                    });
+                                                  },
+                                            icon: _downloadingDayPdf == b.date
+                                                ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2))
+                                                : const Icon(Icons.download, size: 17),
+                                            color: kRailwayBlue,
+                                            tooltip: 'Download ${b.date} PDF',
+                                            visualDensity: VisualDensity.compact,
+                                            padding: EdgeInsets.zero,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          scoreChip('TASK', b.taskExecutionScore),
+                                          const SizedBox(width: 6),
+                                          scoreChip('INSP', b.inspectionScore),
+                                          const SizedBox(width: 6),
+                                          scoreChip('FEED', b.feedbackScore),
+                                          const SizedBox(width: 6),
+                                          scoreChip('FINAL', b.overallScore),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          const Divider(height: 4),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: Text('TOTAL (${items.length} days)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+                              ),
+                              Text(money(_billCart.totalNetAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
+                              const SizedBox(width: 40),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              scoreChip('TASK', _billCart.avgTaskExecutionScore),
+                              const SizedBox(width: 6),
+                              scoreChip('INSP', _billCart.avgInspectionScore),
+                              const SizedBox(width: 6),
+                              scoreChip('FEED', _billCart.avgFeedbackScore),
+                              const SizedBox(width: 6),
+                              scoreChip('FINAL', _billCart.avgFinalScore),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Scores from the billing logic: TASK (execution) · INSP (inspection) · FEED (feedback) · FINAL (weighted). Tap a row to open Daily Billing.',
+                            style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                ),
-              const Divider(height: 4),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Text('TOTAL (${items.length} days)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue)),
-                  ),
-                  Text(money(_billCart.totalNetAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
-                  const SizedBox(width: 40),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  scoreChip('TASK', _billCart.avgTaskExecutionScore),
-                  const SizedBox(width: 6),
-                  scoreChip('INSP', _billCart.avgInspectionScore),
-                  const SizedBox(width: 6),
-                  scoreChip('FEED', _billCart.avgFeedbackScore),
-                  const SizedBox(width: 6),
-                  scoreChip('FINAL', _billCart.avgFinalScore),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Scores from the billing logic: TASK (execution) · INSP (inspection) · FEED (feedback) · FINAL (weighted). Tap a row to open Daily Billing.',
-                style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
-              ),
-            ],
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
