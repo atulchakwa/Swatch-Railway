@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'package:crm_train/model/task_billing_models.dart';
 import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/task_billing_repository.dart';
+import 'package:crm_train/services/pdf_report_service.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'area_rate_config_screen.dart';
 
 class DailyTaskBillingScreen extends StatefulWidget {
@@ -175,6 +179,58 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         _dateCtrl.text = b.date;
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _downloadPdf() async {
+    final b = _bill;
+    if (b == null) return;
+    setState(() => _loading = true);
+    try {
+      final bytes = await PDFReportService.generateDailyTaskBillingPdf(b);
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/daily_billing_${widget.stationName}_${b.date}.pdf');
+      await file.writeAsBytes(bytes);
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('PDF saved: ${file.path}');
+        await Share.shareXFiles([XFile(file.path)], text: 'Daily Task Billing PDF - ${widget.stationName} - ${b.date}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('Error generating PDF: $e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _downloadMonthPdf() async {
+    setState(() => _loading = true);
+    try {
+      final bytes = await PDFReportService.generateDailyTaskBillingMonthPdf(
+        {
+          'stationName': widget.stationName,
+          'contractNumber': _bill?.contractNumber ?? '',
+          'contractStartDate': _bill?.contractStartDate ?? '',
+          'contractEndDate': _bill?.contractEndDate ?? '',
+          'ratePerSqft': _bill?.ratePerSqft ?? 0,
+          'monthLabel': '$_month / $_year',
+        },
+        _monthData,
+      );
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/daily_billing_${widget.stationName}_$_month-$_year.pdf');
+      await file.writeAsBytes(bytes);
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('PDF saved: ${file.path}');
+        await Share.shareXFiles([XFile(file.path)], text: 'Daily Task Billing (Monthly) PDF - ${widget.stationName} - $_month/$_year');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('Error generating PDF: $e', isError: true);
+      }
     }
   }
 
@@ -430,6 +486,13 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                 ),
               ),
               _statusChip(b.status, onDark: true),
+              const SizedBox(width: 2),
+              IconButton(
+                onPressed: _loading ? null : _downloadPdf,
+                icon: const Icon(Icons.download, color: Colors.white, size: 20),
+                tooltip: 'Download PDF',
+                visualDensity: VisualDensity.compact,
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -844,6 +907,15 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                 _loadBills();
               },
             ),
+            if (month.bills.isNotEmpty)
+              IconButton(
+                icon: _loading
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.download, size: 20),
+                color: kRailwayBlue,
+                tooltip: 'Download Monthly PDF',
+                onPressed: _loading ? null : _downloadMonthPdf,
+              ),
           ],
         ),
         const SizedBox(height: 10),

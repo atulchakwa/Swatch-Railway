@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:crm_train/model/station_cleaning_models.dart';
+import 'package:crm_train/model/task_billing_models.dart';
 
 class PDFReportService {
   static const PdfColor primaryColor = PdfColor.fromInt(0xff1f4e78);
@@ -3679,5 +3680,695 @@ class PDFReportService {
     );
     final joined = parts.take(4).join(', ');
     return joined.length > 60 ? '${joined.substring(0, 60)}...' : joined;
+  }
+
+  // ── Daily & Monthly Task Billing PDFs (station cleaning) ────────────────────
+
+  static String _billMoney(double v) =>
+      'Rs. ${NumberFormat('#,##,##0.00', 'en_IN').format(v)}';
+  static String _billPct(double? v) =>
+      v == null ? '—' : '${v.toStringAsFixed(1)}%';
+
+  static pw.TableRow _billPerfRow(
+    String name,
+    double? score,
+    double? marks,
+    String weight,
+  ) {
+    return pw.TableRow(
+      children: [
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(5),
+          child: pw.Text(name,
+              style: pw.TextStyle(fontSize: 8),
+              textAlign: pw.TextAlign.center),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(5),
+          child: pw.Text(weight,
+              style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+              textAlign: pw.TextAlign.center),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(5),
+          child: pw.Text(
+              score == null ? 'No data (full)' : '${score.toStringAsFixed(1)}%',
+              style: pw.TextStyle(fontSize: 8),
+              textAlign: pw.TextAlign.center),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(5),
+          child: pw.Text(marks == null ? '—' : marks.toStringAsFixed(1),
+              style: pw.TextStyle(fontSize: 8),
+              textAlign: pw.TextAlign.center),
+        ),
+      ],
+    );
+  }
+
+  static pw.TableRow _billTotalRow(List<String> cells,
+      {int startCol = 0, bool highlight = true}) {
+    return pw.TableRow(
+      decoration: pw.BoxDecoration(
+        color: highlight ? primaryColor : PdfColors.grey200,
+      ),
+      children: [
+        for (var i = 0; i < cells.length; i++)
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(5),
+            child: pw.Text(
+              cells[i],
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+                color: highlight ? PdfColors.white : PdfColors.black,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  static Future<Uint8List> generateDailyTaskBillingPdf(
+    DailyTaskBillingResponse bill,
+  ) async {
+    final pdf = pw.Document();
+    final railway = await _getRailwayLogo();
+    final timestamp = DateFormat('dd-MMM-yyyy | hh:mm a').format(DateTime.now());
+    final isGenerated = bill.status == 'generated';
+
+    final Map<String, Map<String, dynamic>> bySrc = {};
+    for (final c in bill.categories) {
+      bySrc[c['dataSource']] = c;
+    }
+    final exec = bySrc['execution'];
+    final insp = bySrc['inspection'];
+    final fb = bySrc['feedback'];
+    final scoreColor =
+        bill.overallScore >= 80 ? successColor : const PdfColor.fromInt(0xfff29900);
+
+    pw.Widget section(String title, List<pw.Widget> body) {
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          _buildAuditSectionHeader(title),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: borderColor),
+              borderRadius: pw.BorderRadius.circular(4),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+              children: body,
+            ),
+          ),
+        ],
+      );
+    }
+
+    pw.TableRow headerRow(String h0, String h1, String h2, String h3) {
+      return pw.TableRow(
+        decoration: const pw.BoxDecoration(color: primaryColor),
+        children: [h0, h1, h2, h3]
+            .map(
+              (h) => pw.Padding(
+                padding: const pw.EdgeInsets.all(5),
+                child: pw.Text(
+                  h,
+                  textAlign: pw.TextAlign.center,
+                  style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontSize: 8,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      );
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(25),
+        build: (pw.Context context) {
+          final content = <pw.Widget>[
+            _buildAuditHeader(
+              railway,
+              'DAILY TASK EXECUTION\nBILLING REPORT',
+              'Station Cleaning | Value = Area × Rate × Executions',
+              'BILL STATUS',
+              isGenerated ? 'GENERATED' : 'PREVIEW',
+              isGenerated,
+            ),
+            pw.Divider(thickness: 1, color: borderColor),
+
+            section('1. BILL & CONTRACT INFORMATION', [
+              _buildInfoRow(
+                'Station',
+                bill.stationName.isNotEmpty ? bill.stationName : '—',
+                'Bill Date',
+                bill.date,
+              ),
+              _buildInfoRow(
+                'Contract Number',
+                bill.contractNumber.isNotEmpty ? bill.contractNumber : '—',
+                'Billing Rate',
+                'Rs. ${NumberFormat('#,##,##0.00', 'en_IN').format(bill.ratePerSqft)} / sq.ft.',
+              ),
+              _buildInfoRow(
+                'Contract Period',
+                '${bill.contractStartDate} → ${bill.contractEndDate}',
+                'Contract Days',
+                '${bill.contractDays} days',
+              ),
+              _buildInfoRow(
+                'Generated By',
+                bill.generatedByName.isNotEmpty ? bill.generatedByName : '—',
+                'Status',
+                bill.status.toUpperCase(),
+              ),
+            ]),
+
+            section('2. FINANCIAL RESULT AT A GLANCE', [
+              pw.Row(
+                children: [
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(
+                        color: successColor,
+                        borderRadius: pw.BorderRadius.circular(6),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            'NET PAYABLE',
+                            style: pw.TextStyle(
+                              color: PdfColors.white,
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                            _billMoney(bill.netAmount),
+                            style: pw.TextStyle(
+                              color: PdfColors.white,
+                              fontSize: 18,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 10),
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(
+                        color: scoreColor,
+                        borderRadius: pw.BorderRadius.circular(6),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            'FINAL PERFORMANCE SCORE',
+                            style: pw.TextStyle(
+                              color: PdfColors.white,
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                            '${bill.overallScore.toStringAsFixed(1)}%  ·  Grade ${bill.grade}',
+                            style: pw.TextStyle(
+                              color: PdfColors.white,
+                              fontSize: 15,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ]),
+
+            section('3. EXECUTION SUMMARY', [
+              _buildInfoRow(
+                'Expected Work Value',
+                _billMoney(bill.expectedWorkValue),
+                'Actual Executed Value',
+                _billMoney(bill.actualExecutionValue),
+              ),
+              _buildInfoRow(
+                'Expected Sq.ft.',
+                NumberFormat('#,##,##0', 'en_IN').format(bill.expectedSqFt.round()),
+                'Executed Sq.ft.',
+                NumberFormat('#,##,##0', 'en_IN').format(bill.executedSqFt.round()),
+              ),
+              _buildInfoRow(
+                'Task Execution (50%)',
+                _billPct(bill.taskExecutionScore),
+                'Railway Inspection (20%)',
+                _billPct(bill.inspectionScore),
+              ),
+              _buildInfoRow(
+                'Passenger Feedback (30%)',
+                _billPct(bill.feedbackScore),
+                'Overall Score',
+                '${bill.overallScore.toStringAsFixed(1)}%',
+              ),
+            ]),
+
+            section('4. PERFORMANCE SUMMARY (50 / 20 / 30)', [
+              pw.Table(
+                border: pw.TableBorder.all(color: borderColor, width: 0.5),
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(3),
+                  1: pw.FlexColumnWidth(1),
+                  2: pw.FlexColumnWidth(1.5),
+                  3: pw.FlexColumnWidth(1.2),
+                  4: pw.FlexColumnWidth(2),
+                },
+                children: [
+                  headerRow('Category', 'Weight', 'Achievement', 'Marks'),
+                  _billPerfRow('Task Execution', exec?['achievement'] as double?, (exec?['marks'] as num?)?.toDouble(), '50%'),
+                  _billPerfRow('Railway Inspection', insp?['achievement'] as double?, (insp?['marks'] as num?)?.toDouble(), '20%'),
+                  _billPerfRow('Passenger Feedback', fb?['achievement'] as double?, (fb?['marks'] as num?)?.toDouble(), '30%'),
+                  _billTotalRow(
+                    [
+                      'FINAL SCORE',
+                      '',
+                      '${bill.overallScore.toStringAsFixed(1)}%',
+                      'Grade ${bill.grade}',
+                    ],
+                    startCol: 0,
+                  ),
+                ],
+              ),
+            ]),
+
+            section('5. AREA-WISE EXECUTION', [
+              pw.Table(
+                border: pw.TableBorder.all(color: borderColor, width: 0.5),
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(2.4),
+                  1: pw.FlexColumnWidth(1),
+                  2: pw.FlexColumnWidth(1),
+                  3: pw.FlexColumnWidth(0.7),
+                  4: pw.FlexColumnWidth(0.7),
+                  5: pw.FlexColumnWidth(1.3),
+                  6: pw.FlexColumnWidth(1.3),
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(color: primaryColor),
+                    children: [
+                      'Area', 'Sq.ft.', 'Rate', 'Req', 'Done', 'Expected ₹', 'Actual ₹',
+                    ]
+                        .map(
+                          (h) => pw.Padding(
+                            padding: const pw.EdgeInsets.all(5),
+                            child: pw.Text(
+                              h,
+                              textAlign: pw.TextAlign.center,
+                              style: pw.TextStyle(
+                                color: PdfColors.white,
+                                fontSize: 8,
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  ...bill.areaRows.map(
+                    (row) => pw.TableRow(
+                      verticalAlignment: pw.TableCellVerticalAlignment.middle,
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            row['areaName']?.toString() ?? '—',
+                            style: pw.TextStyle(fontSize: 7),
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            ((row['areaSqft'] as num?) ?? 0).toStringAsFixed(0),
+                            style: pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            'Rs. ${((row['ratePerSqft'] as num?) ?? 0).toStringAsFixed(2)}',
+                            style: pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            '${row['required'] ?? 0}',
+                            style: pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            '${row['completed'] ?? 0}',
+                            style: pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            _billMoney(((row['expectedValue'] as num?) ?? 0).toDouble()),
+                            style: pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            _billMoney(((row['actualExecutionValue'] as num?) ?? 0).toDouble()),
+                            style: pw.TextStyle(fontSize: 7),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _billTotalRow([
+                    'TOTAL',
+                    '',
+                    '',
+                    '${bill.areaRows.fold<int>(0, (s, r) => s + ((r['required'] as num?) ?? 0).toInt())}',
+                    '${bill.areaRows.fold<int>(0, (s, r) => s + ((r['completed'] as num?) ?? 0).toInt())}',
+                    _billMoney(bill.expectedWorkValue),
+                    _billMoney(bill.actualExecutionValue),
+                  ]),
+                ],
+              ),
+            ]),
+
+            section('6. FINANCIAL SUMMARY', [
+              if (bill.lessExecutionPercent > 0 || bill.lessExecutionAmount > 0)
+                _buildInfoRow(
+                  'Less on Performance (${bill.lessExecutionPercent.toStringAsFixed(1)}%)',
+                  _billMoney(bill.lessExecutionAmount),
+                  'Eligible Amount',
+                  _billMoney(bill.eligibleAmount),
+                ),
+              _buildInfoRow(
+                'Penalty',
+                bill.penaltyApplied ? _billMoney(bill.penalty) : 'Nil',
+                'Deduction',
+                _billMoney(bill.deduction),
+              ),
+              _buildInfoRow(
+                'Net Payable',
+                _billMoney(bill.netAmount),
+                bill.gstRate > 0 ? 'GST (${bill.gstRate.toStringAsFixed(0)}%)' : 'GST',
+                bill.gstRate > 0 ? _billMoney(bill.gstAmount) : 'Not applicable',
+              ),
+              if (bill.gstRate > 0)
+                _buildInfoRow(
+                  'Total Payable',
+                  _billMoney(bill.totalPayable),
+                  'Executions (Req → Done)',
+                  '${bill.areaRows.fold<int>(0, (s, r) => s + ((r['required'] as num?) ?? 0).toInt())} → ${bill.areaRows.fold<int>(0, (s, r) => s + ((r['completed'] as num?) ?? 0).toInt())}',
+                ),
+            ]),
+
+            _buildSignatures(),
+            _buildDigitalFooter(timestamp),
+          ];
+
+          return content;
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static Future<Uint8List> generateDailyTaskBillingMonthPdf(
+    Map<String, dynamic> meta,
+    DailyBillingMonth month,
+  ) async {
+    final pdf = pw.Document();
+    final railway = await _getRailwayLogo();
+    final timestamp = DateFormat('dd-MMM-yyyy | hh:mm a').format(DateTime.now());
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(25),
+        build: (pw.Context context) {
+          final content = <pw.Widget>[
+            _buildAuditHeader(
+              railway,
+              'DAILY TASK BILLING\nMONTHLY SUMMARY',
+              'Station Cleaning | Value = Area × Rate × Executions',
+              'MONTH',
+              '${meta['monthLabel'] ?? ''}',
+              true,
+            ),
+            pw.Divider(thickness: 1, color: borderColor),
+
+            _buildAuditSectionHeader('1. PERIOD & CONTRACT INFORMATION'),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: borderColor),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                children: [
+                  _buildInfoRow(
+                    'Station',
+                    (meta['stationName'] ?? '—').toString(),
+                    'Contract Number',
+                    (meta['contractNumber'] ?? '—').toString(),
+                  ),
+                  _buildInfoRow(
+                    'Contract Period',
+                    '${meta['contractStartDate'] ?? '—'} → ${meta['contractEndDate'] ?? '—'}',
+                    'Billing Rate',
+                    'Rs. ${NumberFormat('#,##,##0.00', 'en_IN').format((meta['ratePerSqft'] as num?) ?? 0)} / sq.ft.',
+                  ),
+                  _buildInfoRow(
+                    'Bills Generated',
+                    '${month.count}',
+                    'Days in Month',
+                    (meta['monthLabel'] ?? '').toString(),
+                  ),
+                ],
+              ),
+            ),
+
+            _buildAuditSectionHeader('2. MONTHLY TOTALS'),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: primaryColor,
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              child: pw.Row(
+                children: [
+                  pw.Expanded(
+                    child: pw.Text(
+                      'NET PAYABLE',
+                      style: pw.TextStyle(
+                        color: PdfColors.white,
+                        fontSize: 8,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  pw.Text(
+                    _billMoney(month.totalNetAmount),
+                    style: pw.TextStyle(
+                      color: PdfColors.white,
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: borderColor),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                children: [
+                  _buildInfoRow(
+                    'Expected Work Value',
+                    _billMoney(month.totalExpectedWorkValue),
+                    'Actual Executed Value',
+                    _billMoney(month.totalActualExecutionValue),
+                  ),
+                  _buildInfoRow(
+                    'Total Gross',
+                    _billMoney(month.totalGrossAmount),
+                    'Total Deduction',
+                    _billMoney(month.totalDeduction),
+                  ),
+                  _buildInfoRow(
+                    'Avg Task Execution',
+                    _billPct(month.avgTaskExecutionScore),
+                    'Avg Inspection',
+                    _billPct(month.avgInspectionScore),
+                  ),
+                  _buildInfoRow(
+                    'Avg Passenger Feedback',
+                    _billPct(month.avgFeedbackScore),
+                    'Avg Final Score',
+                    _billPct(month.avgFinalScore),
+                  ),
+                ],
+              ),
+            ),
+
+            _buildAuditSectionHeader('3. DAILY BILLS'),
+            pw.Table(
+              border: pw.TableBorder.all(color: borderColor, width: 0.5),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(1.2),
+                1: pw.FlexColumnWidth(1.6),
+                2: pw.FlexColumnWidth(1.6),
+                3: pw.FlexColumnWidth(1),
+                4: pw.FlexColumnWidth(1.4),
+                5: pw.FlexColumnWidth(1.6),
+              },
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: primaryColor),
+                  children: [
+                    'Date', 'Expected ₹', 'Actual ₹', 'Final %', 'Deduct ₹', 'Net ₹',
+                  ]
+                      .map(
+                        (h) => pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            h,
+                            textAlign: pw.TextAlign.center,
+                            style: pw.TextStyle(
+                              color: PdfColors.white,
+                              fontSize: 8,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+                if (month.bills.isEmpty)
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text(
+                          'No bills generated for this month.',
+                          style: pw.TextStyle(fontSize: 8),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      pw.Text(''), pw.Text(''), pw.Text(''), pw.Text(''), pw.Text(''),
+                    ],
+                  )
+                else
+                  ...month.bills.map(
+                    (b) => pw.TableRow(
+                      verticalAlignment: pw.TableCellVerticalAlignment.middle,
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(b.date,
+                              style: pw.TextStyle(fontSize: 8),
+                              textAlign: pw.TextAlign.center),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(_billMoney(b.expectedWorkValue),
+                              style: pw.TextStyle(fontSize: 8),
+                              textAlign: pw.TextAlign.center),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(_billMoney(b.actualExecutionValue),
+                              style: pw.TextStyle(fontSize: 8),
+                              textAlign: pw.TextAlign.center),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            '${b.overallScore.toStringAsFixed(1)}%',
+                            style: pw.TextStyle(fontSize: 8),
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(_billMoney(b.deduction),
+                              style: pw.TextStyle(fontSize: 8),
+                              textAlign: pw.TextAlign.center),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(_billMoney(b.netAmount),
+                              style: pw.TextStyle(
+                                fontSize: 8,
+                                fontWeight: pw.FontWeight.bold,
+                                color: _billMoney(b.netAmount).isEmpty
+                                    ? PdfColors.black
+                                    : successColor,
+                              ),
+                              textAlign: pw.TextAlign.center),
+                        ),
+                      ],
+                    ),
+                  ),
+                _billTotalRow([
+                  'TOTAL (${month.count})',
+                  _billMoney(month.totalExpectedWorkValue),
+                  _billMoney(month.totalActualExecutionValue),
+                  _billPct(month.avgFinalScore),
+                  _billMoney(month.totalDeduction),
+                  _billMoney(month.totalNetAmount),
+                ]),
+              ],
+            ),
+
+            _buildSignatures(),
+            _buildDigitalFooter(timestamp),
+          ];
+
+          return content;
+        },
+      ),
+    );
+
+    return pdf.save();
   }
 }

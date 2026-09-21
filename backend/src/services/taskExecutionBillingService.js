@@ -382,17 +382,29 @@ class TaskExecutionBillingService {
     return this.prepareDailyBill(params);
   }
 
+  /* A bill is only reusable when it is a complete current-shape record. */
+  _isCompleteBill(doc) {
+    return doc && Number.isFinite(Number(doc.netAmount)) && doc.status === 'generated';
+  }
+
   async generateDailyBill(userData, { contractId, stationId, date }) {
     const existingSnap = await db.collection('task_execution_daily_bills')
       .where('contractId', '==', contractId)
       .where('stationId', '==', stationId)
       .where('date', '==', date)
-      .limit(1)
       .get();
-    if (!existingSnap.empty) {
-      const d = existingSnap.docs[0].data();
-      await auditService.logAudit('TASK_EXECUTION_DAILY_BILL_REUSED', userData.uid, userData.fullName || 'User', existingSnap.docs[0].id, 'task_execution_daily_bills', `Existing daily task bill returned for ${date}`);
-      return { message: 'Daily task bill already exists (returned as-is)', uid: existingSnap.docs[0].id, bill: d, reused: true };
+    const existing = existingSnap.docs.find((d) => this._isCompleteBill(d.data()));
+    if (existing) {
+      const d = existing.data();
+      await auditService.logAudit('TASK_EXECUTION_DAILY_BILL_REUSED', userData.uid, userData.fullName || 'User', existing.id, 'task_execution_daily_bills', `Existing daily task bill returned for ${date}`);
+      return { message: 'Daily task bill already exists (returned as-is)', uid: existing.id, bill: d, reused: true };
+    }
+    // Drop any incomplete/legacy records for the date so they neither block a
+    // fresh bill nor produce empty duplicate rows in the monthly report.
+    const stale = existingSnap.docs.filter((d) => !this._isCompleteBill(d.data()));
+    if (stale.length > 0) {
+      await Promise.all(stale.map((d) => d.ref.delete()));
+      await auditService.logAudit('TASK_EXECUTION_DAILY_BILL_STALE_REMOVED', userData.uid, userData.fullName || 'User', contractId, 'task_execution_daily_bills', `Removed ${stale.length} incomplete daily bill(s) for ${date}`);
     }
 
     const preview = await this.prepareDailyBill({ contractId, stationId, date });
@@ -433,6 +445,7 @@ class TaskExecutionBillingService {
       if (contractId && d.contractId !== contractId) return;
       if (stationId && d.stationId !== stationId) return;
       if (prefix && !(d.date || '').startsWith(prefix)) return;
+      if (!Number.isFinite(Number(d.netAmount))) return; // skip incomplete/legacy records
       bills.push({ id: doc.id, ...d });
     });
     bills.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
