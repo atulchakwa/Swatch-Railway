@@ -1275,15 +1275,29 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   // ── Daily Billing Reports cart ──────────────────────────────────────────────
   Widget _buildReportCartCard() {
     final items = _cart.bills;
-    Widget cell(String t, {bool bold = false, Color? color}) => Expanded(
-          flex: 1,
-          child: Text(
-            t,
-            textAlign: TextAlign.right,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 11, fontWeight: bold ? FontWeight.bold : FontWeight.normal, color: color ?? Colors.black87),
-          ),
-        );
+    Widget scoreChip(String label, double? v) {
+      final s = v;
+      final color = s == null
+          ? Colors.grey
+          : s >= 90
+              ? kSuccessGreen
+              : s >= 70
+                  ? kWarningOrange
+                  : kErrorRed;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 4),
+            Text(s == null ? '—' : '${s.toStringAsFixed(1)}%',
+                style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+    }
 
     return _sectionCard(
       icon: Icons.receipt_long,
@@ -1324,8 +1338,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                 flex: 3,
                 child: Text('DATE', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
               ),
-              cell('FINAL %', bold: true),
-              cell('NET \u20B9', bold: true),
+              Text('NET \u20B9', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
               const SizedBox(width: 34),
             ],
           ),
@@ -1341,45 +1354,79 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                 onTap: _loading ? null : () => _openCartDay(b),
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  child: Row(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        flex: 3,
-                        child: Text(
-                          b.date,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              b.date,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          if (b.deduction > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 10),
+                              child: Text('− ${_money(b.deduction)}', style: const TextStyle(fontSize: 10, color: kErrorRed)),
+                            ),
+                          Text(_money(b.netAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            onPressed: _loading ? null : () => _downloadDayPdf(b),
+                            icon: const Icon(Icons.download, size: 17),
+                            color: kRailwayBlue,
+                            tooltip: 'Download ${b.date} PDF',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                        ],
                       ),
-                      cell('${b.overallScore.toStringAsFixed(1)}%', color: _scoreColor(b.overallScore)),
-                      cell(_money(b.netAmount), bold: true, color: kSuccessGreen),
-                      IconButton(
-                        onPressed: _loading ? null : () => _downloadDayPdf(b),
-                        icon: const Icon(Icons.download, size: 17),
-                        color: kRailwayBlue,
-                        tooltip: 'Download ${b.date} PDF',
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          scoreChip('TASK', b.taskExecutionScore),
+                          const SizedBox(width: 6),
+                          scoreChip('INSP', b.inspectionScore),
+                          const SizedBox(width: 6),
+                          scoreChip('FEED', b.feedbackScore),
+                          const SizedBox(width: 6),
+                          scoreChip('FINAL', b.overallScore),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
             ),
+          const Divider(height: 4),
           Row(
             children: [
               Expanded(
                 flex: 3,
                 child: Text('TOTAL (${items.length} days)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue)),
               ),
-              cell(_pct(_cart.avgFinalScore), bold: true),
-              cell(_money(_cart.totalNetAmount), bold: true, color: kSuccessGreen),
-              const SizedBox(width: 34),
+              Text(_money(_cart.totalNetAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
+              const SizedBox(width: 40),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              scoreChip('TASK', _cart.avgTaskExecutionScore),
+              const SizedBox(width: 6),
+              scoreChip('INSP', _cart.avgInspectionScore),
+              const SizedBox(width: 6),
+              scoreChip('FEED', _cart.avgFeedbackScore),
+              const SizedBox(width: 6),
+              scoreChip('FINAL', _cart.avgFinalScore),
             ],
           ),
           const SizedBox(height: 8),
           const Text(
-            'Tap a row to open that day\u2019s report · Download icon saves its PDF.',
+            'Scores from the billing logic: TASK (execution) · INSP (inspection) · FEED (feedback) · FINAL (weighted). Tap a row to open that day\u2019s report.',
             style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
           ),
         ],

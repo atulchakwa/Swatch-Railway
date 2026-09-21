@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:crm_train/model/station_cleaning_models.dart';
+import 'package:crm_train/model/task_billing_models.dart';
 import 'package:crm_train/providers/station_cleaning_provider.dart';
 import 'package:crm_train/repositories/station_report_repository.dart';
+import 'package:crm_train/repositories/task_billing_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/services/pdf_report_service.dart';
 import 'package:crm_train/services/station_report_excel_service.dart';
@@ -13,6 +15,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../billing/daily_task_billing_screen.dart';
 
 class ReportListScreen extends StatefulWidget {
   final String stationId;
@@ -47,6 +50,11 @@ class _ReportListScreenState extends State<ReportListScreen>
   String? _filterReportType;
   int _filterMonth = DateTime.now().month;
   int _filterYear = DateTime.now().year;
+
+  DailyBillingMonth _billCart = DailyBillingMonth();
+  bool _billCartLoading = false;
+  String _billContractId = '';
+  String? _downloadingDayPdf;
 
   bool get _showLiveDashboard {
     final r = (widget.role ?? '').toUpperCase().replaceAll(' ', '_');
@@ -272,7 +280,53 @@ class _ReportListScreenState extends State<ReportListScreen>
       vsync: this,
     );
     _loadReports();
+    _loadBillCart();
     if (_showLiveDashboard) _loadLiveDashboard();
+  }
+
+  String _todayStr() {
+    final n = DateTime.now();
+    return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _loadBillCart() async {
+    if (mounted) setState(() => _billCartLoading = true);
+    try {
+      String contractId = '';
+      try {
+        final lists = await ApiService.getStationContracts(widget.stationId, contractType: 'station_cleaning');
+        final active = lists.where((c) => c.isActive ?? false).firstOrNull;
+        final any = lists.isNotEmpty ? lists.first : null;
+        contractId = (active ?? any)?.uid ?? '';
+      } catch (_) {
+        /* contract resolution failed */
+      }
+      if (contractId.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _billContractId = '';
+            _billCartLoading = false;
+          });
+        }
+        return;
+      }
+      final cart = await TaskBillingRepository.list(
+        contractId,
+        widget.stationId,
+        _filterMonth,
+        _filterYear,
+        startDate: '2018-01-01',
+        endDate: _todayStr(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _billContractId = contractId;
+        _billCart = cart;
+        _billCartLoading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _billCartLoading = false);
+    }
   }
 
   @override
@@ -1225,9 +1279,234 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
   }
 
+  Future<void> _downloadDayBillingPdf(DailyTaskBillingResponse bill) async {
+    try {
+      final pdfBytes = await PDFReportService.generateDailyTaskBillingPdf(bill);
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: 'DailyBilling_${widget.stationId}_${bill.date.replaceAll('-', '')}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF download failed: $e'), backgroundColor: kErrorRed),
+        );
+      }
+    }
+  }
+
+  Widget _buildBillingReportsCard() {
+    final items = _billCart.bills;
+    final fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+    String money(double v) => fmt.format(v);
+
+    Widget scoreChip(String label, double? v) {
+      final s = v;
+      final color = s == null
+          ? Colors.grey
+          : s >= 90
+              ? kSuccessGreen
+              : s >= 70
+                  ? kWarningOrange
+                  : kErrorRed;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 4),
+            Text(s == null ? '—' : '${s.toStringAsFixed(1)}%',
+                style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+    }
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00695C).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.receipt_long, color: Color(0xFF00695C), size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Daily Billing Reports', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                      if (items.isNotEmpty)
+                        Text(
+                          '${items.length} report(s) · Net ${money(_billCart.totalNetAmount)} · synced from the Daily Billing cart',
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        ),
+                    ],
+                  ),
+                ),
+                if (_billCartLoading) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                ],
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (_billContractId.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'No billing contract linked to this station — generate bills from the Daily Billing screen first.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              )
+            else if (items.isEmpty && !_billCartLoading)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'No daily bills generated for this station yet.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              )
+            else if (items.isNotEmpty) ...[
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Text('DATE', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+                  ),
+                  Text('NET \u20B9', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+                  const SizedBox(width: 34),
+                ],
+              ),
+              const Divider(height: 8),
+              for (final b in items)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  decoration: BoxDecoration(
+                    color: kRailwayBlue.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: InkWell(
+                    onTap: () {
+                      if (_billContractId.isEmpty) return;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => DailyTaskBillingScreen(
+                            contractId: _billContractId,
+                            stationId: widget.stationId,
+                            stationName: widget.stationName,
+                          ),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: Text(b.date, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              ),
+                              if (b.deduction > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 10),
+                                  child: Text('− ${money(b.deduction)}', style: const TextStyle(fontSize: 10, color: kErrorRed)),
+                                ),
+                              Text(money(b.netAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
+                              const SizedBox(width: 6),
+                              IconButton(
+                                onPressed: _downloadingDayPdf != null && _downloadingDayPdf == b.date
+                                    ? null
+                                    : () {
+                                        setState(() => _downloadingDayPdf = b.date);
+                                        _downloadDayBillingPdf(b).whenComplete(() {
+                                          if (mounted) setState(() => _downloadingDayPdf = null);
+                                        });
+                                      },
+                                icon: _downloadingDayPdf == b.date
+                                    ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.download, size: 17),
+                                color: kRailwayBlue,
+                                tooltip: 'Download ${b.date} PDF',
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              scoreChip('TASK', b.taskExecutionScore),
+                              const SizedBox(width: 6),
+                              scoreChip('INSP', b.inspectionScore),
+                              const SizedBox(width: 6),
+                              scoreChip('FEED', b.feedbackScore),
+                              const SizedBox(width: 6),
+                              scoreChip('FINAL', b.overallScore),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              const Divider(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Text('TOTAL (${items.length} days)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+                  ),
+                  Text(money(_billCart.totalNetAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kSuccessGreen)),
+                  const SizedBox(width: 40),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  scoreChip('TASK', _billCart.avgTaskExecutionScore),
+                  const SizedBox(width: 6),
+                  scoreChip('INSP', _billCart.avgInspectionScore),
+                  const SizedBox(width: 6),
+                  scoreChip('FEED', _billCart.avgFeedbackScore),
+                  const SizedBox(width: 6),
+                  scoreChip('FINAL', _billCart.avgFinalScore),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Scores from the billing logic: TASK (execution) · INSP (inspection) · FEED (feedback) · FINAL (weighted). Tap a row to open Daily Billing.',
+                style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildHistoryTab() {
     return Column(
       children: [
+        _buildBillingReportsCard(),
         Card(
           margin: const EdgeInsets.all(12),
           child: Padding(
