@@ -56,8 +56,9 @@ class _ReportListScreenState extends State<ReportListScreen>
   bool _billCartLoading = false;
   String _billContractId = '';
   String? _downloadingDayPdf;
-  int _billMonth = DateTime.now().month;
-  int _billYear = DateTime.now().year;
+  bool _billRangeMode = false;
+  DateTime _billStart = DateTime.now();
+  DateTime _billEnd = DateTime.now();
 
   bool get _showLiveDashboard {
     final r = (widget.role ?? '').toUpperCase().replaceAll(' ', '_');
@@ -316,16 +317,16 @@ class _ReportListScreenState extends State<ReportListScreen>
         }
         return;
       }
-      final lastDay = DateTime(_billYear, _billMonth + 1, 0).day;
-      final mm = _billMonth.toString().padLeft(2, '0');
-      final y4 = _billYear.toString();
+      final dateFmt = DateFormat('yyyy-MM-dd');
+      final start = dateFmt.format(_billStart);
+      final end = _billRangeMode ? dateFmt.format(_billEnd) : start;
       final cart = await TaskBillingRepository.list(
         contractId,
         widget.stationId,
-        _billMonth,
-        _billYear,
-        startDate: '$y4-$mm-01',
-        endDate: '$y4-$mm-$lastDay',
+        _billStart.month,
+        _billStart.year,
+        startDate: start,
+        endDate: end,
       );
       if (!mounted) return;
       setState(() {
@@ -1292,6 +1293,212 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
   }
 
+  String get _billPeriodLabel {
+    final f = DateFormat('dd MMM yyyy');
+    final start = f.format(_billStart);
+    if (!_billRangeMode) return start;
+    return '$start → ${f.format(_billEnd)}';
+  }
+
+  Future<void> _showBillPeriodSheet() async {
+    bool useRange = _billRangeMode;
+    DateTime startDate = _billStart;
+    DateTime endDate = _billEnd;
+
+    Future<DateTime?> pickBillDate(
+      BuildContext sheetCtx,
+      DateTime initial, {
+      DateTime? firstDate,
+    }) async {
+      return showDatePicker(
+        context: sheetCtx,
+        initialDate: initial,
+        firstDate: firstDate ?? DateTime(2020, 1, 1),
+        lastDate: DateTime.now(),
+      );
+    }
+
+    final applied = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: kRailwayBlue.withValues(alpha: 0.12),
+                        child: const Icon(
+                          Icons.receipt_long,
+                          color: kRailwayBlue,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Billing Period',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'Daily Billing Reports',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text('Single Date'),
+                          selected: !useRange,
+                          onSelected: (_) =>
+                              setSheetState(() => useRange = false),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text('Date Range'),
+                          selected: useRange,
+                          onSelected: (_) =>
+                              setSheetState(() => useRange = true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    useRange ? 'Start Date' : 'Select Date',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await pickBillDate(ctx, startDate);
+                      if (picked != null)
+                        setSheetState(() => startDate = picked);
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.event),
+                      ),
+                      child: Text(
+                        DateFormat('dd MMM yyyy').format(startDate),
+                      ),
+                    ),
+                  ),
+                  if (useRange) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'End Date',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () async {
+                        final picked = await pickBillDate(
+                          ctx,
+                          endDate,
+                          firstDate: startDate,
+                        );
+                        if (picked != null)
+                          setSheetState(() => endDate = picked);
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.event_repeat),
+                          errorText: endDate.isBefore(startDate)
+                              ? 'End date cannot be before start date'
+                              : null,
+                        ),
+                        child: Text(
+                          DateFormat('dd MMM yyyy').format(endDate),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 46),
+                          ),
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 46),
+                          ),
+                          onPressed: useRange && endDate.isBefore(startDate)
+                              ? null
+                              : () => Navigator.pop(ctx, true),
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('Apply'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (applied != true) return;
+    if (!mounted) return;
+    setState(() {
+      _billRangeMode = useRange;
+      _billStart = startDate;
+      _billEnd = useRange ? endDate : startDate;
+    });
+    await _loadBillCart();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Billing report updated for $_billPeriodLabel'),
+          backgroundColor: kSuccessGreen,
+        ),
+      );
+    }
+  }
+
   Future<void> _downloadDayBillingPdf(DailyTaskBillingResponse bill) async {
     try {
       final pdfBytes = await PDFReportService.generateDailyTaskBillingPdf(bill);
@@ -1420,46 +1627,64 @@ class _ReportListScreenState extends State<ReportListScreen>
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-            child: Row(
-              children: [
-                const Icon(Icons.calendar_month, size: 15, color: kRailwayBlue),
-                const SizedBox(width: 6),
-                const Text('Period', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    value: _billMonth,
-                    isDense: true,
-                    style: const TextStyle(fontSize: 12, color: Colors.black87),
-                    items: List.generate(
-                      12,
-                      (i) => DropdownMenuItem(value: i + 1, child: Text(DateFormat('MMM').format(DateTime(2000, i + 1)))),
-                    ),
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() => _billMonth = v);
-                      _loadBillCart();
-                    },
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: _showBillPeriodSheet,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: kRailwayBlue.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: kRailwayBlue.withValues(alpha: 0.25),
                   ),
                 ),
-                const SizedBox(width: 8),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    value: _billYear,
-                    isDense: true,
-                    style: const TextStyle(fontSize: 12, color: Colors.black87),
-                    items: List.generate(
-                      5,
-                      (i) => DropdownMenuItem(value: DateTime.now().year - 2 + i, child: Text('${DateTime.now().year - 2 + i}')),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_month,
+                      size: 18,
+                      color: kRailwayBlue,
                     ),
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() => _billYear = v);
-                      _loadBillCart();
-                    },
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'BILLING PERIOD',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _billPeriodLabel,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      _billRangeMode ? Icons.date_range : Icons.event,
+                      size: 16,
+                      color: kRailwayBlue,
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_drop_down, color: Colors.grey[600]),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
           Padding(
@@ -1473,11 +1698,11 @@ class _ReportListScreenState extends State<ReportListScreen>
                     'No billing contract linked to this station — generate bills from the Daily Billing screen first.',
                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   )
-                : items.isEmpty && !_billCartLoading
-                    ? Text(
-                        'No daily bills for ${_billMonth}/${_billYear}. Pick another month above, or generate bills from the Daily Billing screen.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      )
+: items.isEmpty && !_billCartLoading
+                        ? Text(
+                            'No daily bills for $_billPeriodLabel. Tap the period selector to change the date/range, or generate bills from the Daily Billing screen.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          )
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1491,6 +1716,27 @@ class _ReportListScreenState extends State<ReportListScreen>
                             ],
                           ),
                           const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              const Text(
+                                'DAILY BREAKDOWN',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                _billPeriodLabel,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 10),
                           Row(
                             children: [
                               Expanded(
@@ -1519,6 +1765,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                                         contractId: _billContractId,
                                         stationId: widget.stationId,
                                         stationName: widget.stationName,
+                                        initialDate: b.date,
                                       ),
                                     ),
                                   );
@@ -1603,7 +1850,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                           ),
                           const SizedBox(height: 8),
                           const Text(
-                            'Scores from the billing logic: TASK (execution) · INSP (inspection) · FEED (feedback) · FINAL (weighted). Tap a row to open Daily Billing.',
+                            'Scores from the billing logic: TASK (execution) · INSP (inspection) · FEED (feedback) · FINAL (weighted). Tap a day to open that date’s Daily Billing.',
                             style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
                           ),
                         ],

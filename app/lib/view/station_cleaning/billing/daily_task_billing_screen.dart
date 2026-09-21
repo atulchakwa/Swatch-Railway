@@ -15,14 +15,21 @@ class DailyTaskBillingScreen extends StatefulWidget {
   final String contractId;
   final String stationId;
   final String stationName;
-  const DailyTaskBillingScreen({super.key, required this.contractId, required this.stationId, required this.stationName});
+  final String? initialDate;
+  const DailyTaskBillingScreen({
+    super.key,
+    required this.contractId,
+    required this.stationId,
+    required this.stationName,
+    this.initialDate,
+  });
 
   @override
   State<DailyTaskBillingScreen> createState() => _DailyTaskBillingScreenState();
 }
 
 class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
-  final _dateCtrl = TextEditingController(text: _today());
+  late final TextEditingController _dateCtrl;
   final _fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
   int _month = DateTime.now().month;
   int _year = DateTime.now().year;
@@ -66,8 +73,23 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   @override
   void initState() {
     super.initState();
+    final init = widget.initialDate;
+    final parsed = init == null ? null : DateTime.tryParse(init);
+    if (parsed != null) {
+      _dateCtrl = TextEditingController(text: init);
+      _month = parsed.month;
+      _year = parsed.year;
+    } else {
+      _dateCtrl = TextEditingController(text: _today());
+    }
     _loadBills();
     _loadCart();
+  }
+
+  @override
+  void dispose() {
+    _dateCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCart() async {
