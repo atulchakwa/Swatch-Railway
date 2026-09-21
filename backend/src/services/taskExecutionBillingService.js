@@ -45,6 +45,20 @@ import { performanceBillingService } from './performanceBillingService.js';
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
+/* Inclusive list of yyyy-mm-dd dates from start to end (range billing). */
+function eachDate(start, end) {
+  const out = [];
+  const s = new Date(`${String(start).slice(0, 10)}T00:00:00.000Z`);
+  const e = new Date(`${String(end).slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || s > e) {
+    throw new ValidationError('Invalid or inverted date range');
+  }
+  for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
 const DEFAULT_CATEGORIES = [
   { code: 'EXECUTION', name: 'Task Execution', maxMarks: 50, dataSource: 'execution', enabled: true, order: 1 },
   { code: 'INSPECTION', name: 'Railway Inspection', maxMarks: 20, dataSource: 'inspection', enabled: true, order: 2 },
@@ -271,6 +285,17 @@ class TaskExecutionBillingService {
     });
   }
 
+  async _loadAllTasksForStation(stationId) {
+    let tasks = [];
+    try {
+      const snap = await db.collection('cleaningTasks').where('stationId', '==', stationId).get();
+      snap.forEach((d) => tasks.push({ id: d.id, ...d.data() }));
+    } catch {
+      /* keep empty */
+    }
+    return tasks;
+  }
+
   async _loadAreas(stationId) {
     let areas = [];
     try {
@@ -303,6 +328,17 @@ class TaskExecutionBillingService {
     return { count: scores.length, achievement: round2(scores.reduce((s, v) => s + v, 0) / scores.length) };
   }
 
+  async _loadAllInspectionsForStation(stationId) {
+    let list = [];
+    try {
+      const snap = await db.collection('inspections').where('stationId', '==', stationId).get();
+      snap.forEach((d) => list.push(d.data()));
+    } catch {
+      /* keep empty */
+    }
+    return list;
+  }
+
   async _loadDayFeedback(stationId, date) {
     const ratings = [];
     try {
@@ -323,6 +359,17 @@ class TaskExecutionBillingService {
     return { count: ratings.length, achievement: round2((avg / 5) * 100) };
   }
 
+  async _loadAllFeedbackForStation(stationId) {
+    let list = [];
+    try {
+      const snap = await db.collection('passenger_feedback').where('stationId', '==', stationId).get();
+      snap.forEach((d) => list.push(d.data()));
+    } catch {
+      /* keep empty */
+    }
+    return list;
+  }
+
   async _loadApprovedShiftSummaries(stationId, date) {
     let summaries = [];
     try {
@@ -335,6 +382,17 @@ class TaskExecutionBillingService {
       const approved = String(s.status || '').toLowerCase() === 'approved';
       return approved && String(s.date || '') === String(date);
     });
+  }
+
+  async _loadAllSummariesForStation(stationId) {
+    let summaries = [];
+    try {
+      const snap = await db.collection('stationShiftSummaries').where('stationId', '==', stationId).get();
+      snap.forEach((d) => summaries.push({ id: d.id, ...d.data() }));
+    } catch {
+      /* keep empty */
+    }
+    return summaries.filter((s) => String(s.status || '').toLowerCase() === 'approved');
   }
 
   async prepareDailyBill({ contractId, stationId, date }) {
@@ -382,12 +440,88 @@ class TaskExecutionBillingService {
     return this.prepareDailyBill(params);
   }
 
+  /* Consolidated live report for a date range (start..end inclusive). Loads the
+     station data ONCE and computes a bill per day, so nothing is duplicated. */
+  async previewDailyRange({ contractId, stationId, startDate, endDate }) {
+    if (!contractId || !stationId || !startDate || !endDate) {
+      throw new ValidationError('contractId, stationId, startDate, and endDate are required');
+    }
+    const contract = await this._loadContractOrFail(contractId);
+    const contractDays = computeContractDays(contract.startDate, contract.endDate);
+    if (contractDays <= 0) {
+      throw new ValidationError('Contract start/end dates are invalid; cannot determine contract days');
+    }
+    const config = await this._loadConfigOrFail(contractId);
+    const [tasks, areas, summaries, inspections, feedback] = await Promise.all([
+      this._loadAllTasksForStation(stationId),
+      this._loadAreas(stationId),
+      this._loadAllSummariesForStation(stationId),
+      this._loadAllInspectionsForStation(stationId),
+      this._loadAllFeedbackForStation(stationId),
+    ]);
+
+    const areaMeta = {};
+    areas.forEach((a) => { areaMeta[a.id || a.uid] = a; });
+    const byDate = (date, list, keyFn) =>
+      list.filter((x) => keyFn(x) === date);
+
+    const bills = [];
+    for (const date of eachDate(startDate, endDate)) {
+      const dayTasks = byDate(date, tasks, (t) => t.date || t.scheduledDate || '');
+      const daySummaries = byDate(date, summaries, (s) => String(s.date || ''));
+      const dayInspection = (() => {
+        const scores = byDate(date, inspections, (r) => String(r.inspectionDate || r.createdAt || '').substring(0, 10))
+          .filter((r) => ['COMPLETED', 'APPROVED'].includes(r.status) && typeof r.overallScore === 'number' && Number.isFinite(r.overallScore))
+          .map((r) => r.overallScore);
+        if (scores.length === 0) return { count: 0, achievement: null };
+        return { count: scores.length, achievement: round2(scores.reduce((s, v) => s + v, 0) / scores.length) };
+      })();
+      const dayFeedback = (() => {
+        const ratings = byDate(date, feedback, (r) => String(r.createdAt || '').substring(0, 10))
+          .filter((r) => r.status !== 'CANCELLED' && typeof r.overallRating === 'number' && Number.isFinite(r.overallRating))
+          .map((r) => clamp(r.overallRating, 0, 5));
+        if (ratings.length === 0) return { count: 0, achievement: null };
+        return { count: ratings.length, achievement: round2((ratings.reduce((s, v) => s + v, 0) / ratings.length / 5) * 100) };
+      })();
+
+      const areaRows = aggregateTaskAreaRows(dayTasks, areaMeta, config, daySummaries);
+      const calc = computeDailyTaskBilling({ areaRows, config, inspection: dayInspection, feedback: dayFeedback });
+      bills.push({
+        uid: '',
+        contractId,
+        contractNumber: contract.contractNumber || '',
+        stationId,
+        stationName: contract.stationName || '',
+        date,
+        contractStartDate: contract.startDate || '',
+        contractEndDate: contract.endDate || '',
+        contractDays,
+        ratePerSqft: Number(config.ratePerSqft),
+        executionSource: 'approved_shift_summaries',
+        approvedShiftSummaries: daySummaries.length,
+        status: 'preview',
+        generatedByName: '',
+        ...calc,
+      });
+    }
+    bills.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return this._summarizeBills(bills, { startDate, endDate });
+  }
+
   /* A bill is only reusable when it is a complete current-shape record. */
   _isCompleteBill(doc) {
     return doc && Number.isFinite(Number(doc.netAmount)) && doc.status === 'generated';
   }
 
-  async generateDailyBill(userData, { contractId, stationId, date }) {
+  async generateDailyBill(userData, { contractId, stationId, date, startDate, endDate }) {
+    if (startDate && endDate) {
+      return this.generateDailyBillRange(userData, { contractId, stationId, startDate, endDate });
+    }
+    return this._generateOneDay(userData, contractId, stationId, date);
+  }
+
+  /* Generate one stored daily bill for a single date without duplicates. */
+  async _generateOneDay(userData, contractId, stationId, date) {
     const existingSnap = await db.collection('task_execution_daily_bills')
       .where('contractId', '==', contractId)
       .where('stationId', '==', stationId)
@@ -397,7 +531,7 @@ class TaskExecutionBillingService {
     if (existing) {
       const d = existing.data();
       await auditService.logAudit('TASK_EXECUTION_DAILY_BILL_REUSED', userData.uid, userData.fullName || 'User', existing.id, 'task_execution_daily_bills', `Existing daily task bill returned for ${date}`);
-      return { message: 'Daily task bill already exists (returned as-is)', uid: existing.id, bill: d, reused: true };
+      return { message: 'Daily task bill already exists (returned as-is)', uid: existing.id, bill: d, reused: true, date };
     }
     // Drop any incomplete/legacy records for the date so they neither block a
     // fresh bill nor produce empty duplicate rows in the monthly report.
@@ -422,7 +556,26 @@ class TaskExecutionBillingService {
     };
     await ref.set(bill);
     await auditService.logAudit('TASK_EXECUTION_DAILY_BILL_GENERATED', userData.uid, userData.fullName || 'User', ref.id, 'task_execution_daily_bills', `Daily task bill generated for ${date}`);
-    return { message: 'Daily task bill generated', uid: ref.id, bill, reused: false };
+    return { message: 'Daily task bill generated', uid: ref.id, bill, reused: false, date };
+  }
+
+  /* Generate (or reuse) a stored bill for every date in a range — one per date. */
+  async generateDailyBillRange(userData, { contractId, stationId, startDate, endDate }) {
+    if (!startDate || !endDate) {
+      throw new ValidationError('startDate and endDate are required for range generation');
+    }
+    const dates = eachDate(startDate, endDate);
+    const output = { generated: [], reused: [], failed: [] };
+    for (const date of dates) {
+      try {
+        const r = await this._generateOneDay(userData, contractId, stationId, date);
+        (r.reused ? output.reused : output.generated).push({ date, uid: r.uid });
+      } catch (e) {
+        output.failed.push({ date, error: (e && e.message) || String(e) });
+      }
+    }
+    output.message = `Range billing done: ${output.generated.length} generated, ${output.reused.length} already existed (reused), ${output.failed.length} failed.`;
+    return output;
   }
 
   async getDailyBill({ contractId, stationId, date }) {
@@ -436,18 +589,25 @@ class TaskExecutionBillingService {
     return snap.docs[0].data();
   }
 
-  async listDailyBills({ contractId, stationId, month, year } = {}) {
+  async listDailyBills({ contractId, stationId, month, year, startDate, endDate } = {}) {
     const prefix = month && year ? `${year}-${String(month).padStart(2, '0')}` : null;
+    const rangeMode = !prefix && startDate && endDate;
     const snap = await db.collection('task_execution_daily_bills').limit(1000).get();
     const bills = [];
     snap.forEach((doc) => {
       const d = doc.data();
+      const day = String(d.date || '');
       if (contractId && d.contractId !== contractId) return;
       if (stationId && d.stationId !== stationId) return;
-      if (prefix && !(d.date || '').startsWith(prefix)) return;
+      if (prefix && !day.startsWith(prefix)) return;
+      if (rangeMode && !(day >= String(startDate) && day <= String(endDate))) return;
       if (!Number.isFinite(Number(d.netAmount))) return; // skip incomplete/legacy records
       bills.push({ id: doc.id, ...d });
     });
+    return this._summarizeBills(bills, { startDate, endDate, month, year });
+  }
+
+  _summarizeBills(bills, { startDate, endDate, month, year } = {}) {
     bills.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     const sum = (k) => roundMoney(bills.reduce((s, b) => s + (Number(b[k]) || 0), 0));
     const avg = (k) => {
@@ -456,6 +616,10 @@ class TaskExecutionBillingService {
     };
     return {
       count: bills.length,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      month: month ? Number(month) : null,
+      year: year ? Number(year) : null,
       totalExpectedWorkValue: sum('expectedWorkValue'),
       totalActualExecutionValue: sum('actualExecutionValue'),
       totalGrossAmount: sum('grossAmount'),

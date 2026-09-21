@@ -3693,33 +3693,36 @@ class PDFReportService {
     String name,
     double? score,
     double? marks,
-    String weight,
+    int weight,
   ) {
     return pw.TableRow(
       children: [
         pw.Padding(
           padding: const pw.EdgeInsets.all(5),
           child: pw.Text(name,
-              style: pw.TextStyle(fontSize: 8),
+              style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
               textAlign: pw.TextAlign.center),
         ),
         pw.Padding(
           padding: const pw.EdgeInsets.all(5),
-          child: pw.Text(weight,
+          child: pw.Text('$weight%',
               style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
               textAlign: pw.TextAlign.center),
         ),
         pw.Padding(
           padding: const pw.EdgeInsets.all(5),
           child: pw.Text(
-              score == null ? 'No data (full)' : '${score.toStringAsFixed(1)}%',
+              score == null
+                  ? 'No data (counts as full)'
+                  : '${score.toStringAsFixed(1)}%',
               style: pw.TextStyle(fontSize: 8),
               textAlign: pw.TextAlign.center),
         ),
         pw.Padding(
           padding: const pw.EdgeInsets.all(5),
-          child: pw.Text(marks == null ? '—' : marks.toStringAsFixed(1),
-              style: pw.TextStyle(fontSize: 8),
+          child: pw.Text(
+              marks == null ? '—' : '${marks.toStringAsFixed(1)} / $weight',
+              style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
               textAlign: pw.TextAlign.center),
         ),
       ],
@@ -3841,7 +3844,7 @@ class PDFReportService {
               ),
               _buildInfoRow(
                 'Contract Period',
-                '${bill.contractStartDate} → ${bill.contractEndDate}',
+                '${bill.contractStartDate}  to  ${bill.contractEndDate}',
                 'Contract Days',
                 '${bill.contractDays} days',
               ),
@@ -3921,6 +3924,86 @@ class PDFReportService {
                   ),
                 ],
               ),
+              pw.SizedBox(height: 8),
+              pw.Row(
+                children: [
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(8),
+                      decoration: pw.BoxDecoration(
+                        color: lightBg,
+                        border: pw.Border.all(color: borderColor, width: 0.5),
+                        borderRadius: pw.BorderRadius.circular(4),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            _billMoney(bill.actualExecutionValue),
+                            style: pw.TextStyle(
+                              fontSize: 11,
+                              fontWeight: pw.FontWeight.bold,
+                              color: successColor,
+                            ),
+                          ),
+                          pw.Text('EXECUTED',
+                              style: pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 6),
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(8),
+                      decoration: pw.BoxDecoration(
+                        color: lightBg,
+                        border: pw.Border.all(color: borderColor, width: 0.5),
+                        borderRadius: pw.BorderRadius.circular(4),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            _billMoney(bill.expectedWorkValue),
+                            style: pw.TextStyle(
+                                fontSize: 11, fontWeight: pw.FontWeight.bold),
+                          ),
+                          pw.Text('EXPECTED',
+                              style: pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 6),
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(8),
+                      decoration: pw.BoxDecoration(
+                        color: lightBg,
+                        border: pw.Border.all(color: borderColor, width: 0.5),
+                        borderRadius: pw.BorderRadius.circular(4),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            bill.deduction > 0
+                                ? _billMoney(bill.deduction)
+                                : 'Rs. 0.00',
+                            style: pw.TextStyle(
+                                fontSize: 11,
+                                fontWeight: pw.FontWeight.bold,
+                                color: PdfColors.red700),
+                          ),
+                          pw.Text('DEDUCTED',
+                              style: pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ]),
 
             section('3. EXECUTION SUMMARY', [
@@ -3962,9 +4045,9 @@ class PDFReportService {
                 },
                 children: [
                   headerRow('Category', 'Weight', 'Achievement', 'Marks'),
-                  _billPerfRow('Task Execution', exec?['achievement'] as double?, (exec?['marks'] as num?)?.toDouble(), '50%'),
-                  _billPerfRow('Railway Inspection', insp?['achievement'] as double?, (insp?['marks'] as num?)?.toDouble(), '20%'),
-                  _billPerfRow('Passenger Feedback', fb?['achievement'] as double?, (fb?['marks'] as num?)?.toDouble(), '30%'),
+                  _billPerfRow('Task Execution', exec?['achievement'] as double?, (exec?['marks'] as num?)?.toDouble(), 50),
+                  _billPerfRow('Railway Inspection', insp?['achievement'] as double?, (insp?['marks'] as num?)?.toDouble(), 20),
+                  _billPerfRow('Passenger Feedback', fb?['achievement'] as double?, (fb?['marks'] as num?)?.toDouble(), 30),
                   _billTotalRow(
                     [
                       'FINAL SCORE',
@@ -3994,7 +4077,7 @@ class PDFReportService {
                   pw.TableRow(
                     decoration: const pw.BoxDecoration(color: primaryColor),
                     children: [
-                      'Area', 'Sq.ft.', 'Rate', 'Req', 'Done', 'Expected ₹', 'Actual ₹',
+                      'Area', 'Sq.ft.', 'Rate', 'Req', 'Done', 'Expected Rs.', 'Actual Rs.',
                     ]
                         .map(
                           (h) => pw.Padding(
@@ -4111,8 +4194,8 @@ class PDFReportService {
                 _buildInfoRow(
                   'Total Payable',
                   _billMoney(bill.totalPayable),
-                  'Executions (Req → Done)',
-                  '${bill.areaRows.fold<int>(0, (s, r) => s + ((r['required'] as num?) ?? 0).toInt())} → ${bill.areaRows.fold<int>(0, (s, r) => s + ((r['completed'] as num?) ?? 0).toInt())}',
+                  'Executions (Req  to  Done)',
+                  '${bill.areaRows.fold<int>(0, (s, r) => s + ((r['required'] as num?) ?? 0).toInt())}  to  ${bill.areaRows.fold<int>(0, (s, r) => s + ((r['completed'] as num?) ?? 0).toInt())}',
                 ),
             ]),
 
@@ -4144,9 +4227,9 @@ class PDFReportService {
           final content = <pw.Widget>[
             _buildAuditHeader(
               railway,
-              'DAILY TASK BILLING\nMONTHLY SUMMARY',
+              meta['reportTitle'] ?? 'DAILY TASK BILLING\nMONTHLY SUMMARY',
               'Station Cleaning | Value = Area × Rate × Executions',
-              'MONTH',
+              (meta['periodLabel'] ?? 'MONTH').toString(),
               '${meta['monthLabel'] ?? ''}',
               true,
             ),
@@ -4169,14 +4252,14 @@ class PDFReportService {
                   ),
                   _buildInfoRow(
                     'Contract Period',
-                    '${meta['contractStartDate'] ?? '—'} → ${meta['contractEndDate'] ?? '—'}',
+                    '${meta['contractStartDate'] ?? '—'}  to  ${meta['contractEndDate'] ?? '—'}',
                     'Billing Rate',
                     'Rs. ${NumberFormat('#,##,##0.00', 'en_IN').format((meta['ratePerSqft'] as num?) ?? 0)} / sq.ft.',
                   ),
                   _buildInfoRow(
                     'Bills Generated',
                     '${month.count}',
-                    'Days in Month',
+                    'Days Covered',
                     (meta['monthLabel'] ?? '').toString(),
                   ),
                 ],
@@ -4265,7 +4348,7 @@ class PDFReportService {
                 pw.TableRow(
                   decoration: const pw.BoxDecoration(color: primaryColor),
                   children: [
-                    'Date', 'Expected ₹', 'Actual ₹', 'Final %', 'Deduct ₹', 'Net ₹',
+                    'Date', 'Expected Rs.', 'Actual Rs.', 'Final %', 'Deduct Rs.', 'Net Rs.',
                   ]
                       .map(
                         (h) => pw.Padding(

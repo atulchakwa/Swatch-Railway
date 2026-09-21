@@ -25,6 +25,17 @@ class TaskBillingRepository {
     throw Exception(jsonDecode(response.body)['error'] ?? jsonDecode(response.body)['message'] ?? 'Failed to preview daily bill');
   }
 
+  static Future<DailyBillingMonth> previewRange(String contractId, String stationId, String startDate, String endDate) async {
+    final uri = Uri.parse('$baseUrl/api/task-execution-billing/daily/preview/range').replace(
+      queryParameters: {'contractId': contractId, 'stationId': stationId, 'startDate': startDate, 'endDate': endDate},
+    );
+    final response = await http.get(uri, headers: await _headers());
+    if (response.statusCode == 200) {
+      return DailyBillingMonth.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception(jsonDecode(response.body)['error'] ?? jsonDecode(response.body)['message'] ?? 'Failed to preview daily bill range');
+  }
+
   static Future<DailyTaskBillingResponse> generate(String contractId, String stationId, String date) async {
     final response = await http.post(
       Uri.parse('$baseUrl/api/task-execution-billing/daily/generate'),
@@ -38,6 +49,18 @@ class TaskBillingRepository {
     throw Exception(jsonDecode(response.body)['error'] ?? jsonDecode(response.body)['message'] ?? 'Failed to generate daily bill');
   }
 
+  static Future<Map<String, dynamic>> generateRange(String contractId, String stationId, String startDate, String endDate) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/task-execution-billing/daily/generate'),
+      headers: await _headers(),
+      body: jsonEncode({'contractId': contractId, 'stationId': stationId, 'startDate': startDate, 'endDate': endDate}),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(jsonDecode(response.body)['error'] ?? jsonDecode(response.body)['message'] ?? 'Failed to generate daily bill range');
+  }
+
   static Future<DailyTaskBillingResponse?> getByDate(String contractId, String stationId, String date) async {
     final uri = Uri.parse('$baseUrl/api/task-execution-billing/daily').replace(
       queryParameters: {'contractId': contractId, 'stationId': stationId, 'date': date},
@@ -47,10 +70,19 @@ class TaskBillingRepository {
     return null;
   }
 
-  static Future<DailyBillingMonth> list(String contractId, String stationId, int month, int year) async {
-    final uri = Uri.parse('$baseUrl/api/task-execution-billing/daily/list').replace(
-      queryParameters: {'contractId': contractId, 'stationId': stationId, 'month': '$month', 'year': '$year'},
-    );
+  static Future<DailyBillingMonth> list(String contractId, String stationId, int month, int year, {String? startDate, String? endDate}) async {
+    final params = <String, String>{
+      'contractId': contractId,
+      'stationId': stationId,
+    };
+    if (startDate != null && endDate != null) {
+      params['startDate'] = startDate;
+      params['endDate'] = endDate;
+    } else {
+      params['month'] = '$month';
+      params['year'] = '$year';
+    }
+    final uri = Uri.parse('$baseUrl/api/task-execution-billing/daily/list').replace(queryParameters: params);
     final response = await http.get(uri, headers: await _headers());
     if (response.statusCode == 200) {
       return DailyBillingMonth.fromJson(jsonDecode(response.body) as Map<String, dynamic>);

@@ -31,6 +31,12 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   DailyBillingMonth _monthData = DailyBillingMonth();
   bool _loading = false;
 
+  bool _rangeMode = false;
+  String _fromDate = _today();
+  String _toDate = _today();
+  DailyBillingMonth? _rangeData;
+  bool _rangeReportLoading = false;
+
   static String _today() {
     final now = DateTime.now();
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -182,6 +188,225 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     }
   }
 
+  // ── Date range billing ──────────────────────────────────────────────────────
+  Future<void> _pickFromDate() async {
+    final now = DateTime.now();
+    final current = DateTime.tryParse(_fromDate) ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current,
+      firstDate: DateTime(2023, 1, 1),
+      lastDate: now,
+      helpText: 'Pick range FROM date',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _fromDate = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      if (_fromDate.compareTo(_toDate) > 0) _toDate = _fromDate;
+    });
+  }
+
+  Future<void> _pickToDate() async {
+    final now = DateTime.now();
+    final current = DateTime.tryParse(_toDate) ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current,
+      firstDate: DateTime(2023, 1, 1),
+      lastDate: now,
+      helpText: 'Pick range TO date',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _toDate = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      if (_toDate.compareTo(_fromDate) < 0) _fromDate = _toDate;
+    });
+  }
+
+  Future<void> _previewRange() async {
+    setState(() {
+      _rangeReportLoading = true;
+      _rangeData = null;
+    });
+    try {
+      final data = await TaskBillingRepository.previewRange(widget.contractId, widget.stationId, _fromDate, _toDate);
+      if (!mounted) return;
+      setState(() {
+        _rangeData = data;
+        _rangeReportLoading = false;
+      });
+      if (data.bills.isEmpty) {
+        _showStatus('No cleaning tasks found in the selected range.', isError: true);
+      } else {
+        _showStatus('Range report ready: ${data.count} day(s) previewed.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _rangeReportLoading = false);
+      _showStatus(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _generateRange() async {
+    setState(() => _loading = true);
+    try {
+      final result = await TaskBillingRepository.generateRange(widget.contractId, widget.stationId, _fromDate, _toDate);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      final generated = (result['generated'] as List?)?.length ?? 0;
+      final reused = (result['reused'] as List?)?.length ?? 0;
+      final failed = (result['failed'] as List?)?.length ?? 0;
+      _showStatus('Range: $generated generated, $reused reused, $failed failed — no duplicates.');
+      await _loadRangeStored();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showStatus(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _loadRangeStored() async {
+    try {
+      final data = await TaskBillingRepository.list(widget.contractId, widget.stationId, _month, _year,
+          startDate: _fromDate, endDate: _toDate);
+      if (!mounted) return;
+      setState(() => _rangeData = data);
+    } catch (_) {
+      /* keep previous range report visible */
+    }
+    await _loadBills();
+  }
+
+  Future<void> _openRangeDay(DailyTaskBillingResponse day) async {
+    setState(() => _rangeMode = false);
+    _dateCtrl.text = day.date;
+    await _openBill(day);
+  }
+
+  Future<void> _downloadRangePdf() async {
+    final data = _rangeData;
+    if (data == null || data.bills.isEmpty) return;
+    setState(() => _loading = true);
+    try {
+      final bytes = await PDFReportService.generateDailyTaskBillingMonthPdf(
+        {
+          'stationName': widget.stationName,
+          'contractNumber': _bill?.contractNumber ?? data.bills.first.contractNumber,
+          'contractStartDate': _bill?.contractStartDate ?? data.bills.first.contractStartDate,
+          'contractEndDate': _bill?.contractEndDate ?? data.bills.first.contractEndDate,
+          'ratePerSqft': _bill?.ratePerSqft ?? data.bills.first.ratePerSqft,
+          'monthLabel': '$_fromDate  to  $_toDate',
+          'periodLabel': 'DATE RANGE',
+          'reportTitle': 'DAILY TASK BILLING\nRANGE REPORT',
+        },
+        data,
+      );
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/daily_billing_${widget.stationName}_${_fromDate}_$_toDate.pdf');
+      await file.writeAsBytes(bytes);
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('PDF saved: ${file.path}');
+        await Share.shareXFiles([XFile(file.path)], text: 'Daily Task Billing (Range) PDF - ${widget.stationName} - $_fromDate to $_toDate');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('Error generating PDF: $e', isError: true);
+      }
+    }
+  }
+
+  // ── Range report card (the report you see on the cart) ─────────────────────
+  Widget _buildRangeReportCard() {
+    final data = _rangeData;
+    if (data == null || data.bills.isEmpty) return const SizedBox.shrink();
+    Widget cell(String t, {bool bold = false, Color? color, MainAxisAlignment align = MainAxisAlignment.center}) => Expanded(
+          flex: 1,
+          child: Text(
+            t,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, fontWeight: bold ? FontWeight.bold : FontWeight.normal, color: color ?? Colors.black87),
+          ),
+        );
+
+    return _sectionCard(
+      icon: Icons.summarize,
+      title: 'Range Report',
+      subtitle: '$_fromDate  to  $_toDate · ${data.count} day(s) · no duplicates',
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            gradient: kRailwayBannerGradient,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('NET PAYABLE (${data.count} days)', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                    const SizedBox(height: 4),
+                    Text(_money(data.totalNetAmount), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _loading ? null : _downloadRangePdf,
+                icon: const Icon(Icons.download, color: Colors.white),
+                tooltip: 'Download Range PDF',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _kvRow('Expected work value', _money(data.totalExpectedWorkValue)),
+        _kvRow('Actual executed value', _money(data.totalActualExecutionValue), bold: true, valueColor: kSuccessGreen),
+        _kvRow('Total deduction', _money(data.totalDeduction), valueColor: kErrorRed),
+        if (data.avgFinalScore != null)
+          _kvRow('Avg final score', '${data.avgFinalScore!.toStringAsFixed(1)}%',
+              valueColor: _scoreColor(data.avgFinalScore!)),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Text('DAY', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+            ),
+            cell('Expected', bold: true),
+            cell('Actual', bold: true),
+            cell('Final %', bold: true),
+            cell('Net ₹', bold: true),
+          ],
+        ),
+        const Divider(height: 8),
+        for (final d in data.bills)
+          InkWell(
+            onTap: () => _openRangeDay(d),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: Text(d.date, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                  ),
+                  cell(_money(d.expectedWorkValue)),
+                  cell(_money(d.actualExecutionValue)),
+                  cell('${d.overallScore.toStringAsFixed(1)}%'),
+                  cell(_money(d.netAmount), bold: true, color: kSuccessGreen),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Future<void> _downloadPdf() async {
     final b = _bill;
     if (b == null) return;
@@ -279,6 +504,17 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                   const SizedBox(height: 14),
                   _buildAreaRatesRow(),
                   const SizedBox(height: 14),
+                  if (_rangeMode && _rangeData != null && _rangeData!.bills.isNotEmpty) ...[
+                    if (_rangeReportLoading)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else ...[
+                      _buildRangeReportCard(),
+                      const SizedBox(height: 14),
+                    ],
+                  ],
                   _buildMonthBillsCard(),
                   const SizedBox(height: 24),
                 ],
@@ -316,80 +552,120 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
             style: TextStyle(color: Colors.white70, fontSize: 12),
           ),
           const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(8)),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: _loading ? null : () => _shiftDate(-1),
-                  icon: const Icon(Icons.chevron_left, color: Colors.white),
-                  tooltip: 'Previous day',
-                  visualDensity: VisualDensity.compact,
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _dateCtrl,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
-                    decoration: InputDecoration(
-                      hintText: 'YYYY-MM-DD',
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      border: InputBorder.none,
-                      isDense: true,
+          _buildModeToggle(),
+          const SizedBox(height: 12),
+          if (_rangeMode)
+            _buildRangeFields()
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: _loading ? null : () => _shiftDate(-1),
+                    icon: const Icon(Icons.chevron_left, color: Colors.white),
+                    tooltip: 'Previous day',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _dateCtrl,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                      decoration: InputDecoration(
+                        hintText: 'YYYY-MM-DD',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        border: InputBorder.none,
+                        isDense: true,
+                      ),
+                      onSubmitted: (_) => _preview(),
                     ),
-                    onSubmitted: (_) => _preview(),
                   ),
-                ),
-                IconButton(
-                  onPressed: _loading ? null : _pickDate,
-                  icon: const Icon(Icons.calendar_month, color: Colors.white70, size: 20),
-                  tooltip: 'Pick date',
-                  visualDensity: VisualDensity.compact,
-                ),
-                IconButton(
-                  onPressed: _loading ? null : () => _shiftDate(1),
-                  icon: const Icon(Icons.chevron_right, color: Colors.white),
-                  tooltip: 'Next day',
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _loading ? null : _preview,
-                  icon: const Icon(Icons.visibility, size: 18),
-                  label: const Text('Preview / View'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white38),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  IconButton(
+                    onPressed: _loading ? null : _pickDate,
+                    icon: const Icon(Icons.calendar_month, color: Colors.white70, size: 20),
+                    tooltip: 'Pick date',
+                    visualDensity: VisualDensity.compact,
                   ),
-                ),
+                  IconButton(
+                    onPressed: _loading ? null : () => _shiftDate(1),
+                    icon: const Icon(Icons.chevron_right, color: Colors.white),
+                    tooltip: 'Next day',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
               ),
-              if (_canGenerate) ...[
-                const SizedBox(width: 10),
+            ),
+          const SizedBox(height: 14),
+          if (_rangeMode)
+            Row(
+              children: [
                 Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _loading ? null : _generate,
-                    icon: Icon(_loading ? Icons.hourglass_empty : Icons.check_circle_outline, size: 18),
-                    label: Text(_loading ? 'Working…' : 'Generate'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kAccentYellow,
-                      foregroundColor: kTextPrimary,
+                  child: OutlinedButton.icon(
+                    onPressed: _loading ? null : _previewRange,
+                    icon: const Icon(Icons.visibility, size: 18),
+                    label: const Text('Preview Range'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white38),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                 ),
+                if (_canGenerate) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _loading ? null : _generateRange,
+                      icon: Icon(_loading ? Icons.hourglass_empty : Icons.date_range, size: 18),
+                      label: Text(_loading ? 'Working…' : 'Generate All'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kAccentYellow,
+                        foregroundColor: kTextPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
               ],
-            ],
-          ),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _loading ? null : _preview,
+                    icon: const Icon(Icons.visibility, size: 18),
+                    label: const Text('Preview / View'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white38),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                if (_canGenerate) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _loading ? null : _generate,
+                      icon: Icon(_loading ? Icons.hourglass_empty : Icons.check_circle_outline, size: 18),
+                      label: Text(_loading ? 'Working…' : 'Generate'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kAccentYellow,
+                        foregroundColor: kTextPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           if (_isReadOnly) ...[
             const SizedBox(height: 10),
             const Row(
@@ -407,6 +683,77 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
           ],
         ],
       ),
+    );
+  }
+
+  // ── Mode toggle (single day / date range) ──────────────────────────────────
+  Widget _buildModeToggle() {
+    Widget chip(bool selected, String label, VoidCallback onTap) => Expanded(
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected ? kAccentYellow : Colors.white12,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? kTextPrimary : Colors.white,
+                ),
+              ),
+            ),
+          ),
+        );
+    return Row(
+      children: [
+        chip(!_rangeMode, 'Single Day', () => setState(() => _rangeMode = false)),
+        const SizedBox(width: 8),
+        chip(_rangeMode, 'Date Range', () => setState(() => _rangeMode = true)),
+      ],
+    );
+  }
+
+  Widget _buildDateField(String label, String value, VoidCallback onTap) {
+    return Expanded(
+      child: InkWell(
+        onTap: _loading ? null : onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(8)),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
+                    const SizedBox(height: 2),
+                    Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.calendar_month, color: Colors.white70, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRangeFields() {
+    return Row(
+      children: [
+        _buildDateField('FROM', _fromDate, _pickFromDate),
+        const SizedBox(width: 8),
+        _buildDateField('TO', _toDate, _pickToDate),
+      ],
     );
   }
 
