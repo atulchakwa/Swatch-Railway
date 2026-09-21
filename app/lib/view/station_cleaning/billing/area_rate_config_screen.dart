@@ -153,7 +153,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Area Rates (₹/sq.ft.)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Area Rates & Weightage (%)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: kRailwayBlue,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -289,7 +289,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text('Area-wise Rates (${_areas.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          child: Text('Area-wise Rates & Weightage (${_areas.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         ),
         for (final a in _areas) _areaTile(a, defaultRate),
       ],

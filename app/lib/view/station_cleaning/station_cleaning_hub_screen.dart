@@ -140,7 +140,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
           _moduleCard(context, Icons.edit_document, 'Billing', Colors.deepOrange, () => _openBilling(context)),
           _moduleCard(context, Icons.calendar_month, 'Daily Billing', Colors.teal.shade700, () => _openDailyBilling(context)),
           _moduleCard(context, Icons.payments, 'Performance Billing', Colors.redAccent, () => _openPerformanceBilling(context)),
-          _moduleCard(context, Icons.currency_rupee, 'Area Rates', Colors.brown, () => _openAreaRates(context)),
+          _moduleCard(context, Icons.currency_rupee, 'Area Rates & Weightage', Colors.brown, () => _openAreaRates(context)),
         ],
       ),
       (
