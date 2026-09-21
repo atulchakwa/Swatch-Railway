@@ -148,6 +148,13 @@ class PerformanceBillingService {
         throw new ValidationError(`Invalid weightage for area "${areaId}"`);
       }
     }
+    const entries = Object.entries(weightages).filter(([, v]) => v !== null);
+    if (entries.length > 0) {
+      const total = entries.reduce((s, [, v]) => s + Number(v), 0);
+      if (Math.abs(total - 100) > 0.01) {
+        throw new ValidationError(`Area weightages must total exactly 100% (currently ${Math.round(total * 100) / 100}%)`);
+      }
+    }
 
     const gst = Number(config.gstRate);
     if (Number.isNaN(gst) || gst < 0) throw new ValidationError('GST rate must be a non-negative number');

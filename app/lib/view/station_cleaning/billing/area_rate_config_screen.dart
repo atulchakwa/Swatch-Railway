@@ -109,11 +109,20 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
     return m;
   }
 
+  double get _weightTotal => _buildAreaWeightages().values.fold<double>(0, (s, v) => s + v);
+
   Future<void> _save() async {
     final defaultRate = double.tryParse(_rateCtrl.text.trim());
     if ((defaultRate == null || defaultRate <= 0) && _buildAreaOverrides().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Set the default rate or at least one area rate before saving'), backgroundColor: kWarningOrange),
+      );
+      return;
+    }
+    final weightages = _buildAreaWeightages();
+    if (weightages.isNotEmpty && (_weightTotal - 100).abs() > 0.01) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Area weightages must total exactly 100% (currently ${_weightTotal.toStringAsFixed(2)}%)'), backgroundColor: kErrorRed),
       );
       return;
     }
@@ -126,7 +135,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       await ApiService.savePerformanceBillingConfig(widget.contractId, {
         'ratePerSqft': defaultRate != null && defaultRate > 0 ? defaultRate : null,
         'areaRateOverrides': _buildAreaOverrides(),
-        'areaWeightages': _buildAreaWeightages(),
+        'areaWeightages': weightages,
         'gstRate': c?.gstRate ?? 18,
         'verifiedStatuses': c != null ? List.of(c.verifiedStatuses) : ['approved'],
         'categories': c != null ? c.categories.map((cat) => cat.toJson()).toList() : [],
@@ -195,7 +204,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                           Expanded(
                             child: Text(
                               'Daily billing values each cleaning pass as area sq.ft. × ₹/sq.ft. Leave a rate blank to use the default. '
-                              'Set a Weightage % per area — it is shown for reference on the daily bill.',
+                              'Weightages are shown for reference on the daily bill and must total 100%.',
                               style: TextStyle(fontSize: 11, color: Colors.black87, height: 1.4),
                             ),
                           ),
@@ -291,8 +300,47 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
           padding: const EdgeInsets.only(left: 4, bottom: 6),
           child: Text('Area-wise Rates & Weightage (${_areas.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         ),
+        _buildWeightageTotal(),
         for (final a in _areas) _areaTile(a, defaultRate),
       ],
+    );
+  }
+
+  Widget _buildWeightageTotal() {
+    final total = _weightTotal;
+    final hasAny = total > 0;
+    final ok = hasAny && (total - 100).abs() <= 0.01;
+    final Color color;
+    final String caption;
+    if (ok) {
+      color = kSuccessGreen;
+      caption = 'Weightage total is 100% ✓';
+    } else if (hasAny) {
+      color = kErrorRed;
+      caption = 'Weightage total must be 100%';
+    } else {
+      color = Colors.grey[500]!;
+      caption = 'Optional — set weights per area summing to 100%';
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(ok ? Icons.check_circle : Icons.percent, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Total Weightage: ${total.toStringAsFixed(2)}%  —  $caption',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

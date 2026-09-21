@@ -117,14 +117,22 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     return m;
   }
 
+  double get _weightTotal => _buildAreaWeightages().values.fold<double>(0, (s, v) => s + v);
+
   Future<void> _save() async {
+    final weightages = _buildAreaWeightages();
+    if (weightages.isNotEmpty && (_weightTotal - 100).abs() > 0.01) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Area weightages must total exactly 100% (currently ${_weightTotal.toStringAsFixed(2)}%)'), backgroundColor: kErrorRed));
+      return;
+    }
     setState(() { _saving = true; _error = null; });
     try {
       final rateText = _rateCtrl.text.trim();
       await ApiService.savePerformanceBillingConfig(widget.contractId, {
         'ratePerSqft': rateText.isEmpty ? null : double.tryParse(rateText) ?? 0,
         'areaRateOverrides': _buildAreaOverrides(),
-        'areaWeightages': _buildAreaWeightages(),
+        'areaWeightages': weightages,
         'gstRate': double.tryParse(_gstCtrl.text.trim()) ?? 18,
         'otherDeductions': double.tryParse(_otherDeductionsCtrl.text.trim()) ?? 0,
         'verifiedStatuses': _verifiedStatuses,
@@ -311,12 +319,13 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
               const SizedBox(height: 4),
               Text(
                 'Leave the rate blank to use the default. Set a rate to override the price for that area. '
-                'Set a Weightage % (e.g. tender weightage) per area — it is shown for reference on the daily bill.',
+                'Weightages are shown for reference on the daily bill and must total 100%.',
                 style: TextStyle(fontSize: 11, color: Colors.grey[600], height: 1.35),
               ),
             ],
           ),
         ),
+        _buildWeightageTotal(),
         Expanded(
           child: _areas.isEmpty
               ? Center(
@@ -405,6 +414,44 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _buildWeightageTotal() {
+    final total = _weightTotal;
+    final hasAny = total > 0;
+    final ok = hasAny && (total - 100).abs() <= 0.01;
+    final Color color;
+    final String caption;
+    if (ok) {
+      color = kSuccessGreen;
+      caption = 'Weightage total is 100% ✓';
+    } else if (hasAny) {
+      color = kErrorRed;
+      caption = 'Weightage total must be 100%';
+    } else {
+      color = Colors.grey[500]!;
+      caption = 'Optional — set weights per area summing to 100%';
+    }
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(ok ? Icons.check_circle : Icons.percent, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Total Weightage: ${total.toStringAsFixed(2)}%  —  $caption',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

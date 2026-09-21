@@ -1208,11 +1208,13 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     }
 
     double? totalAct, totalExp, totalReq, totalDone;
+    double totalWt = 0;
     for (final r in b.areaRows) {
       totalAct = (totalAct ?? 0) + ((r['actualExecutionValue'] as num?) ?? 0).toDouble();
       totalExp = (totalExp ?? 0) + ((r['expectedValue'] as num?) ?? 0).toDouble();
       totalReq = (totalReq ?? 0) + ((r['required'] as num?) ?? 0).toDouble();
       totalDone = (totalDone ?? 0) + ((r['completed'] as num?) ?? 0).toDouble();
+      totalWt += ((r['weightage'] as num?) ?? 0).toDouble();
     }
 
     return _sectionCard(
@@ -1270,7 +1272,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                       cell('TOTAL', colW['area']!, align: TextAlign.left, bold: true, color: kRailwayBlue),
                       cell('', colW['sqft']!),
                       cell('', colW['rate']!),
-                      cell('', colW['wt']!),
+                      cell(totalWt > 0 ? totalWt.toStringAsFixed(1) : '', colW['wt']!, bold: true, color: kRailwayBlue),
                       cell((totalReq ?? 0).toStringAsFixed(0), colW['req']!, bold: true),
                       cell((totalDone ?? 0).toStringAsFixed(0), colW['done']!, bold: true),
                       cell(_money(totalExp ?? 0), colW['exp']!, bold: true),
