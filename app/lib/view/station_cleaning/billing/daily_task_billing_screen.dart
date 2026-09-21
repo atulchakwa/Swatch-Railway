@@ -31,6 +31,9 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   DailyBillingMonth _monthData = DailyBillingMonth();
   bool _loading = false;
 
+  DailyBillingMonth _cart = DailyBillingMonth();
+  bool _cartLoading = false;
+
   bool _rangeMode = false;
   String _fromDate = _today();
   String _toDate = _today();
@@ -64,6 +67,34 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   void initState() {
     super.initState();
     _loadBills();
+    _loadCart();
+  }
+
+  Future<void> _loadCart() async {
+    if (mounted) setState(() => _cartLoading = true);
+    try {
+      final cart = await TaskBillingRepository.list(
+        widget.contractId,
+        widget.stationId,
+        _month,
+        _year,
+        startDate: '2018-01-01',
+        endDate: _today(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _cart = cart;
+        _cartLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _cartLoading = false);
+      _showStatus('Report cart unavailable: $e', isError: true);
+    }
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([_loadBills(), _loadCart()]);
   }
 
   Future<void> _loadBills() async {
@@ -154,7 +185,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         _loading = false;
       });
       _showStatus(bill.status == 'generated' ? 'Daily bill generated (immutable).' : 'Existing bill reused.');
-      await _loadBills();
+      await _refreshAll();
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -257,6 +288,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
       final reused = (result['reused'] as List?)?.length ?? 0;
       final failed = (result['failed'] as List?)?.length ?? 0;
       _showStatus('Range: $generated generated, $reused reused, $failed failed — no duplicates.');
+      await _loadCart();
       await _loadRangeStored();
     } catch (e) {
       if (!mounted) return;
@@ -459,6 +491,32 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     }
   }
 
+  Future<void> _downloadDayPdf(DailyTaskBillingResponse b) async {
+    setState(() => _loading = true);
+    try {
+      final bytes = await PDFReportService.generateDailyTaskBillingPdf(b);
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/daily_billing_${widget.stationName}_${b.date}.pdf');
+      await file.writeAsBytes(bytes);
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('PDF saved: ${file.path}');
+        await Share.shareXFiles([XFile(file.path)], text: 'Daily Task Billing PDF - ${widget.stationName} - ${b.date}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _showStatus('Error generating PDF: $e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _openCartDay(DailyTaskBillingResponse b) async {
+    setState(() => _rangeMode = false);
+    _dateCtrl.text = b.date;
+    await _openBill(b);
+  }
+
   // ── Formatting helpers ──────────────────────────────────────────────────────
   String _money(double v) => _fmt.format(v);
   String _pct(double? v) => v == null ? '—' : '${v.toStringAsFixed(1)}%';
@@ -484,7 +542,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
       body: _loading && _bill == null && _monthData.bills.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadBills,
+              onRefresh: _refreshAll,
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
@@ -503,6 +561,8 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                   ],
                   const SizedBox(height: 14),
                   _buildAreaRatesRow(),
+                  const SizedBox(height: 14),
+                  _buildReportCartCard(),
                   const SizedBox(height: 14),
                   if (_rangeMode && _rangeData != null && _rangeData!.bills.isNotEmpty) ...[
                     if (_rangeReportLoading)
@@ -1212,6 +1272,121 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   }
 
   // ── Monthly bills ───────────────────────────────────────────────────────────
+  // ── Daily Billing Reports cart ──────────────────────────────────────────────
+  Widget _buildReportCartCard() {
+    final items = _cart.bills;
+    Widget cell(String t, {bool bold = false, Color? color}) => Expanded(
+          flex: 1,
+          child: Text(
+            t,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, fontWeight: bold ? FontWeight.bold : FontWeight.normal, color: color ?? Colors.black87),
+          ),
+        );
+
+    return _sectionCard(
+      icon: Icons.receipt_long,
+      title: 'Daily Billing Reports (Cart)',
+      subtitle: items.isEmpty
+          ? null
+          : '${items.length} report${items.length != 1 ? 's' : ''} · Net ${_money(_cart.totalNetAmount)} · newest first',
+      children: [
+        if (_cartLoading && items.isEmpty)
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 10),
+              Text('Loading reports\u2026', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          )
+        else if (items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.shopping_cart_outlined, size: 16, color: Colors.grey[400]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No daily bills yet. Pick any date above (including past days) and tap Generate to add a report here.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text('DATE', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+              ),
+              cell('FINAL %', bold: true),
+              cell('NET \u20B9', bold: true),
+              const SizedBox(width: 34),
+            ],
+          ),
+          const Divider(height: 8),
+          for (final b in items)
+            Container(
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: kRailwayBlue.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: InkWell(
+                onTap: _loading ? null : () => _openCartDay(b),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          b.date,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      cell('${b.overallScore.toStringAsFixed(1)}%', color: _scoreColor(b.overallScore)),
+                      cell(_money(b.netAmount), bold: true, color: kSuccessGreen),
+                      IconButton(
+                        onPressed: _loading ? null : () => _downloadDayPdf(b),
+                        icon: const Icon(Icons.download, size: 17),
+                        color: kRailwayBlue,
+                        tooltip: 'Download ${b.date} PDF',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text('TOTAL (${items.length} days)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kRailwayBlue)),
+              ),
+              cell(_pct(_cart.avgFinalScore), bold: true),
+              cell(_money(_cart.totalNetAmount), bold: true, color: kSuccessGreen),
+              const SizedBox(width: 34),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Tap a row to open that day\u2019s report · Download icon saves its PDF.',
+            style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildMonthBillsCard() {
     Widget h(String t, double w) => SizedBox(
           width: w,
