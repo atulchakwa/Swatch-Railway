@@ -27,6 +27,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   late TextEditingController _rateCtrl;
   late List<String> _verifiedStatuses;
   final Map<String, TextEditingController> _areaRateCtrls = {};
+  final Map<String, TextEditingController> _areaWeightCtrls = {};
   List<StationArea> _areas = [];
 
   @override
@@ -44,6 +45,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     _otherDeductionsCtrl.dispose();
     _rateCtrl.dispose();
     for (final c in _areaRateCtrls.values) c.dispose();
+    for (final c in _areaWeightCtrls.values) c.dispose();
     super.dispose();
   }
 
@@ -85,6 +87,11 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                 ? '${_config!.areaRateOverrides[uid]}'
                 : '',
           );
+          _areaWeightCtrls[uid] ??= TextEditingController(
+            text: _config?.areaWeightages[uid] != null && _config!.areaWeightages[uid]! > 0
+                ? '${_config!.areaWeightages[uid]}'
+                : '',
+          );
         }
       });
     } catch (_) {
@@ -101,6 +108,15 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     return m;
   }
 
+  Map<String, double> _buildAreaWeightages() {
+    final m = <String, double>{};
+    _areaWeightCtrls.forEach((areaId, ctrl) {
+      final v = double.tryParse(ctrl.text.trim());
+      if (v != null && v > 0) m[areaId] = v;
+    });
+    return m;
+  }
+
   Future<void> _save() async {
     setState(() { _saving = true; _error = null; });
     try {
@@ -108,6 +124,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
       await ApiService.savePerformanceBillingConfig(widget.contractId, {
         'ratePerSqft': rateText.isEmpty ? null : double.tryParse(rateText) ?? 0,
         'areaRateOverrides': _buildAreaOverrides(),
+        'areaWeightages': _buildAreaWeightages(),
         'gstRate': double.tryParse(_gstCtrl.text.trim()) ?? 18,
         'otherDeductions': double.tryParse(_otherDeductionsCtrl.text.trim()) ?? 0,
         'verifiedStatuses': _verifiedStatuses,
@@ -293,8 +310,9 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
               ),
               const SizedBox(height: 4),
               Text(
-                'Leave a field blank to use the default rate. Set a value to override the price for that particular area.',
-                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                'Leave the rate blank to use the default. Set a rate to override the price for that area. '
+                'Set a Weightage % (e.g. tender weightage) per area — it is shown for reference on the daily bill.',
+                style: TextStyle(fontSize: 11, color: Colors.grey[600], height: 1.35),
               ),
             ],
           ),
@@ -311,8 +329,10 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                   itemBuilder: (context, i) {
                     final a = _areas[i];
                     final uid = a.uid!;
-                    final ctrl = _areaRateCtrls[uid]!;
-                    final ov = double.tryParse(ctrl.text.trim());
+                    final rateCtrl = _areaRateCtrls[uid]!;
+                    final weightCtrl = _areaWeightCtrls[uid]!;
+                    final ov = double.tryParse(rateCtrl.text.trim());
+                    final wt = double.tryParse(weightCtrl.text.trim());
                     final effective = ov ?? defaultRate;
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -341,19 +361,39 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                                       color: ov != null ? kSuccessGreen : Colors.grey[500]),
                                 ),
                                 const SizedBox(height: 4),
-                                SizedBox(
-                                  width: 110,
-                                  child: TextField(
-                                    controller: ctrl,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Rate override ₹',
-                                      isDense: true,
-                                      border: OutlineInputBorder(),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 106,
+                                      child: TextField(
+                                        controller: rateCtrl,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Rate ₹',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                        style: const TextStyle(fontSize: 12),
+                                        onChanged: (_) => setState(() {}),
+                                      ),
                                     ),
-                                    style: const TextStyle(fontSize: 12),
-                                    onChanged: (_) => setState(() {}),
-                                  ),
+                                    const SizedBox(width: 6),
+                                    SizedBox(
+                                      width: 96,
+                                      child: TextField(
+                                        controller: weightCtrl,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: InputDecoration(
+                                          labelText: 'Wt${wt != null ? ' ${wt.toStringAsFixed(2)}%' : ' %'}',
+                                          isDense: true,
+                                          border: const OutlineInputBorder(),
+                                        ),
+                                        style: const TextStyle(fontSize: 12),
+                                        onChanged: (_) => setState(() {}),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

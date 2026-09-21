@@ -91,6 +91,7 @@ class BillingConfig {
   final String billingMethod;
   final double? ratePerSqft;
   final Map<String, double> areaRateOverrides;
+  final Map<String, double> areaWeightages;
   final int gstRate;
   final double otherDeductions;
   final List<String> verifiedStatuses;
@@ -104,6 +105,7 @@ class BillingConfig {
     required this.billingMethod,
     this.ratePerSqft,
     this.areaRateOverrides = const {},
+    this.areaWeightages = const {},
     required this.gstRate,
     this.otherDeductions = 0,
     required this.verifiedStatuses,
@@ -119,6 +121,9 @@ class BillingConfig {
       billingMethod: json['billingMethod'] ?? 'PERFORMANCE_WEIGHTAGE',
       ratePerSqft: (json['ratePerSqft'] as num?)?.toDouble(),
       areaRateOverrides: (json['areaRateOverrides'] as Map<String, dynamic>?)
+              ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
+          const {},
+      areaWeightages: (json['areaWeightages'] as Map<String, dynamic>?)
               ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
           const {},
       gstRate: (json['gstRate'] as num?)?.toInt() ?? 18,

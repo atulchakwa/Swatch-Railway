@@ -20,6 +20,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
   BillingConfig? _config;
   late TextEditingController _rateCtrl;
   final Map<String, TextEditingController> _areaRateCtrls = {};
+  final Map<String, TextEditingController> _areaWeightCtrls = {};
   List<StationArea> _areas = [];
 
   @override
@@ -33,6 +34,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
   void dispose() {
     _rateCtrl.dispose();
     for (final c in _areaRateCtrls.values) c.dispose();
+    for (final c in _areaWeightCtrls.values) c.dispose();
     super.dispose();
   }
 
@@ -74,6 +76,11 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                 ? '${_config!.areaRateOverrides[uid]}'
                 : '',
           );
+          _areaWeightCtrls[uid] ??= TextEditingController(
+            text: _config?.areaWeightages[uid] != null && _config!.areaWeightages[uid]! > 0
+                ? '${_config!.areaWeightages[uid]}'
+                : '',
+          );
         }
       });
     } catch (_) {
@@ -87,6 +94,15 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
   Map<String, double> _buildAreaOverrides() {
     final m = <String, double>{};
     _areaRateCtrls.forEach((areaId, ctrl) {
+      final v = double.tryParse(ctrl.text.trim());
+      if (v != null && v > 0) m[areaId] = v;
+    });
+    return m;
+  }
+
+  Map<String, double> _buildAreaWeightages() {
+    final m = <String, double>{};
+    _areaWeightCtrls.forEach((areaId, ctrl) {
       final v = double.tryParse(ctrl.text.trim());
       if (v != null && v > 0) m[areaId] = v;
     });
@@ -110,6 +126,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       await ApiService.savePerformanceBillingConfig(widget.contractId, {
         'ratePerSqft': defaultRate != null && defaultRate > 0 ? defaultRate : null,
         'areaRateOverrides': _buildAreaOverrides(),
+        'areaWeightages': _buildAreaWeightages(),
         'gstRate': c?.gstRate ?? 18,
         'verifiedStatuses': c != null ? List.of(c.verifiedStatuses) : ['approved'],
         'categories': c != null ? c.categories.map((cat) => cat.toJson()).toList() : [],
@@ -177,7 +194,8 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Daily billing values each cleaning pass as area sq.ft. × ₹/sq.ft. Leave a field blank to use the default rate.',
+                              'Daily billing values each cleaning pass as area sq.ft. × ₹/sq.ft. Leave a rate blank to use the default. '
+                              'Set a Weightage % per area — it is shown for reference on the daily bill.',
                               style: TextStyle(fontSize: 11, color: Colors.black87, height: 1.4),
                             ),
                           ),
@@ -280,8 +298,10 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
 
   Widget _areaTile(StationArea a, double? defaultRate) {
     final uid = a.uid!;
-    final ctrl = _areaRateCtrls[uid]!;
-    final ov = double.tryParse(ctrl.text.trim());
+    final rateCtrl = _areaRateCtrls[uid]!;
+    final weightCtrl = _areaWeightCtrls[uid]!;
+    final ov = double.tryParse(rateCtrl.text.trim());
+    final wt = double.tryParse(weightCtrl.text.trim());
     final effective = ov ?? defaultRate;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -332,19 +352,39 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                SizedBox(
-                  width: 110,
-                  child: TextField(
-                    controller: ctrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Rate override ₹',
-                      isDense: true,
-                      border: OutlineInputBorder(),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 106,
+                      child: TextField(
+                        controller: rateCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'Rate ₹',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        style: const TextStyle(fontSize: 12),
+                        onChanged: (_) => setState(() {}),
+                      ),
                     ),
-                    style: const TextStyle(fontSize: 12),
-                    onChanged: (_) => setState(() {}),
-                  ),
+                    const SizedBox(width: 6),
+                    SizedBox(
+                      width: 96,
+                      child: TextField(
+                        controller: weightCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Wt${wt != null ? ' ${wt.toStringAsFixed(2)}%' : ' %'}',
+                          isDense: true,
+                          border: const OutlineInputBorder(),
+                        ),
+                        style: const TextStyle(fontSize: 12),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

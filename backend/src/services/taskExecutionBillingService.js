@@ -27,14 +27,15 @@
  *   netAmount              = grossEligibleWorkValue - deduction  (floor 0)
  *   netAmount -> GST -> totalPayable
  *
- * Area weightage is NOT used anywhere in this engine. Each scheduled cleaning
- * pass on a tender area is valued independently at its own sq.ft. x rate; the
- * number of required executions comes from the actual cleaningTasks records for
- * the day. There is NO individual task approval: a task is COMPLETED directly
- * by the contractor supervisor. Completed executions are counted from the day's
- * APPROVED shift summaries (the approval unit) — each approved summary's area
- * entries contribute their `times` to that area's completed executions, capped
- * at the number of tasks required for the area.
+ * Area weightage (editable per area in Billing Configuration) is carried on
+ * each area row and shown for reference; it does NOT change the value formula.
+ * Each scheduled cleaning pass on a tender area is valued independently at its
+ * own sq.ft. x rate; the number of required executions comes from the actual
+ * cleaningTasks records for the day. There is NO individual task approval: a
+ * task is COMPLETED directly by the contractor supervisor. Completed executions
+ * are counted from the day's APPROVED shift summaries (the approval unit) — each
+ * approved summary's area entries contribute their `times` to that area's
+ * completed executions, capped at the number of tasks required for the area.
  */
 
 import { db } from '../database/index.js';
@@ -82,6 +83,7 @@ const DEFAULT_CATEGORIES = [
 export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSummaries = []) {
   const ratePerSqft = Number(config.ratePerSqft);
   const overrides = config.areaRateOverrides || {};
+  const weightages = config.areaWeightages || {};
   const rateOf = (areaId) => {
     const o = overrides[areaId];
     if (o !== undefined && o !== null && o !== '' && !Number.isNaN(Number(o)) && Number(o) >= 0) return Number(o);
@@ -116,6 +118,11 @@ export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSum
         areaSqft: sqftOf(area),
         ratePerSqft: rateOf(areaId),
         frequency: area.cleaningFrequency || area.frequencyType || '',
+        weightage: (() => {
+          const w = weightages[areaId];
+          if (w !== undefined && w !== null && w !== '' && !Number.isNaN(Number(w))) return Number(w);
+          return null;
+        })(),
         required: 0,
         completed: 0,
       };

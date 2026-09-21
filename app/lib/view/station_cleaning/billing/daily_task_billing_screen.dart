@@ -1194,7 +1194,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
 
   // ── Area-wise execution table ──────────────────────────────────────────────
   Widget _buildAreaTableCard(DailyTaskBillingResponse b) {
-    const colW = {'area': 140.0, 'sqft': 64.0, 'rate': 80.0, 'req': 46.0, 'done': 46.0, 'exp': 96.0, 'act': 96.0};
+    const colW = {'area': 128.0, 'sqft': 60.0, 'rate': 72.0, 'wt': 58.0, 'req': 44.0, 'done': 44.0, 'exp': 94.0, 'act': 94.0};
     Widget cell(Object? text, double w, {TextAlign align = TextAlign.right, bool bold = false, Color? color}) {
       return SizedBox(
         width: w,
@@ -1235,6 +1235,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                       cell('Area', colW['area']!, align: TextAlign.left, bold: true, color: kRailwayBlue),
                       cell('SQFT', colW['sqft']!, bold: true, color: kRailwayBlue),
                       cell('Rate', colW['rate']!, bold: true, color: kRailwayBlue),
+                      cell('Wt%', colW['wt']!, bold: true, color: kRailwayBlue),
                       cell('Req', colW['req']!, bold: true, color: kRailwayBlue),
                       cell('Done', colW['done']!, bold: true, color: kRailwayBlue),
                       cell('Expected₹', colW['exp']!, bold: true, color: kRailwayBlue),
@@ -1251,6 +1252,9 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                         cell(b.areaRows[i]['areaName'] ?? '—', colW['area']!, align: TextAlign.left),
                         cell((b.areaRows[i]['areaSqft'] as num?)?.toDouble().toStringAsFixed(0) ?? '0', colW['sqft']!),
                         cell('₹${((b.areaRows[i]['ratePerSqft'] as num?) ?? 0).toStringAsFixed(2)}', colW['rate']!),
+                        cell(b.areaRows[i]['weightage'] == null
+                            ? '—'
+                            : '${((b.areaRows[i]['weightage'] as num?) ?? 0).toStringAsFixed(1)}', colW['wt']!),
                         cell('${b.areaRows[i]['required'] ?? 0}', colW['req']!),
                         cell('${b.areaRows[i]['completed'] ?? 0}', colW['done']!),
                         cell(_money(((b.areaRows[i]['expectedValue'] as num?) ?? 0).toDouble()), colW['exp']!, bold: true),
@@ -1266,6 +1270,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                       cell('TOTAL', colW['area']!, align: TextAlign.left, bold: true, color: kRailwayBlue),
                       cell('', colW['sqft']!),
                       cell('', colW['rate']!),
+                      cell('', colW['wt']!),
                       cell((totalReq ?? 0).toStringAsFixed(0), colW['req']!, bold: true),
                       cell((totalDone ?? 0).toStringAsFixed(0), colW['done']!, bold: true),
                       cell(_money(totalExp ?? 0), colW['exp']!, bold: true),

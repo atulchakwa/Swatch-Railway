@@ -73,6 +73,7 @@ class PerformanceBillingService {
       if (existing.ratePerSqft === undefined) existing.ratePerSqft = null;
       if (existing.otherDeductions === undefined) existing.otherDeductions = 0;
       if (!existing.areaRateOverrides || typeof existing.areaRateOverrides !== 'object') existing.areaRateOverrides = {};
+      if (!existing.areaWeightages || typeof existing.areaWeightages !== 'object') existing.areaWeightages = {};
       if (existing.renormaliseInactiveActivities !== undefined) existing.renormaliseInactiveActivities = undefined;
       return existing;
     }
@@ -90,6 +91,7 @@ class PerformanceBillingService {
       billingMethod: 'PERFORMANCE_WEIGHTAGE',
       ratePerSqft: null,
       areaRateOverrides: {},
+      areaWeightages: {},
       gstRate: contract.gstRate || 18,
       otherDeductions: 0,
       verifiedStatuses: ['approved'],
@@ -139,6 +141,14 @@ class PerformanceBillingService {
       }
     }
 
+    const weightages = config.areaWeightages || {};
+    if (typeof weightages !== 'object') throw new ValidationError('Area weightages must be a map of areaId to percentage');
+    for (const [areaId, val] of Object.entries(weightages)) {
+      if (val !== null && (Number.isNaN(Number(val)) || Number(val) < 0)) {
+        throw new ValidationError(`Invalid weightage for area "${areaId}"`);
+      }
+    }
+
     const gst = Number(config.gstRate);
     if (Number.isNaN(gst) || gst < 0) throw new ValidationError('GST rate must be a non-negative number');
     const other = Number(config.otherDeductions);
@@ -166,6 +176,15 @@ class PerformanceBillingService {
         overrides[areaId] = Number(val);
       }
       next.areaRateOverrides = overrides;
+    }
+    if (body.areaWeightages !== undefined) {
+      const weightages = {};
+      for (const [areaId, val] of Object.entries(body.areaWeightages || {})) {
+        if (areaId === '') continue;
+        if (val === null || val === undefined || val === '') continue;
+        weightages[areaId] = Number(val);
+      }
+      next.areaWeightages = weightages;
     }
     if (body.gstRate !== undefined) next.gstRate = Number(body.gstRate);
     if (body.otherDeductions !== undefined) next.otherDeductions = Number(body.otherDeductions) || 0;
@@ -490,6 +509,7 @@ class PerformanceBillingService {
       billingMethod: config.billingMethod,
       ratePerSqft: config.ratePerSqft ?? null,
       areaRateOverrides: { ...(config.areaRateOverrides || {}) },
+      areaWeightages: { ...(config.areaWeightages || {}) },
       categories: (config.categories || []).map(c => ({ ...c })),
       activities: [],
       penaltyRules: (config.penaltyRules || []).map(r => ({ ...r })),
