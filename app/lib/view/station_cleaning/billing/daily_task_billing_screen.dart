@@ -1051,6 +1051,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         _groupLabel('WORK VALUE'),
         _kvRow('Expected work value', _money(b.expectedWorkValue)),
         _kvRow('Actual executed value', _money(b.actualExecutionValue), bold: true, valueColor: kSuccessGreen),
+        _kvRow('Gross eligible value', _money(b.grossEligibleWorkValue), bold: true, valueColor: kSuccessGreen),
         _kvRow('Sq.ft. executed / expected', '${b.executedSqFt.toStringAsFixed(0)} / ${b.expectedSqFt.toStringAsFixed(0)}'),
         if (b.taskExecutionScore != null) ...[
           const SizedBox(height: 8),
@@ -1079,17 +1080,24 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
           ),
         ],
         const Divider(height: 22),
-        _groupLabel('ADJUSTMENTS'),
-        if (b.lessExecutionAmount > 0)
-          _kvRow('Less on performance (${b.lessExecutionPercent.toStringAsFixed(0)}%)', _money(b.lessExecutionAmount), valueColor: kErrorRed),
-        _kvRow('Eligible amount', _money(b.eligibleAmount)),
-        if (b.penaltyApplied && b.penalty > 0) _kvRow('Penalty', _money(b.penalty), valueColor: kErrorRed),
-        _kvRow('Deduction', _money(b.deduction), valueColor: kErrorRed),
+        _groupLabel('PENALTY & DEDUCTIONS'),
+        if (b.penaltyApplied && b.penalty > 0)
+          _kvRow('Performance penalty (score ${b.overallScore.toStringAsFixed(1)}%)', _money(b.performancePenaltyAmount), valueColor: kErrorRed)
+        else
+          _kvRow('Performance penalty (score ${b.overallScore.toStringAsFixed(1)}%)', 'Nil'),
+        if (b.otherDeductions > 0)
+          _kvRow('Other contractual deductions', _money(b.otherDeductions), valueColor: kErrorRed),
+        _kvRow('Total deduction', _money(b.deduction), valueColor: kErrorRed, bold: true),
         const Divider(height: 22),
         _groupLabel('PAYABLE'),
         _kvRow('Net payable', _money(b.netAmount), bold: true, valueColor: kSuccessGreen),
         if (b.gstRate > 0) _kvRow('GST (${b.gstRate.toStringAsFixed(0)}%)', _money(b.gstAmount)),
         if (b.gstRate > 0) _kvRow('Total payable', _money(b.totalPayable), bold: true, valueColor: kRailwayBlue),
+        const SizedBox(height: 6),
+        Text(
+          'The final score ${b.overallScore.toStringAsFixed(1)}% is used ONLY to select the configured penalty/deduction rule — it is never multiplied into the work value.',
+          style: const TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
+        ),
       ],
     );
   }

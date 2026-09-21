@@ -71,6 +71,7 @@ class PerformanceBillingService {
       // Migrate legacy docs: drop the removed activity-weightage config.
       if (Array.isArray(existing.activities)) existing.activities = [];
       if (existing.ratePerSqft === undefined) existing.ratePerSqft = null;
+      if (existing.otherDeductions === undefined) existing.otherDeductions = 0;
       if (!existing.areaRateOverrides || typeof existing.areaRateOverrides !== 'object') existing.areaRateOverrides = {};
       if (existing.renormaliseInactiveActivities !== undefined) existing.renormaliseInactiveActivities = undefined;
       return existing;
@@ -90,6 +91,7 @@ class PerformanceBillingService {
       ratePerSqft: null,
       areaRateOverrides: {},
       gstRate: contract.gstRate || 18,
+      otherDeductions: 0,
       verifiedStatuses: ['approved'],
       categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),
       activities: [],
@@ -139,6 +141,8 @@ class PerformanceBillingService {
 
     const gst = Number(config.gstRate);
     if (Number.isNaN(gst) || gst < 0) throw new ValidationError('GST rate must be a non-negative number');
+    const other = Number(config.otherDeductions);
+    if (Number.isNaN(other) || other < 0) throw new ValidationError('Other contractual deductions must be a non-negative number');
     return true;
   }
 
@@ -164,6 +168,7 @@ class PerformanceBillingService {
       next.areaRateOverrides = overrides;
     }
     if (body.gstRate !== undefined) next.gstRate = Number(body.gstRate);
+    if (body.otherDeductions !== undefined) next.otherDeductions = Number(body.otherDeductions) || 0;
     if (body.verifiedStatuses !== undefined) next.verifiedStatuses = Array.isArray(body.verifiedStatuses) ? body.verifiedStatuses : ['approved'];
     if (body.categories !== undefined) next.categories = body.categories;
     if (body.penaltyRules !== undefined) next.penaltyRules = body.penaltyRules;
@@ -490,6 +495,7 @@ class PerformanceBillingService {
       penaltyRules: (config.penaltyRules || []).map(r => ({ ...r })),
       verifiedStatuses: config.verifiedStatuses || ['approved'],
       gstRate: config.gstRate,
+      otherDeductions: Number(config.otherDeductions) || 0,
     };
   }
 

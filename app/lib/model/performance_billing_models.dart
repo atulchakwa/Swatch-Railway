@@ -92,6 +92,7 @@ class BillingConfig {
   final double? ratePerSqft;
   final Map<String, double> areaRateOverrides;
   final int gstRate;
+  final double otherDeductions;
   final List<String> verifiedStatuses;
   final List<PerformanceBillingCategory> categories;
   final List<PenaltyRule> penaltyRules;
@@ -104,6 +105,7 @@ class BillingConfig {
     this.ratePerSqft,
     this.areaRateOverrides = const {},
     required this.gstRate,
+    this.otherDeductions = 0,
     required this.verifiedStatuses,
     required this.categories,
     required this.penaltyRules,
@@ -120,6 +122,7 @@ class BillingConfig {
               ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
           const {},
       gstRate: (json['gstRate'] as num?)?.toInt() ?? 18,
+      otherDeductions: (json['otherDeductions'] as num?)?.toDouble() ?? 0,
       verifiedStatuses: (json['verifiedStatuses'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? ['approved'],
       categories: (json['categories'] as List<dynamic>?)
           ?.map((e) => PerformanceBillingCategory.fromJson(e as Map<String, dynamic>))

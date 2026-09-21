@@ -8,21 +8,23 @@
  *
  *   1. Daily Expected Work Value      = SUM over areas(sqft x rate x requiredExecutions)
  *   2. Daily Actual Execution Value   = SUM over areas(sqft x rate x completedExecutions)
- *   3. Task Execution Score           = executedSqft / expectedSqft x 100
+ *   3. Task Execution Score           = actualExecutionValue / expectedWorkValue x 100
  *
  * The final performance score weights three categories (must total 100):
- *   - Task Execution      (50%)  <- value-weighted sq.ft. achievement
+ *   - Task Execution      (50%)  <- value-weighted achievement
  *   - Railway Inspection  (20%)  <- avg overallScore of the day's inspections
  *   - Passenger Feedback  (30%)  <- avg overallRating / 5 * 100
  * Categories with no data for a day are treated as fully achieved (neutral),
  * mirroring the OBHS / monthly station-billing convention.
  *
- * Financial pipeline (mirrors the monthly performance bill, scaled per day):
- *   lessExecutionPercent = 100 - overallScore
- *   lessExecutionAmount  = expectedWorkValue x lessExecutionPercent / 100
- *   eligibleAmount       = min(actualExecutionValue,
- *                              expectedWorkValue - lessExecutionAmount)
- *   penalty (configurable slabs keyed off overallScore) -> subtract
+ * Financial pipeline (act-of-work valued bill — the score is NEVER multiplied
+ * into the work value; it only selects the contract's penalty/deduction rule):
+ *   grossEligibleWorkValue = total actual execution value
+ *   performancePenalty     = applied by the configured penalty slabs keyed off
+ *                            the final performance score
+ *   otherDeductions        = configurable contractual deductions
+ *   deduction              = performancePenalty + otherDeductions
+ *   netAmount              = grossEligibleWorkValue - deduction  (floor 0)
  *   netAmount -> GST -> totalPayable
  *
  * Area weightage is NOT used anywhere in this engine. Each scheduled cleaning
@@ -155,7 +157,7 @@ export function computeDailyTaskBilling({
   const actualExecutionValue = roundMoney(areaRows.reduce((s, r) => s + (r.actualExecutionValue || 0), 0));
   const expectedSqFt = roundMoney(areaRows.reduce((s, r) => s + (r.expectedSqft || 0), 0));
   const executedSqFt = roundMoney(areaRows.reduce((s, r) => s + (r.executedSqft || 0), 0));
-  const taskExecutionScore = expectedSqFt > 0 ? clamp(round2((executedSqFt / expectedSqFt) * 100), 0, 100) : null;
+  const taskExecutionScore = expectedWorkValue > 0 ? clamp(round2((actualExecutionValue / expectedWorkValue) * 100), 0, 100) : null;
   const inspectionScore = inspection && inspection.count > 0 ? clamp(round2(inspection.achievement), 0, 100) : null;
   const feedbackScore = feedback && feedback.count > 0 ? clamp(round2(feedback.achievement), 0, 100) : null;
 
@@ -190,20 +192,23 @@ export function computeDailyTaskBilling({
   const overallScore = clamp(round2(categories.reduce((s, c) => s + c.marks, 0)), 0, 100);
   const grade = overallScore >= 90 ? 'A' : overallScore >= 80 ? 'B' : overallScore >= 70 ? 'C' : overallScore >= 60 ? 'D' : 'E';
 
-  const lessExecutionPercent = round2(clamp(100 - overallScore, 0, 100));
-  const lessExecutionAmount = roundMoney((expectedWorkValue * lessExecutionPercent) / 100);
-  const eligibleAmount = roundMoney(Math.max(0, Math.min(actualExecutionValue, expectedWorkValue - lessExecutionAmount)));
-  const penalty = applyPenaltyRules(config.penaltyRules, overallScore, expectedWorkValue, eligibleAmount);
-  const netAmount = roundMoney(Math.max(0, eligibleAmount - penalty.totalPenalty));
+  // Work value stays work value. The final score only picks the contract's
+  // configured performance penalty/deduction rule; it is not multiplied into
+  // the actual executed work value.
+  const grossEligibleWorkValue = roundMoney(actualExecutionValue);
+  const penalty = applyPenaltyRules(config.penaltyRules, overallScore, expectedWorkValue, grossEligibleWorkValue);
+  const otherDeductions = roundMoney(Math.max(0, Number(config.otherDeductions) || 0));
+  const deduction = roundMoney(penalty.totalPenalty + otherDeductions);
+  const netAmount = roundMoney(Math.max(0, grossEligibleWorkValue - deduction));
   const gstRate = Number(config.gstRate) || 0;
   const gstAmount = roundMoney((netAmount * gstRate) / 100);
   const totalPayable = roundMoney(netAmount * (1 + gstRate / 100));
-  const deduction = roundMoney(Math.max(0, expectedWorkValue - netAmount));
 
   return {
     expectedWorkValue,
     actualExecutionValue,
     grossAmount: actualExecutionValue,
+    grossEligibleWorkValue,
     expectedSqFt,
     executedSqFt,
     taskExecutionScore,
@@ -220,9 +225,8 @@ export function computeDailyTaskBilling({
       : { count: 0, achievement: null },
     overallScore,
     grade,
-    lessExecutionPercent,
-    lessExecutionAmount,
-    eligibleAmount,
+    performancePenaltyAmount: penalty.totalPenalty,
+    otherDeductions,
     penalty,
     deduction,
     netAmount,
@@ -508,9 +512,12 @@ class TaskExecutionBillingService {
     return this._summarizeBills(bills, { startDate, endDate });
   }
 
-  /* A bill is only reusable when it is a complete current-shape record. */
+  /* A bill is only reusable when it is a complete current-shape record
+     (includes the split work-value / penalty / deduction pipeline). */
   _isCompleteBill(doc) {
-    return doc && Number.isFinite(Number(doc.netAmount)) && doc.status === 'generated';
+    return doc && Number.isFinite(Number(doc.netAmount))
+      && Number.isFinite(Number(doc.grossEligibleWorkValue))
+      && doc.status === 'generated';
   }
 
   async generateDailyBill(userData, { contractId, stationId, date, startDate, endDate }) {
@@ -601,7 +608,7 @@ class TaskExecutionBillingService {
       if (stationId && d.stationId !== stationId) return;
       if (prefix && !day.startsWith(prefix)) return;
       if (rangeMode && !(day >= String(startDate) && day <= String(endDate))) return;
-      if (!Number.isFinite(Number(d.netAmount))) return; // skip incomplete/legacy records
+      if (!Number.isFinite(Number(d.netAmount)) || !Number.isFinite(Number(d.grossEligibleWorkValue))) return; // skip incomplete/legacy records
       bills.push({ id: doc.id, ...d });
     });
     return this._summarizeBills(bills, { startDate, endDate, month, year });
@@ -623,6 +630,8 @@ class TaskExecutionBillingService {
       totalExpectedWorkValue: sum('expectedWorkValue'),
       totalActualExecutionValue: sum('actualExecutionValue'),
       totalGrossAmount: sum('grossAmount'),
+      totalPerformancePenalty: sum('performancePenaltyAmount'),
+      totalOtherDeductions: sum('otherDeductions'),
       totalDeduction: sum('deduction'),
       totalNetAmount: sum('netAmount'),
       avgTaskExecutionScore: avg('taskExecutionScore'),

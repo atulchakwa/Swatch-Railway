@@ -4180,32 +4180,36 @@ class PDFReportService {
             ]),
 
             section('6. FINANCIAL SUMMARY', [
-              if (bill.lessExecutionPercent > 0 || bill.lessExecutionAmount > 0)
-                _buildInfoRow(
-                  'Less on Performance (${bill.lessExecutionPercent.toStringAsFixed(1)}%)',
-                  _billMoney(bill.lessExecutionAmount),
-                  'Eligible Amount',
-                  _billMoney(bill.eligibleAmount),
-                ),
               _buildInfoRow(
-                'Penalty',
-                bill.penaltyApplied ? _billMoney(bill.penalty) : 'Nil',
-                'Deduction',
-                _billMoney(bill.deduction),
+                'Gross Eligible Work Value (Actual Executed)',
+                _billMoney(bill.grossEligibleWorkValue),
+                'Expected Work Value',
+                _billMoney(bill.expectedWorkValue),
               ),
               _buildInfoRow(
+                'Performance Penalty (Score ${bill.overallScore.toStringAsFixed(1)}%)',
+                bill.penaltyApplied ? _billMoney(bill.penalty) : 'Nil',
+                'Other Contractual Deductions',
+                bill.otherDeductions > 0 ? _billMoney(bill.otherDeductions) : 'Nil',
+              ),
+              _buildInfoRow(
+                'Total Deduction',
+                _billMoney(bill.deduction),
                 'Net Payable',
                 _billMoney(bill.netAmount),
-                bill.gstRate > 0 ? 'GST (${bill.gstRate.toStringAsFixed(0)}%)' : 'GST',
-                bill.gstRate > 0 ? _billMoney(bill.gstAmount) : 'Not applicable',
               ),
-              if (bill.gstRate > 0)
-                _buildInfoRow(
-                  'Total Payable',
-                  _billMoney(bill.totalPayable),
-                  'Executions (Req  to  Done)',
-                  '${bill.areaRows.fold<int>(0, (s, r) => s + ((r['required'] as num?) ?? 0).toInt())}  to  ${bill.areaRows.fold<int>(0, (s, r) => s + ((r['completed'] as num?) ?? 0).toInt())}',
-                ),
+              _buildInfoRow(
+                'GST (${bill.gstRate.toStringAsFixed(0)}%)',
+                bill.gstRate > 0 ? _billMoney(bill.gstAmount) : 'Not applicable',
+                'Total Payable',
+                _billMoney(bill.totalPayable),
+              ),
+              _buildInfoRow(
+                'Executions (Req to Done)',
+                '${bill.areaRows.fold<int>(0, (s, r) => s + ((r['required'] as num?) ?? 0).toInt())}  to  ${bill.areaRows.fold<int>(0, (s, r) => s + ((r['completed'] as num?) ?? 0).toInt())}',
+                'Final Performance Score',
+                '${bill.overallScore.toStringAsFixed(1)}% (Grade ${bill.grade})',
+              ),
             ]),
 
             _buildSignatures(),
@@ -4321,8 +4325,14 @@ class PDFReportService {
                     _billMoney(month.totalActualExecutionValue),
                   ),
                   _buildInfoRow(
-                    'Total Gross',
+                    'Total Gross Eligible',
                     _billMoney(month.totalGrossAmount),
+                    'Total Performance Penalty',
+                    _billMoney(month.totalPerformancePenalty),
+                  ),
+                  _buildInfoRow(
+                    'Total Other Deductions',
+                    _billMoney(month.totalOtherDeductions),
                     'Total Deduction',
                     _billMoney(month.totalDeduction),
                   ),

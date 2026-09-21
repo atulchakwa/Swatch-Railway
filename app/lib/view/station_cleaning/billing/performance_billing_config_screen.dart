@@ -23,6 +23,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   late List<PerformanceBillingCategory> _categories;
   late List<PenaltyRule> _penaltyRules;
   late TextEditingController _gstCtrl;
+  late TextEditingController _otherDeductionsCtrl;
   late TextEditingController _rateCtrl;
   late List<String> _verifiedStatuses;
   final Map<String, TextEditingController> _areaRateCtrls = {};
@@ -32,6 +33,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   void initState() {
     super.initState();
     _gstCtrl = TextEditingController();
+    _otherDeductionsCtrl = TextEditingController();
     _rateCtrl = TextEditingController();
     _load();
   }
@@ -39,6 +41,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   @override
   void dispose() {
     _gstCtrl.dispose();
+    _otherDeductionsCtrl.dispose();
     _rateCtrl.dispose();
     for (final c in _areaRateCtrls.values) c.dispose();
     super.dispose();
@@ -54,6 +57,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
         _categories = List.of(c.categories);
         _penaltyRules = List.of(c.penaltyRules);
         _gstCtrl.text = '${c.gstRate}';
+        _otherDeductionsCtrl.text = c.otherDeductions > 0 ? '${c.otherDeductions}' : '';
         _rateCtrl.text = c.ratePerSqft != null ? '${c.ratePerSqft}' : '';
         _verifiedStatuses = List.of(c.verifiedStatuses);
         _loading = false;
@@ -105,6 +109,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
         'ratePerSqft': rateText.isEmpty ? null : double.tryParse(rateText) ?? 0,
         'areaRateOverrides': _buildAreaOverrides(),
         'gstRate': double.tryParse(_gstCtrl.text.trim()) ?? 18,
+        'otherDeductions': double.tryParse(_otherDeductionsCtrl.text.trim()) ?? 0,
         'verifiedStatuses': _verifiedStatuses,
         'categories': _categories.map((c) => c.toJson()).toList(),
         'penaltyRules': _penaltyRules.map((r) => r.toJson()).toList(),
@@ -498,6 +503,17 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(labelText: 'GST Rate (%)', isDense: true, border: OutlineInputBorder()),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _otherDeductionsCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Other Contractual Deductions (₹)',
+                    helperText: 'Fixed amount deducted per bill (e.g. water charges, misc). 0 = none.',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
               ],
             ),
           ),
@@ -532,10 +548,12 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                   'AREA → SQFT → RATE → ACTUAL EXECUTION → GROSS WORK VALUE\n\n'
                   'Each scheduled cleaning pass for an area is valued as area-sqft × ₹/sqft. '
                   'Scheduled Work Value = Σ(sqft × rate × required executions). '
-                  'Gross Work Value = Σ(sqft × rate × executions verified via APPROVED shift summaries). '
-                  'Execution achievement = Gross ÷ Scheduled. '
+                  'Actual Work Value = Σ(sqft × rate × executions verified via APPROVED shift summaries). '
+                  'Execution achievement = Actual ÷ Scheduled. '
                   'Final score = weighted 50% execution + 20% inspection + 30% feedback. '
-                  'Deductions apply off the scheduled value; the bill is capped at the actual (approved) work value.',
+                  'The final score is NOT multiplied into the work value — it only selects the '
+                  'configured penalty/deduction slab. Net Payable = Actual Work Value − Performance '
+                  'Penalty − Other Contractual Deductions, then GST.',
                   style: TextStyle(fontSize: 11, color: Colors.grey[700], height: 1.4),
                 ),
               ],

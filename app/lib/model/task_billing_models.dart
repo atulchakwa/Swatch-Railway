@@ -25,10 +25,11 @@ class DailyTaskBillingResponse {
   final double overallScore;
   final String grade;
 
-  // Financial pipeline.
-  final double lessExecutionPercent;
-  final double lessExecutionAmount;
-  final double eligibleAmount;
+  // Financial pipeline (score NEVER multiplies the work value; it only picks
+  // the configured penalty/deduction rule).
+  final double grossEligibleWorkValue;
+  final double performancePenaltyAmount;
+  final double otherDeductions;
   final bool penaltyApplied;
   final double penalty;
 
@@ -64,9 +65,9 @@ class DailyTaskBillingResponse {
     this.categories = const [],
     this.overallScore = 0,
     this.grade = 'E',
-    this.lessExecutionPercent = 0,
-    this.lessExecutionAmount = 0,
-    this.eligibleAmount = 0,
+    this.grossEligibleWorkValue = 0,
+    this.performancePenaltyAmount = 0,
+    this.otherDeductions = 0,
     this.penaltyApplied = false,
     this.penalty = 0,
     this.deduction = 0,
@@ -109,9 +110,9 @@ class DailyTaskBillingResponse {
           : const [],
       overallScore: num2('overallScore'),
       grade: (json['grade'] ?? 'E').toString(),
-      lessExecutionPercent: num2('lessExecutionPercent'),
-      lessExecutionAmount: num2('lessExecutionAmount'),
-      eligibleAmount: num2('eligibleAmount'),
+      grossEligibleWorkValue: num2('grossEligibleWorkValue'),
+      performancePenaltyAmount: num2('performancePenaltyAmount'),
+      otherDeductions: num2('otherDeductions'),
       penaltyApplied: penalty['applied'] == true,
       penalty: ((penalty['totalPenalty'] as num?) ?? 0).toDouble(),
       deduction: num2('deduction'),
@@ -133,6 +134,8 @@ class DailyBillingMonth {
   final double totalExpectedWorkValue;
   final double totalActualExecutionValue;
   final double totalGrossAmount;
+  final double totalPerformancePenalty;
+  final double totalOtherDeductions;
   final double totalDeduction;
   final double totalNetAmount;
   final double? avgTaskExecutionScore;
@@ -146,6 +149,8 @@ class DailyBillingMonth {
     this.totalExpectedWorkValue = 0,
     this.totalActualExecutionValue = 0,
     this.totalGrossAmount = 0,
+    this.totalPerformancePenalty = 0,
+    this.totalOtherDeductions = 0,
     this.totalDeduction = 0,
     this.totalNetAmount = 0,
     this.avgTaskExecutionScore,
@@ -164,6 +169,8 @@ class DailyBillingMonth {
       totalExpectedWorkValue: num2('totalExpectedWorkValue'),
       totalActualExecutionValue: num2('totalActualExecutionValue'),
       totalGrossAmount: num2('totalGrossAmount'),
+      totalPerformancePenalty: num2('totalPerformancePenalty'),
+      totalOtherDeductions: num2('totalOtherDeductions'),
       totalDeduction: num2('totalDeduction'),
       totalNetAmount: num2('totalNetAmount'),
       avgTaskExecutionScore: numOpt('avgTaskExecutionScore'),
