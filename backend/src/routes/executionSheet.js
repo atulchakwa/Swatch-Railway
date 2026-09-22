@@ -24,4 +24,13 @@ router.post('/api/execution-sheet/daily/:uid/verify', verifyToken, requirePermis
 // ─── Monthly summary (50% billing component) ──────────────────────────────────
 router.get('/api/execution-sheet/monthly', verifyToken, requirePermission(PERMISSIONS.VIEW_BILLING), asyncHandler(async (req, res) => res.json(await executionSheetService.getMonthlySummary(req.query))));
 
+// ─── Area weightage management (ECR-SC-WEIGHT-2026-002) ───────────────────────
+router.get('/api/execution-sheet/items/:uid/weightages', verifyToken, requirePermission(PERMISSIONS.VIEW_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.getItemWeightageDetail(req.params.uid))));
+router.put('/api/execution-sheet/items/:uid/weightages', verifyToken, requirePermission(PERMISSIONS.MANAGE_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.updateItemWeightages(req.params.uid, req.user, req.body))));
+router.post('/api/execution-sheet/items/:uid/weightages/reset', verifyToken, requirePermission(PERMISSIONS.MANAGE_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.resetItemWeightages(req.params.uid, req.user))));
+router.post('/api/execution-sheet/items/:uid/areas', verifyToken, requirePermission(PERMISSIONS.MANAGE_EXECUTION), asyncHandler(async (req, res) => res.status(201).json(await executionSheetService.addMappedArea(req.params.uid, req.user, req.body))));
+router.delete('/api/execution-sheet/items/:uid/areas/:areaId', verifyToken, requirePermission(PERMISSIONS.MANAGE_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.removeMappedArea(req.params.uid, req.user, req.params.areaId))));
+router.get('/api/execution-sheet/items/:uid/available-areas', verifyToken, requirePermission(PERMISSIONS.VIEW_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.listAvailableAreas(req.params.uid, req.query))));
+router.get('/api/execution-sheet/items/:uid/weightage-preview', verifyToken, requirePermission(PERMISSIONS.VIEW_EXECUTION), asyncHandler(async (req, res) => res.json(await executionSheetService.previewItemWeightage(req.params.uid, req.query))));
+
 export default router;

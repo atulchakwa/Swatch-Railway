@@ -17,6 +17,24 @@ const PLATFORM_AREA_TYPES = ['Platform Surface', 'Platform Toilet', 'Water Booth
 const STATION_AREA_TYPES = ['Waiting Room', 'Station Toilet', 'FOB', 'Escalator', 'Lift', 'Parking', 'Garden', 'Office', 'Canteen', 'Concourse', 'Circulating Area', 'Goods Shed', 'Drains'];
 
 const TENDER_FIELDS = ['section', 'sectionName', 'platformRef', 'surfaceType', 'areaSqft', 'shiftConsidered', 'tenderedAreaPerDay', 'cleaningInterval'];
+const UNIT_FIELDS = ['unitCount', 'unit', 'requiredPassesPerDay'];
+
+function _round2(x) {
+  if (typeof x !== 'number' || !Number.isFinite(x)) return 0;
+  return Math.round((x + Number.EPSILON) * 100) / 100;
+}
+
+/** requiredPassesPerDay = tenderedAreaPerDay / basicAreaSqFt, else BOQ times (ECR §2.2). */
+function _calcRequiredPassesPerDay(basicAreaSqFt, tenderedAreaPerDay, boqTimesPerPeriod, cleaningFrequency) {
+  const sqft = Number(basicAreaSqFt) || 0;
+  const tendered = Number(tenderedAreaPerDay) || 0;
+  if (sqft > 0 && tendered > 0) return _round2(tendered / sqft);
+  const times = parseInt(boqTimesPerPeriod, 10) || 1;
+  const freq = String(cleaningFrequency || '').toLowerCase();
+  if (freq === 'weekly') return _round2(times / 7);
+  if (freq === 'monthly') return _round2(times / 30);
+  return times;
+}
 
 function _calcTenderedArea(basicAreaSqFt, frequencyType, frequencyTimes) {
   const area = basicAreaSqFt || 0;
@@ -95,6 +113,12 @@ class AreaService {
       defaultShift: defaultShift || 'morning',
       qrCode: qrCode || null,
       status: 'active',
+      unitCount: body.unitCount !== undefined ? Number(body.unitCount) || 0 : 0,
+      unit: body.unit || 'sqft',
+      requiredPassesPerDay:
+        body.requiredPassesPerDay !== undefined && body.requiredPassesPerDay !== null && body.requiredPassesPerDay !== ''
+          ? _round2(Number(body.requiredPassesPerDay) || 0)
+          : _calcRequiredPassesPerDay(basicAreaSqFt, tenderedAreaPerDay, boqTimesPerPeriod, cf),
       createdBy: userData.uid,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
@@ -117,7 +141,7 @@ class AreaService {
       const allowed = ['areaName', 'areaType', 'areaCode', 'cleaningFrequency', 'frequencyTimes', 'priority',
                         'supervisorId', 'defaultWorkers', 'defaultShift', 'qrCode', 'status', 'surfaceType',
                         'areaSqft', 'platformId', 'mainArea', 'basicAreaSqFt', 'frequencyType', 'boqTimesPerPeriod',
-                        'tenderedAreaPerDay', ...TENDER_FIELDS];
+                        'tenderedAreaPerDay', ...TENDER_FIELDS, ...UNIT_FIELDS];
       for (const key of allowed) {
         if (updateData[key] !== undefined) {
           if (key === 'cleaningFrequency' && !VALID_FREQUENCIES.includes(updateData[key])) {
@@ -142,6 +166,22 @@ class AreaService {
         if (basic && freqType) {
           updates.tenderedAreaPerDay = _calcTenderedArea(basic, freqType, times);
         }
+      }
+      if (updates.unitCount !== undefined) updates.unitCount = Number(updates.unitCount) || 0;
+      if (
+        updates.requiredPassesPerDay === undefined &&
+        (updateData.basicAreaSqFt !== undefined ||
+          updateData.tenderedAreaPerDay !== undefined ||
+          updateData.boqTimesPerPeriod !== undefined ||
+          updateData.cleaningFrequency !== undefined)
+      ) {
+        const sqftVal = updates.basicAreaSqFt !== undefined ? parseFloat(updates.basicAreaSqFt) : (existing.basicAreaSqFt || 0);
+        const tenderedVal = updates.tenderedAreaPerDay !== undefined ? parseFloat(updates.tenderedAreaPerDay) : (existing.tenderedAreaPerDay || 0);
+        const times = updates.boqTimesPerPeriod !== undefined ? parseInt(updates.boqTimesPerPeriod) : (existing.boqTimesPerPeriod || 1);
+        const cfVal = updates.cleaningFrequency !== undefined ? updates.cleaningFrequency : existing.cleaningFrequency;
+        updates.requiredPassesPerDay = _calcRequiredPassesPerDay(sqftVal, tenderedVal, times, cfVal);
+      } else if (updates.requiredPassesPerDay !== undefined) {
+        updates.requiredPassesPerDay = _round2(Number(updates.requiredPassesPerDay) || 0);
       }
       updates.updatedAt = new Date().toISOString();
       await ref.update(updates);
@@ -189,7 +229,7 @@ class AreaService {
     const allowed = ['areaName', 'areaType', 'areaCode', 'cleaningFrequency', 'frequencyTimes', 'priority',
                       'supervisorId', 'defaultWorkers', 'defaultShift', 'qrCode', 'status',
                       'mainArea', 'basicAreaSqFt', 'frequencyType', 'boqTimesPerPeriod', 'tenderedAreaPerDay',
-                      ...TENDER_FIELDS];
+                      ...TENDER_FIELDS, ...UNIT_FIELDS];
     for (const key of allowed) {
       if (body[key] !== undefined) updates[key] = key === 'priority' ? Math.max(1, Math.min(5, Number(body[key]))) : body[key];
     }
@@ -210,6 +250,22 @@ class AreaService {
       if (basic && freqType) {
         updates.tenderedAreaPerDay = _calcTenderedArea(basic, freqType, times);
       }
+    }
+    if (updates.unitCount !== undefined) updates.unitCount = Number(updates.unitCount) || 0;
+    if (
+      updates.requiredPassesPerDay === undefined &&
+      (body.basicAreaSqFt !== undefined ||
+        body.tenderedAreaPerDay !== undefined ||
+        body.boqTimesPerPeriod !== undefined ||
+        body.cleaningFrequency !== undefined)
+    ) {
+      const sqftVal = updates.basicAreaSqFt !== undefined ? parseFloat(updates.basicAreaSqFt) : (existing.basicAreaSqFt || 0);
+      const tenderedVal = updates.tenderedAreaPerDay !== undefined ? parseFloat(updates.tenderedAreaPerDay) : (existing.tenderedAreaPerDay || 0);
+      const times = updates.boqTimesPerPeriod !== undefined ? parseInt(updates.boqTimesPerPeriod) : (existing.boqTimesPerPeriod || 1);
+      const cfVal = updates.cleaningFrequency !== undefined ? updates.cleaningFrequency : existing.cleaningFrequency;
+      updates.requiredPassesPerDay = _calcRequiredPassesPerDay(sqftVal, tenderedVal, times, cfVal);
+    } else if (updates.requiredPassesPerDay !== undefined) {
+      updates.requiredPassesPerDay = _round2(Number(updates.requiredPassesPerDay) || 0);
     }
     updates.updatedAt = new Date().toISOString();
     await ref.update(updates);

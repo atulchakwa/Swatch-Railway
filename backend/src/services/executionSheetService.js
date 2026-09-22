@@ -14,9 +14,119 @@ import { auditService } from './auditService.js';
 import { roundMoney, mulMoney, ratioSafe, clampPct } from '../utils/money.js';
 
 const STATUS_SET = new Set(['EXECUTED', 'PARTIAL', 'NOT_EXECUTED', 'N/A']);
+const WEIGHTAGE_EPS = 0.01;
 
 function daysInMonth(month, year) {
   return new Date(parseInt(year), parseInt(month), 0).getDate();
+}
+
+function round2(x) {
+  if (typeof x !== 'number' || !Number.isFinite(x)) return 0;
+  return Math.round((x + Number.EPSILON) * 100) / 100;
+}
+
+function near100(value) {
+  return Math.abs(round2(value) - 100) <= WEIGHTAGE_EPS + 1e-9;
+}
+
+/** Required cleaning passes per day for an area (ECR §2.2). */
+function passesPerDay(area) {
+  const boqTimes = parseInt(area?.boqTimesPerPeriod, 10) || 1;
+  const freq = String(area?.cleaningFrequency || '').toLowerCase();
+  if (freq === 'weekly') return boqTimes / 7;
+  if (freq === 'monthly') return boqTimes / 30;
+  return boqTimes;
+}
+
+/**
+ * Hydrate an area Firestore doc for weightage math.
+ * Returns null when the doc is missing or not active (callers record skippedAreas).
+ */
+function hydrateArea(doc) {
+  if (!doc || !doc.exists) return null;
+  const a = doc.data() || {};
+  const status = a.status === undefined ? 'active' : String(a.status).toLowerCase();
+  if (status !== 'active') return null;
+  const basicAreaSqFt = Number(a.basicAreaSqFt) || 0;
+  const unitCount = Number(a.unitCount) || 0;
+  const tenderedAreaPerDay = Number(a.tenderedAreaPerDay) || 0;
+  let requiredPassesPerDay = Number(a.requiredPassesPerDay) || 0;
+  if (!(requiredPassesPerDay > 0)) {
+    if (basicAreaSqFt > 0 && tenderedAreaPerDay > 0) {
+      requiredPassesPerDay = tenderedAreaPerDay / basicAreaSqFt;
+    } else {
+      requiredPassesPerDay = passesPerDay(a);
+    }
+  }
+  return {
+    areaId: doc.id,
+    uid: a.uid || doc.id,
+    stationId: a.stationId || '',
+    mainArea: a.mainArea || '',
+    areaName: a.areaName || '',
+    sectionName: a.sectionName ?? a.section ?? '',
+    basicAreaSqFt,
+    unitCount,
+    unit: a.unit || 'sqft',
+    tenderedAreaPerDay,
+    requiredPassesPerDay,
+    cleaningFrequency: a.cleaningFrequency || '',
+    boqTimesPerPeriod: Number(a.boqTimesPerPeriod) || 1,
+  };
+}
+
+/**
+ * Fraction of the item this area receives under the item's splitBasis.
+ * `splitBasis:'count'` falls back to an equal split when Σ unitCount = 0.
+ */
+function areaShare(area, item, hydratedAreas) {
+  const n = hydratedAreas.length;
+  if (n === 0) return 0;
+  const basis = item?.splitBasis || 'sqft';
+  if (basis === 'equal') return 1 / n;
+  const denom = hydratedAreas.reduce(
+    (sum, a) => sum + (basis === 'count' ? Number(a.unitCount) || 0 : Number(a.basicAreaSqFt) || 0),
+    0
+  );
+  if (denom <= 0) return 1 / n;
+  const num = basis === 'count' ? Number(area.unitCount) || 0 : Number(area.basicAreaSqFt) || 0;
+  return num / denom;
+}
+
+/**
+ * Build a hybrid mappedAreas entry: { areaId, manualWeightage, mainArea, subAreas }.
+ * Engine fields (mainArea/subAreas) preserved so getMonthlySummary's
+ * _matchesMappedArea keeps matching shift summaries (C3/AC7).
+ */
+function attachEngineFields(areaId, manualWeightage, area, oldMapped) {
+  const existing = (oldMapped || []).find((m) => m && m.areaId === areaId);
+  if (existing) {
+    return {
+      areaId,
+      manualWeightage,
+      mainArea: existing.mainArea ?? area.mainArea ?? '',
+      subAreas: existing.subAreas ?? [],
+    };
+  }
+  const mainArea = area.mainArea || '';
+  const areaName = String(area.areaName || '').toLowerCase();
+  const sameMain = (oldMapped || []).filter(
+    (m) => m && !m.areaId && String(m.mainArea || '').toLowerCase() === mainArea.toLowerCase()
+  );
+  let subAreas = [];
+  if (sameMain.length) {
+    const exact = sameMain.find((m) =>
+      (m.subAreas || []).some((s) => String(s).trim().toLowerCase() === areaName)
+    );
+    if (exact) subAreas = [...(exact.subAreas || [])];
+    else if (sameMain.some((m) => !m.subAreas || m.subAreas.length === 0)) subAreas = [];
+    else subAreas = [...(sameMain[0].subAreas || [])];
+  }
+  return { areaId, manualWeightage, mainArea, subAreas };
+}
+
+function istNow() {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000);
 }
 
 class ExecutionSheetService {
@@ -84,7 +194,7 @@ class ExecutionSheetService {
     const ref = db.collection('execution_sheet_items').doc(uid);
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Execution sheet item not found');
-    const allowed = ['description', 'areaDetails', 'shiftMonitoring', 'weightage', 'requiredFrequencyPerMonth', 'mappedAreas', 'status'];
+    const allowed = ['description', 'areaDetails', 'shiftMonitoring', 'weightage', 'requiredFrequencyPerMonth', 'status'];
     const updates = { updatedAt: new Date().toISOString() };
     for (const key of allowed) {
       if (body[key] !== undefined) {
@@ -437,6 +547,441 @@ class ExecutionSheetService {
       executionComponentNetBase: executionComponent,
       shortfallDeduction,
       achievedAmount,
+    };
+  }
+
+  /* ---------- Area weightage management (ECR-SC-WEIGHT-2026-002) ---------- */
+
+  /**
+   * Resolve a mappedAreas entry to an areaId. Entries with an explicit
+   * `areaId` pass through; legacy `{ mainArea, subAreas }` entries are matched
+   * against the station's area metadata (read-side bridge, ECR §2.1).
+   */
+  _resolveStationAreaId(mapped, areaMeta) {
+    if (!mapped) return null;
+    if (mapped.areaId) return mapped.areaId;
+    const mainArea = String(mapped.mainArea || '').trim().toLowerCase();
+    if (!mainArea) return null;
+    const subs = (mapped.subAreas || []).map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+    const matches = Object.values(areaMeta || {}).filter((a) => {
+      if (String(a.mainArea || '').trim().toLowerCase() !== mainArea) return false;
+      if (subs.length === 0) return true;
+      const name = String(a.areaName || '').trim().toLowerCase();
+      return subs.includes(name);
+    });
+    return matches.length ? matches[0].areaId || matches[0].id : null;
+  }
+
+  /**
+   * GET weightage detail for one execution-sheet item.
+   * Returns item meta, per-area rows (auto/manual/effective shares), totals,
+   * and skippedAreas for missing/inactive/legacy-unmatched mappings.
+   */
+  async getItemWeightageDetail(uid) {
+    const doc = await db.collection('execution_sheet_items').doc(uid).get();
+    if (!doc.exists) throw new NotFoundError('Execution sheet item not found');
+    const data = doc.data() || {};
+    const item = { id: doc.id, uid: data.uid || doc.id, ...data };
+
+    const skippedAreas = [];
+    const rawMapped = Array.isArray(item.mappedAreas) ? item.mappedAreas : [];
+
+    const areaMeta = {};
+    if (item.stationId) {
+      const areasSnap = await db.collection('areas').where('stationId', '==', item.stationId).get();
+      areasSnap.forEach((d) => {
+        areaMeta[d.id] = { areaId: d.id, ...d.data() };
+      });
+    }
+
+    const refs = [];
+    const seenIds = new Set();
+    for (const m of rawMapped) {
+      const areaId = this._resolveStationAreaId(m, areaMeta);
+      if (!areaId) {
+        skippedAreas.push({
+          areaId: m.areaId || null,
+          reason: `Legacy mapping "${m.mainArea || m.areaId || ''}" matched no station area`,
+        });
+        continue;
+      }
+      if (seenIds.has(areaId)) continue;
+      seenIds.add(areaId);
+      refs.push({ areaId, manualWeightage: m.manualWeightage ?? null });
+    }
+
+    const hydrated = [];
+    for (const ref of refs) {
+      const areaDoc = await db.collection('areas').doc(ref.areaId).get();
+      const ha = hydrateArea(areaDoc);
+      if (!ha) {
+        skippedAreas.push({
+          areaId: ref.areaId,
+          reason: !areaDoc.exists ? 'Area not found' : 'Area is not active',
+        });
+        continue;
+      }
+      hydrated.push({ ...ha, _manual: ref.manualWeightage });
+    }
+
+    const splitBasis = item.splitBasis || 'sqft';
+    const weightageMode = hydrated.some((h) => h._manual !== null && h._manual !== undefined && Number(h._manual) > 0)
+      ? 'manual'
+      : 'auto';
+
+    const rows = [];
+    let autoTotal = 0;
+    let manualTotal = 0;
+    let effectiveTotal = 0;
+    for (const h of hydrated) {
+      const share = areaShare({ basicAreaSqFt: h.basicAreaSqFt, unitCount: h.unitCount }, { splitBasis }, hydrated);
+      const autoSharePct = round2(share * 100);
+      const manualWeightage = h._manual !== null && h._manual !== undefined ? round2(Number(h._manual)) : null;
+      const effectiveSharePct =
+        weightageMode === 'manual' && manualWeightage !== null ? manualWeightage : autoSharePct;
+      autoTotal += autoSharePct;
+      if (manualWeightage !== null) manualTotal += manualWeightage;
+      effectiveTotal += effectiveSharePct;
+      rows.push({
+        areaId: h.areaId,
+        areaName: h.areaName,
+        mainArea: h.mainArea,
+        sectionName: h.sectionName,
+        basicAreaSqFt: round2(h.basicAreaSqFt),
+        unitCount: h.unitCount,
+        unit: h.unit,
+        requiredPassesPerDay: round2(h.requiredPassesPerDay),
+        autoSharePct,
+        manualWeightage,
+        effectiveSharePct,
+      });
+    }
+
+    const totals = {
+      autoTotal: round2(autoTotal),
+      manualTotal: round2(manualTotal),
+      effectiveTotal: round2(effectiveTotal),
+      autoValid: near100(autoTotal),
+      manualValid: weightageMode === 'auto' ? true : near100(manualTotal),
+    };
+
+    return {
+      count: rows.length,
+      rows,
+      skippedAreas,
+      item: {
+        id: item.id,
+        uid: item.uid,
+        itemNo: item.itemNo,
+        description: item.description || '',
+        weightage: item.weightage,
+        splitBasis,
+        weightageMode,
+        requiredFrequencyPerMonth: item.requiredFrequencyPerMonth || 0,
+        contractId: item.contractId || null,
+        stationId: item.stationId || null,
+      },
+      totals,
+    };
+  }
+
+  /**
+   * PUT — save manual/auto area weightages for one item.
+   * All-or-nothing validation (I1–I4) runs before any write; hybrid
+   * { areaId, manualWeightage, mainArea, subAreas } entries are persisted so
+   * getMonthlySummary keeps matching on mainArea/subAreas (C3).
+   */
+  async updateItemWeightages(uid, userData, body) {
+    const ref = db.collection('execution_sheet_items').doc(uid);
+    const doc = await ref.get();
+    if (!doc.exists) throw new NotFoundError('Execution sheet item not found');
+    const item = doc.data() || {};
+
+    const list = body?.mappedAreas;
+    if (!Array.isArray(list)) throw new ValidationError('mappedAreas must be an array');
+    if (list.length === 0) throw new ValidationError('Item must map to at least one area');
+
+    const seen = new Set();
+    const normalized = list.map((entry) => {
+      const areaId = entry?.areaId;
+      if (!areaId || typeof areaId !== 'string') throw new ValidationError('Each mapped area requires an areaId');
+      if (seen.has(areaId)) throw new ValidationError(`Area ${areaId} is already mapped to this item`);
+      seen.add(areaId);
+      let manualWeightage = null;
+      if (entry.manualWeightage !== null && entry.manualWeightage !== undefined && entry.manualWeightage !== '') {
+        manualWeightage = Number(entry.manualWeightage);
+        if (!Number.isFinite(manualWeightage)) {
+          throw new ValidationError(`manualWeightage for area ${areaId} must be a number`);
+        }
+        if (manualWeightage < 0 || manualWeightage > 100) {
+          throw new ValidationError(`manualWeightage must be between 0 and 100 (got ${manualWeightage})`);
+        }
+      }
+      return { areaId, manualWeightage };
+    });
+
+    const withManual = normalized.filter((e) => e.manualWeightage !== null);
+    const withoutManual = normalized.filter((e) => e.manualWeightage === null);
+    if (withManual.length > 0 && withoutManual.length > 0) {
+      throw new ValidationError(
+        'Mixed manual/auto not allowed. Either set manualWeightage on EVERY mapped area, or none.'
+      );
+    }
+    if (withManual.length > 0) {
+      const total = round2(withManual.reduce((sum, e) => sum + e.manualWeightage, 0));
+      if (!near100(total)) {
+        throw new ValidationError(`Manual area weightages sum to ${total}%; must equal 100% (tolerance ±0.01)`);
+      }
+    }
+
+    const areaDocs = {};
+    for (const e of normalized) {
+      const areaDoc = await db.collection('areas').doc(e.areaId).get();
+      if (!areaDoc.exists) throw new NotFoundError(`Area ${e.areaId} not found`);
+      const areaData = areaDoc.data() || {};
+      const status = areaData.status === undefined ? 'active' : String(areaData.status).toLowerCase();
+      if (status !== 'active') throw new ValidationError(`Area ${e.areaId} is not active`);
+      areaDocs[e.areaId] = areaData;
+    }
+
+    const oldMapped = Array.isArray(item.mappedAreas) ? item.mappedAreas : [];
+    const weightageMode = withManual.length > 0 ? 'manual' : 'auto';
+    const entries = normalized.map((e) =>
+      attachEngineFields(e.areaId, e.manualWeightage, areaDocs[e.areaId], oldMapped)
+    );
+    const splitBasis =
+      body.splitBasis !== undefined && body.splitBasis !== null && body.splitBasis !== ''
+        ? String(body.splitBasis)
+        : item.splitBasis || 'sqft';
+
+    await ref.update({
+      mappedAreas: entries,
+      splitBasis,
+      weightageMode,
+      updatedAt: new Date().toISOString(),
+    });
+    await auditService.logAudit(
+      'EXECUTION_ITEM_WEIGHTAGES_UPDATED',
+      userData.uid,
+      userData.fullName || 'User',
+      uid,
+      'execution_sheet_items',
+      `Item ${item.itemNo} area weightages updated (${weightageMode})`
+    );
+    return { message: 'Item area weightages updated', uid, weightageMode, splitBasis, count: entries.length };
+  }
+
+  /** POST — clear all manual weights (auto split). Engine fields preserved. */
+  async resetItemWeightages(uid, userData) {
+    const ref = db.collection('execution_sheet_items').doc(uid);
+    const doc = await ref.get();
+    if (!doc.exists) throw new NotFoundError('Execution sheet item not found');
+    const item = doc.data() || {};
+    const oldMapped = Array.isArray(item.mappedAreas) ? item.mappedAreas : [];
+    const entries = oldMapped.map((m) => ({ ...(m || {}), manualWeightage: null }));
+    await ref.update({ mappedAreas: entries, weightageMode: 'auto', updatedAt: new Date().toISOString() });
+    await auditService.logAudit(
+      'EXECUTION_ITEM_WEIGHTAGES_RESET',
+      userData.uid,
+      userData.fullName || 'User',
+      uid,
+      'execution_sheet_items',
+      `Item ${item.itemNo} area weightages reset to auto`
+    );
+    return { message: 'Item area weightages reset to auto', uid, weightageMode: 'auto', count: entries.length };
+  }
+
+  /** POST — map an area; new area starts on auto (wasManual flags prior manual state). */
+  async addMappedArea(uid, userData, body) {
+    const areaId = body?.areaId;
+    if (!areaId || typeof areaId !== 'string') throw new ValidationError('areaId is required');
+    const ref = db.collection('execution_sheet_items').doc(uid);
+    const doc = await ref.get();
+    if (!doc.exists) throw new NotFoundError('Execution sheet item not found');
+    const item = doc.data() || {};
+    const oldMapped = Array.isArray(item.mappedAreas) ? item.mappedAreas : [];
+    if (oldMapped.some((m) => m && m.areaId === areaId)) {
+      throw new ValidationError(`Area ${areaId} is already mapped to this item`);
+    }
+
+    const areaDoc = await db.collection('areas').doc(areaId).get();
+    if (!areaDoc.exists) throw new NotFoundError(`Area ${areaId} not found`);
+    const areaData = areaDoc.data() || {};
+    const status = areaData.status === undefined ? 'active' : String(areaData.status).toLowerCase();
+    if (status !== 'active') throw new ValidationError(`Area ${areaId} is not active`);
+
+    const wasManual = oldMapped.some((m) => m && m.manualWeightage !== null && m.manualWeightage !== undefined);
+    const entry = attachEngineFields(areaId, null, areaData, oldMapped);
+    const weightageMode = wasManual ? 'manual' : 'auto';
+    await ref.update({
+      mappedAreas: [...oldMapped, entry],
+      weightageMode,
+      updatedAt: new Date().toISOString(),
+    });
+    await auditService.logAudit(
+      'EXECUTION_ITEM_AREA_ADDED',
+      userData.uid,
+      userData.fullName || 'User',
+      uid,
+      'execution_sheet_items',
+      `Area ${areaId} mapped to item ${item.itemNo}`
+    );
+    return { message: 'Area mapped to item', uid, areaId, wasManual, weightageMode };
+  }
+
+  /** DELETE — unmap an area; last remaining area is protected (I3). */
+  async removeMappedArea(uid, userData, areaId) {
+    if (!areaId) throw new ValidationError('areaId is required');
+    const ref = db.collection('execution_sheet_items').doc(uid);
+    const doc = await ref.get();
+    if (!doc.exists) throw new NotFoundError('Execution sheet item not found');
+    const item = doc.data() || {};
+    const oldMapped = Array.isArray(item.mappedAreas) ? item.mappedAreas : [];
+    const target = oldMapped.find((m) => m && m.areaId === areaId);
+    if (!target) throw new ValidationError(`Area ${areaId} is not mapped to this item`);
+    if (oldMapped.length <= 1) {
+      throw new ValidationError('Cannot remove the last area; item must map to at least one area');
+    }
+    const wasManual = target.manualWeightage !== null && target.manualWeightage !== undefined;
+    const entries = oldMapped.filter((m) => !(m && m.areaId === areaId));
+    const weightageMode = entries.some((m) => m && m.manualWeightage !== null && m.manualWeightage !== undefined)
+      ? 'manual'
+      : 'auto';
+    await ref.update({ mappedAreas: entries, weightageMode, updatedAt: new Date().toISOString() });
+    await auditService.logAudit(
+      'EXECUTION_ITEM_AREA_REMOVED',
+      userData.uid,
+      userData.fullName || 'User',
+      uid,
+      'execution_sheet_items',
+      `Area ${areaId} unmapped from item ${item.itemNo}`
+    );
+    return { message: 'Area unmapped from item', uid, areaId, wasManual, weightageMode };
+  }
+
+  /**
+   * GET — active station areas not yet mapped to this item.
+   * Queries where(stationId) only (equality merge, no composite index) and
+   * filters status/sectionName/q in memory (ECR §2.3 documented shape).
+   */
+  async listAvailableAreas(uid, query = {}) {
+    const doc = await db.collection('execution_sheet_items').doc(uid).get();
+    if (!doc.exists) throw new NotFoundError('Execution sheet item not found');
+    const item = doc.data() || {};
+    const mappedIds = new Set(
+      (Array.isArray(item.mappedAreas) ? item.mappedAreas : [])
+        .map((m) => (m && m.areaId) || null)
+        .filter(Boolean)
+    );
+
+    let q = db.collection('areas');
+    if (item.stationId) q = q.where('stationId', '==', item.stationId);
+    const snap = await q.limit(500).get();
+    const sectionFilter = query.sectionName !== undefined && query.sectionName !== null && query.sectionName !== ''
+      ? String(query.sectionName)
+      : null;
+    const textFilter = query.q ? String(query.q).trim().toLowerCase() : null;
+
+    const areas = [];
+    snap.forEach((d) => {
+      const a = d.data() || {};
+      const status = a.status === undefined ? 'active' : String(a.status).toLowerCase();
+      if (status !== 'active') return;
+      if (mappedIds.has(d.id)) return;
+      const sectionName = a.sectionName ?? a.section ?? '';
+      if (sectionFilter !== null && String(sectionName) !== sectionFilter) return;
+      if (textFilter) {
+        const hay = `${a.areaName || ''} ${a.mainArea || ''} ${sectionName}`.toLowerCase();
+        if (!hay.includes(textFilter)) return;
+      }
+      const basicAreaSqFt = Number(a.basicAreaSqFt) || 0;
+      const unitCount = Number(a.unitCount) || 0;
+      const tenderedAreaPerDay = Number(a.tenderedAreaPerDay) || 0;
+      let requiredPassesPerDay = Number(a.requiredPassesPerDay) || 0;
+      if (!(requiredPassesPerDay > 0)) {
+        requiredPassesPerDay =
+          basicAreaSqFt > 0 && tenderedAreaPerDay > 0
+            ? tenderedAreaPerDay / basicAreaSqFt
+            : passesPerDay(a);
+      }
+      areas.push({
+        areaId: d.id,
+        areaName: a.areaName || '',
+        mainArea: a.mainArea || '',
+        sectionName,
+        basicAreaSqFt: round2(basicAreaSqFt),
+        unitCount,
+        unit: a.unit || 'sqft',
+        requiredPassesPerDay: round2(requiredPassesPerDay),
+      });
+    });
+    areas.sort((a, b) => String(a.areaName).localeCompare(String(b.areaName)));
+    return { count: areas.length, areas };
+  }
+
+  /**
+   * GET — read-only deduction preview (scope A, ECR §4).
+   * dailyItemValue = ACV × weightage / 100 / 365
+   * areaDailyValue = dailyItemValue × effectiveShare / 100
+   * valuePerPass   = areaDailyValue / requiredPasses (required ≥ 1)
+   */
+  async previewItemWeightage(uid, query = {}) {
+    const detail = await this.getItemWeightageDetail(uid);
+    let month = parseInt(query.month, 10);
+    let year = parseInt(query.year, 10);
+    if (!month || !year) {
+      const ist = istNow();
+      if (!month) month = ist.getUTCMonth() + 1;
+      if (!year) year = ist.getUTCFullYear();
+    }
+    if (month < 1 || month > 12) throw new ValidationError('month must be between 1 and 12');
+    const monthDays = daysInMonth(month, year);
+    const item = detail.item;
+
+    let annualContractValue = 0;
+    if (item.contractId) {
+      const contractDoc = await db.collection('contracts').doc(item.contractId).get();
+      if (contractDoc.exists) {
+        const contract = contractDoc.data() || {};
+        annualContractValue = Number(contract.annualContractValue ?? contract.contractValue) || 0;
+      }
+    }
+    const dailyItemValue = round2((annualContractValue * (Number(item.weightage) || 0)) / 100 / 365);
+
+    const rows = detail.rows.map((r) => {
+      const effectiveShare = Number(r.effectiveSharePct) || 0;
+      const areaDailyValue = round2((dailyItemValue * effectiveShare) / 100);
+      const requiredPasses = Math.max(1, Math.round(Number(r.requiredPassesPerDay) || 0));
+      const valuePerPass = requiredPasses > 0 ? round2(areaDailyValue / requiredPasses) : 0;
+      return {
+        ...r,
+        areaDailyValue,
+        requiredPasses,
+        valuePerPass,
+        monthlyBaseValue: round2(areaDailyValue * monthDays),
+      };
+    });
+
+    const totals = {
+      ...detail.totals,
+      dailyItemValue,
+      areaDailyTotal: round2(rows.reduce((sum, r) => sum + r.areaDailyValue, 0)),
+      monthlyBaseTotal: round2(rows.reduce((sum, r) => sum + r.monthlyBaseValue, 0)),
+    };
+
+    return {
+      itemId: uid,
+      itemNo: item.itemNo,
+      month: parseInt(month, 10),
+      year: parseInt(year, 10),
+      monthDays,
+      weightage: item.weightage,
+      splitBasis: item.splitBasis,
+      weightageMode: item.weightageMode,
+      annualContractValue: round2(annualContractValue),
+      rows,
+      totals,
+      skippedAreas: detail.skippedAreas,
     };
   }
 }
