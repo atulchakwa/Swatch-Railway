@@ -41,6 +41,14 @@ import { db } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import logger from '../logger/index.js';
 import { auditService } from './auditService.js';
+import {
+  dailyContractValue,
+  areaDailyMoneyValue,
+  areaRatePerSqFt,
+  perExecutionValue,
+  executionDeduction,
+  validateAreaWeightages,
+} from './areaWeightageModel.js';
 
 const LIFECYCLE = ['DRAFT', 'CALCULATED', 'SUBMITTED', 'VERIFIED', 'APPROVED', 'LOCKED'];
 const ACTIVE_STATUSES = ['DRAFT', 'CALCULATED', 'SUBMITTED', 'VERIFIED', 'APPROVED', 'LOCKED'];
@@ -76,12 +84,13 @@ class PerformanceBillingService {
       if (!existing.areaRateOverrides || typeof existing.areaRateOverrides !== 'object') existing.areaRateOverrides = {};
       if (!existing.areaWeightages || typeof existing.areaWeightages !== 'object') existing.areaWeightages = {};
       if (existing.renormaliseInactiveActivities !== undefined) existing.renormaliseInactiveActivities = undefined;
+      const contractDoc = await db.collection('contracts').doc(contractId).get();
+      const contract = contractDoc.exists ? contractDoc.data() : {};
+      const acv = Number(existing.annualContractValue || contract.contractValue || contract.annualContractValue || 0);
+      existing.annualContractValue = acv;
+      existing.dailyContractValue = dailyContractValue(acv);
       return existing;
     }
-
-    const contractDoc = await db.collection('contracts').doc(contractId).get();
-    if (!contractDoc.exists) throw new NotFoundError('Contract not found');
-    const contract = contractDoc.data();
 
     const ref = db.collection('billing_configs').doc();
     const now = new Date().toISOString();
@@ -90,6 +99,8 @@ class PerformanceBillingService {
       contractId,
       stationId: contract.stationIds?.[0] || contract.stationId || '',
       billingMethod: 'PERFORMANCE_WEIGHTAGE',
+      annualContractValue: contract.contractValue || contract.annualContractValue || 0,
+      dailyContractValue: dailyContractValue(contract.contractValue || contract.annualContractValue || 0),
       ratePerSqft: null,
       areaRateOverrides: {},
       areaWeightages: {},

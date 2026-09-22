@@ -46,6 +46,13 @@ import { auditService } from './auditService.js';
 import { roundMoney, mulMoney } from '../utils/money.js';
 import { computeContractDays } from '../utils/period.js';
 import { performanceBillingService } from './performanceBillingService.js';
+import {
+  dailyContractValue,
+  areaDailyMoneyValue,
+  areaRatePerSqFt,
+  perExecutionValue,
+  executionDeduction,
+} from './areaWeightageModel.js';
 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -86,6 +93,7 @@ export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSum
   const ratePerSqft = Number(config.ratePerSqft);
   const overrides = config.areaRateOverrides || {};
   const weightages = config.areaWeightages || {};
+  const annualContractValue = Number(config.annualContractValue || config.annualContractValue || 0);
   const rateOf = (areaId) => {
     const o = overrides[areaId];
     if (o !== undefined && o !== null && o !== '' && !Number.isNaN(Number(o)) && Number(o) >= 0) return Number(o);
@@ -137,8 +145,18 @@ export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSum
     r.completed = Math.min(r.required, Math.max(0, executedByArea[r.areaId] || 0));
     r.executedSqft = roundMoney(r.areaSqft * r.completed);
     r.expectedSqft = roundMoney(r.areaSqft * r.required);
-    r.expectedValue = roundMoney(mulMoney(mulMoney(r.areaSqft, r.ratePerSqft), r.required));
-    r.actualExecutionValue = roundMoney(mulMoney(mulMoney(r.areaSqft, r.ratePerSqft), r.completed));
+    if (weightages && Object.keys(weightages).length > 0 && annualContractValue > 0 && r.weightage !== null) {
+      const acv = Number(annualContractValue) || 0;
+      const areaDaily = areaDailyMoneyValue(acv, r.weightage);
+      const perExec = perExecutionValue(areaDaily, r.required);
+      r.expectedValue = roundMoney(perExec * r.required);
+      r.actualExecutionValue = roundMoney(perExec * r.completed);
+      r.executionDeduction = roundMoney(executionDeduction(perExec, r.required - r.completed));
+    } else {
+      r.expectedValue = roundMoney(mulMoney(mulMoney(r.areaSqft, r.ratePerSqft), r.required));
+      r.actualExecutionValue = roundMoney(mulMoney(mulMoney(r.areaSqft, r.ratePerSqft), r.completed));
+      r.executionDeduction = roundMoney(mulMoney(mulMoney(r.areaSqft, r.ratePerSqft), r.required - r.completed));
+    }
     r.achievement = r.expectedSqft > 0 ? clamp(round2((r.executedSqft / r.expectedSqft) * 100), 0, 100) : null;
   });
   rows.sort((a, b) => (b.expectedValue || 0) - (a.expectedValue || 0));
