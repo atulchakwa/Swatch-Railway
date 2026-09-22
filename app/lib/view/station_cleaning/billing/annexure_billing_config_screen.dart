@@ -466,7 +466,7 @@ class _AnnexureBillingConfigScreenState extends State<AnnexureBillingConfigScree
                   onPressed: () {
                     if (blocked) {
                       ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text('Area-wise weightage cannot exceed the contractual weightage of this item.', backgroundColor: kErrorRed)),
+                        const SnackBar(backgroundColor: kErrorRed, content: Text('Area-wise weightage cannot exceed the contractual weightage of this item.')),
                       );
                       return;
                     }
@@ -611,7 +611,7 @@ class _AnnexureBillingConfigScreenState extends State<AnnexureBillingConfigScree
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: kRailwayBannerGradient,
+      decoration: BoxDecoration(gradient: kRailwayBannerGradient),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
