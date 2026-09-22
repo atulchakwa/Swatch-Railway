@@ -68,13 +68,36 @@ class _AreaWorkItemFormScreenState extends State<AreaWorkItemFormScreen> {
   String _frequencyUnit = 'day';
   String _status = 'active';
 
-  final _mainAreaSuggestions = (() {
-    final list = <String>{};
+  static const _customAreaKey = '__custom_area__';
+
+  String? _mainAreaSelection;
+  String? _subAreaSelection;
+
+  final _mainAreaList = <String>{
+    for (final item in boqData) item.mainArea,
+  }.toList()
+    ..sort();
+
+  final _subAreasByMain = () {
+    final m = <String, Set<String>>{};
     for (final item in boqData) {
-      list.add(item.mainArea);
+      (m[item.mainArea] ??= <String>{}).add(item.subArea);
     }
-    return list.toList()..sort();
-  })();
+    return <String, List<String>>{
+      for (final e in m.entries) e.key: (e.value.toList()..sort()),
+    };
+  }();
+
+  final _allSubAreas = <String>{
+    for (final item in boqData) item.subArea,
+  }.toList()
+    ..sort();
+
+  List<String> get _currentSubAreaOptions {
+    final main = _mainAreaSelection;
+    if (main == null || main == _customAreaKey) return _allSubAreas;
+    return _subAreasByMain[main] ?? const <String>[];
+  }
 
   @override
   void initState() {
@@ -83,8 +106,16 @@ class _AreaWorkItemFormScreenState extends State<AreaWorkItemFormScreen> {
     if (e != null) {
       _workItemCtrl.text = (e['workItem'] ?? '').toString();
       _areaNameCtrl.text = (e['areaName'] ?? e['name'] ?? '').toString();
-      _mainAreaCtrl.text = (e['mainArea'] ?? '').toString();
-      _subAreaCtrl.text = (e['subArea'] ?? '').toString();
+
+      final existingMain = (e['mainArea'] ?? '').toString();
+      _mainAreaCtrl.text = existingMain;
+      _mainAreaSelection = _mainAreaList.contains(existingMain) ? existingMain : _customAreaKey;
+
+      final existingSub = (e['subArea'] ?? '').toString();
+      _subAreaCtrl.text = existingSub;
+      _subAreaSelection =
+          _currentSubAreaOptions.contains(existingSub) ? existingSub : _customAreaKey;
+
       _remarksCtrl.text = (e['remarks'] ?? '').toString();
 
       final sqft = (e['basicAreaSqFt'] as num?)?.toDouble() ?? 0;
@@ -142,6 +173,22 @@ class _AreaWorkItemFormScreenState extends State<AreaWorkItemFormScreen> {
   bool get _isAsAvailable => _measurementType == 'as_available';
 
   bool get _isNotApplicable => _measurementType == 'not_applicable';
+
+  void _onMainAreaChanged(String v) {
+    setState(() {
+      _mainAreaSelection = v;
+      if (v != _customAreaKey) {
+        _mainAreaCtrl.text = v;
+        final subs = _currentSubAreaOptions;
+        if (_subAreaSelection != null &&
+            _subAreaSelection != _customAreaKey &&
+            !subs.contains(_subAreaSelection)) {
+          _subAreaSelection = null;
+          _subAreaCtrl.clear();
+        }
+      }
+    });
+  }
 
   int _boqTimesFor(String ftype, int? fval, String? funit) {
     switch (ftype) {
@@ -317,35 +364,91 @@ class _AreaWorkItemFormScreenState extends State<AreaWorkItemFormScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _mainAreaCtrl,
-                    decoration: InputDecoration(
+                  DropdownButtonFormField<String?>(
+                    value: _mainAreaSelection,
+                    decoration: const InputDecoration(
                       labelText: 'Main Area',
-                      border: const OutlineInputBorder(),
-                      prefixIcon: const Icon(Icons.map_outlined),
-                      hintText: 'e.g. Platforms',
-                      suffixIcon: _mainAreaSuggestions.isEmpty
-                          ? null
-                          : PopupMenuButton<String>(
-                              icon: const Icon(Icons.arrow_drop_down),
-                              tooltip: 'BOQ main areas',
-                              onSelected: (v) => setState(() => _mainAreaCtrl.text = v),
-                              itemBuilder: (_) => _mainAreaSuggestions
-                                  .map((m) => PopupMenuItem(value: m, child: Text(m, overflow: TextOverflow.ellipsis)))
-                                  .toList(),
-                            ),
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.map_outlined),
                     ),
+                    hint: const Text('Select Main Area'),
+                    isExpanded: true,
+                    items: [
+                      for (final m in _mainAreaList)
+                        DropdownMenuItem(value: m, child: Text(m, overflow: TextOverflow.ellipsis)),
+                      const DropdownMenuItem<String?>(
+                        value: _customAreaKey,
+                        child: Row(
+                          children: [
+                            Icon(Icons.add_circle_outline, size: 18),
+                            SizedBox(width: 8),
+                            Text('Custom - Create New'),
+                          ],
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) _onMainAreaChanged(v);
+                    },
                   ),
+                  if (_mainAreaSelection == _customAreaKey) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _mainAreaCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Custom Main Area',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.edit_outlined),
+                        hintText: 'e.g. Platforms',
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _subAreaCtrl,
+                  DropdownButtonFormField<String?>(
+                    value: _currentSubAreaOptions.contains(_subAreaSelection) || _subAreaSelection == _customAreaKey
+                        ? _subAreaSelection
+                        : null,
                     decoration: const InputDecoration(
                       labelText: 'Sub Area',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.place_outlined),
-                      hintText: 'e.g. Platform 1',
                     ),
+                    hint: const Text('Select Sub Area'),
+                    isExpanded: true,
+                    items: [
+                      for (final s in _currentSubAreaOptions)
+                        DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
+                      const DropdownMenuItem<String?>(
+                        value: _customAreaKey,
+                        child: Row(
+                          children: [
+                            Icon(Icons.add_circle_outline, size: 18),
+                            SizedBox(width: 8),
+                            Text('Custom - Create New'),
+                          ],
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() {
+                        _subAreaSelection = v;
+                        if (v != _customAreaKey) _subAreaCtrl.text = v;
+                      });
+                    },
                   ),
+                  if (_subAreaSelection == _customAreaKey) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _subAreaCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Custom Sub Area',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.edit_outlined),
+                        hintText: 'e.g. Platform 1',
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   const Divider(),
                   const SizedBox(height: 8),
