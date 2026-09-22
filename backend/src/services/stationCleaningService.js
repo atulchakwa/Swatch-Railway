@@ -92,34 +92,236 @@ class StationCleaningService {
     }
   }
 
+  // ─── Area / Work Item flexibility ──────────────────────────────────────────
+  // An area record must be able to represent measurement types beyond sq.ft.
+  // (count/unit, running ft, as available, not applicable...) and manually
+  // editable / custom frequencies, WITHOUT forcing a numeric sqft. This is a
+  // configuration concern only — billing logic is untouched and still reads
+  // the same basicAreaSqFt / tenderedAreaPerDay / weightage fields.
+
+  _NUMBER_MEASUREMENT_TYPES = new Set([
+    'sq_ft', 'sq_meter', 'running_ft', 'count', 'number', 'quantity', 'unit'
+  ]);
+
+  _ALL_MEASUREMENT_TYPES = new Set([
+    'sq_ft', 'sq_meter', 'running_ft', 'count', 'number', 'quantity', 'unit',
+    'as_available', 'not_applicable', 'service', 'service_based'
+  ]);
+
+  _FREQUENCY_UNITS = new Set(['day', 'week', 'fortnight', 'month', 'shift']);
+
+  _toNumberOrNull(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/,/g, '').trim());
+    return Number.isFinite(n) ? n : null;
+  }
+
+  _toIntOrNull(v) {
+    const n = this._toNumberOrNull(v);
+    if (n === null) return null;
+    return Math.trunc(n);
+  }
+
+  _resolveMeasurementType(body, existing) {
+    if (body.measurementType && this._ALL_MEASUREMENT_TYPES.has(String(body.measurementType).toLowerCase())) {
+      return String(body.measurementType).toLowerCase();
+    }
+    if (existing && existing.measurementType && this._ALL_MEASUREMENT_TYPES.has(String(existing.measurementType).toLowerCase())) {
+      return String(existing.measurementType).toLowerCase();
+    }
+    // Back-compat: a positive basicAreaSqFt implies sq_ft, otherwise no sqft
+    // requirement is assumed ("as available" / not provided).
+    const sqft = this._toNumberOrNull(body.basicAreaSqFt);
+    return (sqft !== null && sqft > 0) ? 'sq_ft' : 'as_available';
+  }
+
+  _quantityModeFor(measurementType) {
+    if (this._NUMBER_MEASUREMENT_TYPES.has(measurementType)) return 'numeric';
+    if (measurementType === 'as_available') return 'as_available';
+    return 'not_applicable';
+  }
+
+  _deriveCleaningFrequency(frequencyType, frequencyValue, frequencyUnit) {
+    switch ((frequencyType || '').toLowerCase()) {
+      case 'once_daily':
+      case 'daily':
+        return 'daily';
+      case 'two_times_daily':
+      case 'twice_daily':
+      case 'twice_daily_shift':
+        return 'twice_daily';
+      case 'three_times_daily':
+      case 'shift_wise':
+        return 'shift_wise';
+      case 'four_times_daily':
+        return 'four_times_daily';
+      case 'custom':
+        if (String(frequencyUnit || '').toLowerCase() === 'day') {
+          const v = this._toIntOrNull(frequencyValue);
+          if (v === 2) return 'twice_daily';
+          if (v === 3) return 'shift_wise';
+          if (v === 4) return 'four_times_daily';
+          if (v !== null && v > 4) return '4hrs';
+        }
+        return 'daily';
+      default:
+        return 'daily';
+    }
+  }
+
+  _resolveFrequency(body, existing) {
+    const ftype = body.frequencyType || existing?.frequencyType || 'daily';
+    let fval;
+    let funit;
+    if (String(ftype).toLowerCase() === 'custom') {
+      fval = body.frequencyValue !== undefined
+        ? this._toIntOrNull(body.frequencyValue)
+        : (existing?.frequencyValue ?? null);
+      funit = body.frequencyUnit || existing?.frequencyUnit || null;
+    } else {
+      fval = (body.frequencyValue !== undefined && body.frequencyValue !== null && body.frequencyValue !== '')
+        ? this._toIntOrNull(body.frequencyValue)
+        : null;
+      funit = (body.frequencyUnit !== undefined && body.frequencyUnit !== null && body.frequencyUnit !== '')
+        ? body.frequencyUnit
+        : null;
+    }
+
+    let boqTimes = (body.boqTimesPerPeriod !== undefined && body.boqTimesPerPeriod !== null && body.boqTimesPerPeriod !== '')
+      ? this._toIntOrNull(body.boqTimesPerPeriod)
+      : (existing?.boqTimesPerPeriod ?? null);
+    if (boqTimes === null || boqTimes < 1) {
+      boqTimes = (String(ftype).toLowerCase() === 'custom' && String(funit).toLowerCase() === 'day' && fval !== null)
+        ? fval
+        : 1;
+    }
+
+    const freqChanged = body.frequencyType !== undefined || body.frequencyValue !== undefined
+      || body.frequencyUnit !== undefined || body.boqTimesPerPeriod !== undefined;
+    const cleaningFrequency = body.cleaningFrequency
+      || (freqChanged ? (this._deriveCleaningFrequency(ftype, fval, funit) || 'daily')
+                      : (existing?.cleaningFrequency || 'daily'));
+
+    return { frequencyType: ftype, frequencyValue: fval, frequencyUnit: funit, boqTimesPerPeriod: boqTimes, cleaningFrequency };
+  }
+
+  _resolveQuantity(body, existing, measurementType, frequency) {
+    const numeric = this._NUMBER_MEASUREMENT_TYPES.has(measurementType);
+    let quantity;
+    if (numeric) {
+      const raw = body.quantity ?? body.areaQuantity ?? body.basicAreaSqFt
+        ?? (existing?.quantity ?? existing?.basicAreaSqFt ?? null);
+      quantity = this._toNumberOrNull(raw);
+    } else {
+      let raw;
+      if (measurementType === 'not_applicable') {
+        raw = null;
+      } else if (body.quantity !== undefined && body.quantity !== null && body.quantity !== '') {
+        raw = body.quantity;
+      } else if (body.areaQuantity !== undefined && body.areaQuantity !== null && body.areaQuantity !== '') {
+        raw = body.areaQuantity;
+      } else if (body.basicAreaSqFt !== undefined && body.basicAreaSqFt !== null && body.basicAreaSqFt !== '') {
+        raw = body.basicAreaSqFt;
+      } else {
+        raw = existing?.quantity ?? null;
+      }
+      quantity = this._toNumberOrNull(raw);
+      if (measurementType === 'not_applicable') quantity = null;
+    }
+
+    let basicAreaSqFt;
+    if (measurementType === 'sq_ft') {
+      basicAreaSqFt = quantity;
+    } else if (body.basicAreaSqFt !== undefined) {
+      basicAreaSqFt = this._toNumberOrNull(body.basicAreaSqFt);
+    } else if (existing?.basicAreaSqFt != null) {
+      basicAreaSqFt = this._toNumberOrNull(existing.basicAreaSqFt);
+    } else {
+      basicAreaSqFt = null;
+    }
+
+    let tenderedAreaPerDay = (existing?.tenderedAreaPerDay != null) ? this._toNumberOrNull(existing.tenderedAreaPerDay) : null;
+    if (body.tenderedAreaPerDay !== undefined && body.tenderedAreaPerDay !== null && body.tenderedAreaPerDay !== '') {
+      tenderedAreaPerDay = this._toNumberOrNull(body.tenderedAreaPerDay);
+    }
+
+    if (measurementType === 'sq_ft') {
+      const areaChanged = body.basicAreaSqFt !== undefined || body.quantity !== undefined
+        || body.areaQuantity !== undefined || body.frequencyType !== undefined
+        || body.boqTimesPerPeriod !== undefined || body.frequencyValue !== undefined
+        || body.frequencyUnit !== undefined;
+      if (areaChanged || tenderedAreaPerDay === null) {
+        tenderedAreaPerDay = this._calcTenderedArea(quantity || 0, frequency.frequencyType, frequency.boqTimesPerPeriod);
+      }
+    }
+
+    return { quantity, basicAreaSqFt, tenderedAreaPerDay };
+  }
+
+  _validateAreaConfig(measurementType, quantity, frequency) {
+    if (this._NUMBER_MEASUREMENT_TYPES.has(measurementType)) {
+      if (quantity === null || quantity <= 0) {
+        throw new ValidationError(
+          `Quantity is required and must be a positive number for measurement type "${measurementType}"`
+        );
+      }
+    }
+    if (String(frequency.frequencyType).toLowerCase() === 'custom') {
+      if (frequency.frequencyValue === null || frequency.frequencyValue <= 0) {
+        throw new ValidationError('Custom frequency requires a frequency value greater than 0');
+      }
+      if (!this._FREQUENCY_UNITS.has(String(frequency.frequencyUnit).toLowerCase())) {
+        throw new ValidationError('Custom frequency requires a valid frequency unit (day, week, fortnight, month or shift)');
+      }
+    }
+  }
+
+  _resolveStatus(body, existing, fallback) {
+    if (body.status !== undefined) return body.status === 'inactive' ? 'inactive' : 'active';
+    if (body.active !== undefined) return body.active === false ? 'inactive' : 'active';
+    return existing?.status || fallback || 'active';
+  }
+
   // ─── Station Areas ──────────────────────────────────────────────────────────
   async createStationArea(body) {
-    const { stationId, areaName } = body;
+    const areaName = body.areaName || body.name || body.subArea;
+    const { stationId } = body;
     if (!stationId || !areaName) throw new ValidationError('stationId and areaName are required');
     const stationDoc = await db.collection('stations').doc(stationId).get();
     if (!stationDoc.exists) throw new NotFoundError('Station not found');
     const ref = db.collection('stationAreas').doc();
 
-    const mainArea = body.mainArea || '';
-    const basicAreaSqFt = parseFloat(body.basicAreaSqFt) || 0;
-    const frequencyType = body.frequencyType || 'daily';
-    const boqTimesPerPeriod = parseInt(body.boqTimesPerPeriod ?? body.frequencyTimes) || 1;
-    const tenderedAreaPerDay = body.tenderedAreaPerDay !== undefined
-      ? parseFloat(body.tenderedAreaPerDay)
-      : this._calcTenderedArea(basicAreaSqFt, frequencyType, boqTimesPerPeriod);
+    const measurementType = this._resolveMeasurementType(body, null);
+    const frequency = this._resolveFrequency(body, null);
+    const { quantity, basicAreaSqFt, tenderedAreaPerDay } = this._resolveQuantity(body, null, measurementType, frequency);
+
+    this._validateAreaConfig(measurementType, quantity, frequency);
+    const status = this._resolveStatus(body, null, 'active');
 
     const data = {
       uid: ref.id, stationId,
       stationName: stationDoc.data().stationName || '',
-      areaName, name: areaName, areaType: body.areaType || 'Other',
-      mainArea,
+      areaName, name: areaName,
+      subArea: body.subArea || null,
+      workItem: body.workItem || '',
+      areaType: body.areaType || 'Other',
+      mainArea: body.mainArea || '',
+      measurementType,
+      quantity,
+      quantityMode: body.quantityMode || this._quantityModeFor(measurementType),
       basicAreaSqFt,
-      frequencyType,
-      boqTimesPerPeriod,
+      frequencyType: frequency.frequencyType,
+      frequencyValue: frequency.frequencyValue,
+      frequencyUnit: frequency.frequencyUnit,
+      boqTimesPerPeriod: frequency.boqTimesPerPeriod,
       tenderedAreaPerDay,
-      cleaningFrequency: body.cleaningFrequency || 'daily',
+      cleaningFrequency: frequency.cleaningFrequency,
       priority: body.priority || 3,
-      status: 'active',
+      order: body.order ?? 0,
+      description: body.description || '',
+      remarks: body.remarks || '',
+      status,
+      active: status === 'active',
       platformId: body.platformId || null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
@@ -132,15 +334,45 @@ class StationCleaningService {
     const doc = await ref.get();
     if (!doc.exists) throw new NotFoundError('Station area not found');
     const existing = doc.data();
-    const updates = { ...body, updatedAt: new Date().toISOString() };
-    delete updates.uid;
 
-    const basicAreaSqFt = body.basicAreaSqFt !== undefined ? parseFloat(body.basicAreaSqFt) : (existing.basicAreaSqFt || 0);
-    const frequencyType = body.frequencyType || existing.frequencyType || 'daily';
-    const boqTimesPerPeriod = body.boqTimesPerPeriod !== undefined ? parseInt(body.boqTimesPerPeriod) : (existing.boqTimesPerPeriod || 1);
-    if (body.basicAreaSqFt !== undefined || body.frequencyType !== undefined || body.boqTimesPerPeriod !== undefined) {
-      updates.tenderedAreaPerDay = this._calcTenderedArea(basicAreaSqFt, frequencyType, boqTimesPerPeriod);
+    const measurementType = this._resolveMeasurementType(body, existing);
+    const frequency = this._resolveFrequency(body, existing);
+    const { quantity, basicAreaSqFt, tenderedAreaPerDay } = this._resolveQuantity(body, existing, measurementType, frequency);
+
+    this._validateAreaConfig(measurementType, quantity, frequency);
+    const status = this._resolveStatus(body, existing, existing.status || 'active');
+
+    const areaName = body.areaName || body.name
+      || ((typeof body.subArea === 'string' && body.subArea.trim().length > 0) ? body.subArea.trim() : null)
+      || existing.areaName || existing.name;
+
+    const updates = {
+      name: areaName,
+      areaName,
+      measurementType,
+      quantity,
+      quantityMode: body.quantityMode || this._quantityModeFor(measurementType),
+      basicAreaSqFt,
+      frequencyType: frequency.frequencyType,
+      frequencyValue: frequency.frequencyValue,
+      frequencyUnit: frequency.frequencyUnit,
+      boqTimesPerPeriod: frequency.boqTimesPerPeriod,
+      tenderedAreaPerDay,
+      cleaningFrequency: frequency.cleaningFrequency,
+      status,
+      active: status === 'active',
+      updatedAt: new Date().toISOString()
+    };
+
+    // Copy through the remaining user-editable configuration fields.
+    for (const key of ['workItem', 'subArea', 'mainArea', 'areaType', 'description', 'remarks', 'platformId', 'priority', 'order', 'quantityMode']) {
+      if (body[key] !== undefined) updates[key] = body[key];
     }
+    delete updates.uid;
+    delete updates.id;
+    delete updates.stationId;
+    delete updates.stationName;
+    delete updates.createdAt;
 
     await ref.update(updates);
     return { message: 'Station area updated', uid };

@@ -116,6 +116,17 @@ class StationArea {
   final double? tenderedAreaPerDay;
   final String? cleaningFrequency;
 
+  // Flexible area / work-item configuration (measurement-type aware).
+  final String? workItem;
+  final String? subArea;
+  final String? measurementType;
+  final double? quantity;
+  final String? quantityMode;
+  final int? frequencyValue;
+  final String? frequencyUnit;
+  final String? remarks;
+  final String? status;
+
   StationArea({
     this.uid,
     required this.stationId,
@@ -130,7 +141,90 @@ class StationArea {
     this.boqTimesPerPeriod,
     this.tenderedAreaPerDay,
     this.cleaningFrequency,
+    this.workItem,
+    this.subArea,
+    this.measurementType,
+    this.quantity,
+    this.quantityMode,
+    this.frequencyValue,
+    this.frequencyUnit,
+    this.remarks,
+    this.status,
   });
+
+  String get measurementLabel {
+    switch (measurementType) {
+      case 'sq_ft': return 'Sq Ft';
+      case 'sq_meter': return 'Sq Meter';
+      case 'running_ft': return 'Running Ft';
+      case 'count':
+      case 'unit': return 'Count / Unit';
+      case 'number': return 'Number';
+      case 'quantity': return 'Quantity';
+      case 'as_available': return 'As Available';
+      case 'not_applicable': return 'Not Applicable';
+      case 'service':
+      case 'service_based': return 'Service Based';
+      default: return 'As Available';
+    }
+  }
+
+  String get quantityLabel {
+    final mt = measurementType ?? 'as_available';
+    if (mt == 'as_available') return 'As available';
+    if (mt == 'not_applicable' || mt == 'service' || mt == 'service_based') return 'Not applicable';
+    if (quantity != null) {
+      final n = quantity!;
+      return n == n.roundToDouble() ? n.toInt().toString() : n.toStringAsFixed(1);
+    }
+    return basicAreaSqFt != null && basicAreaSqFt! > 0
+        ? (basicAreaSqFt! == basicAreaSqFt!.roundToDouble()
+            ? basicAreaSqFt!.toInt().toString()
+            : basicAreaSqFt!.toStringAsFixed(1))
+        : '-';
+  }
+
+  /// Human-readable configured frequency, including custom value + unit.
+  String get configuredFrequency {
+    final ft = frequencyType ?? 'daily';
+    switch (ft) {
+      case 'once_daily':
+      case 'daily': return 'Once per day';
+      case 'twice_daily':
+      case 'two_times_daily': return 'Twice per day';
+      case 'three_times_daily':
+      case 'shift_wise': return 'Three times per day';
+      case 'four_times_daily': return 'Four times per day';
+      case 'once_weekly':
+      case 'weekly': return 'Once per week';
+      case 'twice_weekly': return 'Twice per week';
+      case 'once_fortnightly': return 'Once per fortnight';
+      case 'once_monthly':
+      case 'monthly': return 'Once per month';
+      case 'twice_monthly': return 'Twice per month';
+      case 'as_required':
+      case 'as_and_when_required': return 'As and when required';
+      case 'custom':
+        if (frequencyValue != null && frequencyUnit != null) {
+          return '$frequencyValue time${frequencyValue == 1 ? '' : 's'} per ${_frequencyUnitLabel(frequencyUnit!)}';
+        }
+        return 'Custom';
+      case '4hrs': return 'Every 4 hrs';
+      case 'hourly': return 'Hourly';
+      default: return ft;
+    }
+  }
+
+  static String _frequencyUnitLabel(String unit) {
+    switch (unit) {
+      case 'day': return 'day';
+      case 'week': return 'week';
+      case 'fortnight': return 'fortnight';
+      case 'month': return 'month';
+      case 'shift': return 'shift';
+      default: return unit;
+    }
+  }
 
   Map<String, dynamic> toJson() => {
     if (uid != null) 'uid': uid,
@@ -147,15 +241,24 @@ class StationArea {
     if (boqTimesPerPeriod != null) 'boqTimesPerPeriod': boqTimesPerPeriod,
     if (tenderedAreaPerDay != null) 'tenderedAreaPerDay': tenderedAreaPerDay,
     if (cleaningFrequency != null) 'cleaningFrequency': cleaningFrequency,
+    if (workItem != null) 'workItem': workItem,
+    if (subArea != null) 'subArea': subArea,
+    if (measurementType != null) 'measurementType': measurementType,
+    if (quantity != null) 'quantity': quantity,
+    if (quantityMode != null) 'quantityMode': quantityMode,
+    if (frequencyValue != null) 'frequencyValue': frequencyValue,
+    if (frequencyUnit != null) 'frequencyUnit': frequencyUnit,
+    if (remarks != null) 'remarks': remarks,
+    if (status != null) 'status': status,
   };
 
   factory StationArea.fromJson(Map<String, dynamic> json) => StationArea(
-    uid: json['uid'],
+    uid: json['uid'] ?? json['id'],
     stationId: json['stationId'] ?? '',
     name: (json['name'] != null && json['name'].toString().isNotEmpty) ? json['name'] : (json['areaName'] ?? ''),
     order: json['order'] ?? 0,
     description: json['description'] ?? '',
-    active: json['active'] ?? true,
+    active: json['active'] ?? (json['status'] == null ? true : json['status'] != 'inactive'),
     platformId: json['platformId'],
     mainArea: json['mainArea'] as String?,
     basicAreaSqFt: (json['basicAreaSqFt'] as num?)?.toDouble(),
@@ -163,6 +266,15 @@ class StationArea {
     boqTimesPerPeriod: (json['boqTimesPerPeriod'] as num?)?.toInt(),
     tenderedAreaPerDay: (json['tenderedAreaPerDay'] as num?)?.toDouble(),
     cleaningFrequency: json['cleaningFrequency'] as String?,
+    workItem: json['workItem'] as String?,
+    subArea: json['subArea'] as String?,
+    measurementType: json['measurementType'] as String?,
+    quantity: (json['quantity'] as num?)?.toDouble(),
+    quantityMode: json['quantityMode'] as String?,
+    frequencyValue: (json['frequencyValue'] as num?)?.toInt(),
+    frequencyUnit: json['frequencyUnit'] as String?,
+    remarks: json['remarks'] as String?,
+    status: json['status'] as String?,
   );
 
   @override

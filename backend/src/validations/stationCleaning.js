@@ -1,8 +1,35 @@
 import { z } from 'zod';
 
+export const measurementTypeValues = [
+  'sq_ft', 'sq_meter', 'running_ft', 'count', 'number', 'quantity',
+  'unit', 'as_available', 'not_applicable', 'service', 'service_based',
+] as const;
+
+export const frequencyUnitValues = ['day', 'week', 'fortnight', 'month', 'shift'] as const;
+
+// An area / work item must not be forced to carry sqft. Validation is
+// measurement-type aware: numeric measurements require a positive quantity,
+// while "as available" / "not applicable" allow an absent quantity.
 export const createStationAreaSchema = z.object({
   stationId: z.string().min(1, 'stationId required'),
   name: z.string().min(2, 'name must be at least 2 characters').max(100, 'name must be under 100 characters'),
+  areaName: z.string().min(1).max(200).optional(),
+  workItem: z.string().max(500).optional(),
+  mainArea: z.string().max(200).optional(),
+  subArea: z.string().max(200).optional(),
+  measurementType: z.enum(measurementTypeValues).optional(),
+  quantity: z.union([z.number().positive(), z.null()]).optional(),
+  quantityMode: z.enum(['numeric', 'as_available', 'not_applicable']).optional(),
+  basicAreaSqFt: z.union([z.number().positive(), z.null()]).optional(),
+  frequencyType: z.string().max(100).optional(),
+  frequencyValue: z.number().int().positive().optional(),
+  frequencyUnit: z.enum(frequencyUnitValues).optional(),
+  boqTimesPerPeriod: z.number().int().positive().optional(),
+  tenderedAreaPerDay: z.number().optional(),
+  cleaningFrequency: z.string().max(100).optional(),
+  remarks: z.string().max(1000).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  active: z.boolean().optional(),
   order: z.number().int().min(0).max(999).optional(),
   description: z.string().max(500, 'description must be under 500 characters').optional(),
 });

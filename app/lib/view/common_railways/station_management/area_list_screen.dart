@@ -5,7 +5,7 @@ import 'package:crm_train/providers/auth_provider.dart';
 import 'package:crm_train/repositories/station_cleaning_repository.dart';
 import 'package:crm_train/services/api_services.dart';
 import 'package:crm_train/utills/app_colors.dart';
-import 'area_form_screen.dart';
+import 'area_work_item_form_screen.dart';
 
 class AreaListScreen extends StatefulWidget {
   final String? stationId;
@@ -108,7 +108,7 @@ class _AreaListScreenState extends State<AreaListScreen> {
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-          builder: (_) => AreaFormScreen(
+          builder: (_) => AreaWorkItemFormScreen(
             stationId: _selectedStation!.uid ?? _selectedStation!.stationCode,
             existingArea: existing,
           ),
@@ -328,19 +328,27 @@ class _AreaListScreenState extends State<AreaListScreen> {
                     ],
                   ),
                   const SizedBox(height: 6),
+                  if (a.workItem != null && a.workItem!.isNotEmpty) ...[
+                    Text(a.workItem!, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    const SizedBox(height: 2),
+                  ],
                   if (a.mainArea != null && a.mainArea!.isNotEmpty) ...[
                     Text('Main: ${a.mainArea}', style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
                     const SizedBox(height: 2),
                   ],
-                  if (a.basicAreaSqFt != null && a.basicAreaSqFt! > 0)
+                  if (a.subArea != null && a.subArea!.isNotEmpty)
+                    Text('Sub: ${a.subArea}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                  if (a.basicAreaSqFt != null && a.basicAreaSqFt! > 0 && a.quantity == null)
                     Text('Basic: ${a.basicAreaSqFt!.toStringAsFixed(a.basicAreaSqFt == a.basicAreaSqFt!.roundToDouble() ? 0 : 1)} sq.ft.',
                         style: const TextStyle(fontSize: 12, color: Colors.black87)),
                   Wrap(
                     spacing: 6,
                     runSpacing: 4,
                     children: [
-                      if (a.frequencyType != null)
-                        _infoChip('${a.frequencyType} ${a.boqTimesPerPeriod ?? 1}x'),
+                      _infoChip('${a.measurementLabel}: ${a.quantityLabel}'),
+                      _infoChip(a.configuredFrequency),
+                      if (a.frequencyType != null && (a.boqTimesPerPeriod ?? 1) > 1)
+                        _infoChip('${a.boqTimesPerPeriod}x'),
                       if (a.tenderedAreaPerDay != null && a.tenderedAreaPerDay! > 0)
                         _infoChip('${a.tenderedAreaPerDay!.toStringAsFixed(a.tenderedAreaPerDay == a.tenderedAreaPerDay!.roundToDouble() ? 0 : 1)} sq.ft./day'),
                       if (a.description.isNotEmpty && a.mainArea == null)
