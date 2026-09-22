@@ -16,7 +16,7 @@ import 'feedback/passenger_feedback_form_screen.dart';
 import 'feedback/passenger_feedback_list_screen.dart';
 import 'inspection/inspection_list_screen.dart';
 import 'reporting/report_list_screen.dart';
-import '../common_railways/station_management/area_config_screen.dart';
+import '../common_railways/station_management/area_list_screen.dart';
 import '../common_railways/station_management/supervisor_shift_assignment_screen.dart';
 import '../common_railways/station_management/station_feedback_list_screen.dart';
 import '../common_railways/station_management/task_generation_screen.dart';
@@ -148,7 +148,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
         Icons.inventory_2_outlined,
         [
           _moduleCard(context, Icons.manage_search, 'Audit Log', Colors.cyan.shade700, () => _openAuditLog(context)),
-          _moduleCard(context, Icons.map, 'Area Arrangement', Colors.lightGreen.shade700, () => _openAreaConfig(context)),
+          _moduleCard(context, Icons.map, 'Area Management', Colors.lightGreen.shade700, () => _openAreaConfig(context)),
           _moduleCard(context, Icons.feedback_outlined, 'Passenger Feedback', Colors.amber.shade800, () => _openFeedback(context)),
         ],
       ),
@@ -377,14 +377,10 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
   }
 
   void _openAreaConfig(BuildContext context) {
-    final matched = _selectedStationId.isNotEmpty
-        ? _availableStations.where((s) => s.uid == _selectedStationId).firstOrNull
-        : null;
-    final station = matched ??
-        (_selectedStationId.isEmpty
-            ? null
-            : Station(uid: _selectedStationId, stationCode: _selectedStationId, stationName: _selectedStationName, zone: '', division: ''));
-    Navigator.push(context, MaterialPageRoute(builder: (_) => AreaConfigScreen(initialStation: station)));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => AreaListScreen(
+      stationId: _selectedStationId,
+      stationName: _selectedStationName,
+    )));
   }
 
   void _openTaskGen(BuildContext context) {
