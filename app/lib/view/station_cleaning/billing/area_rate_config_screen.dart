@@ -71,15 +71,19 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
         _areas = areas.where((a) => a.active && a.basicAreaSqFt != null).toList();
         for (final a in _areas) {
           final uid = a.uid!;
+          final savedW = _config?.areaWeightages[uid] != null && _config!.areaWeightages[uid]! > 0
+              ? _config!.areaWeightages[uid]!
+              : 0.0;
+          final savedOverride = _config?.areaRateOverrides[uid];
           _areaRateCtrls[uid] ??= TextEditingController(
-            text: _config?.areaRateOverrides[uid] != null && _config!.areaRateOverrides[uid]! > 0
-                ? '${_config!.areaRateOverrides[uid]}'
-                : '',
+            text: savedW > 0
+                ? (_autoRate(uid, savedW) ?? 0).toStringAsFixed(4)
+                : savedOverride != null && savedOverride > 0
+                    ? '${savedOverride}'
+                    : '',
           );
           _areaWeightCtrls[uid] ??= TextEditingController(
-            text: _config?.areaWeightages[uid] != null && _config!.areaWeightages[uid]! > 0
-                ? '${_config!.areaWeightages[uid]}'
-                : '',
+            text: savedW > 0 ? '${savedW}' : '',
           );
         }
       });
@@ -97,6 +101,11 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       final v = double.tryParse(ctrl.text.trim());
       if (v != null && v > 0) m[areaId] = v;
     });
+    _areaWeightCtrls.forEach((areaId, ctrl) {
+      final w = double.tryParse(ctrl.text.trim());
+      final derived = w != null && w > 0 ? _autoRate(areaId, w) : null;
+      if (derived != null && derived > 0) m[areaId] = derived;
+    });
     return m;
   }
 
@@ -111,16 +120,32 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
 
   double get _weightTotal => _buildAreaWeightages().values.fold<double>(0, (s, v) => s + v);
 
+  double get _annualContractValue => _config?.annualContractValue ?? 0;
+
+  double _sqftOf(String uid) {
+    for (final a in _areas) {
+      if (a.uid == uid) return a.basicAreaSqFt ?? 0;
+    }
+    return 0;
+  }
+
+  double? _autoRate(String uid, double weightage) {
+    final acv = _annualContractValue;
+    final sqft = _sqftOf(uid);
+    if (acv <= 0 || sqft <= 0 || weightage <= 0) return null;
+    final rate = (acv * weightage / 100 / 365) / sqft;
+    return double.parse(rate.toStringAsFixed(4));
+  }
+
   Future<void> _save() async {
-    final defaultRate = double.tryParse(_rateCtrl.text.trim());
-    if ((defaultRate == null || defaultRate <= 0) && _buildAreaOverrides().isEmpty) {
+    final weightages = _buildAreaWeightages();
+    if (weightages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set the default rate or at least one area rate before saving'), backgroundColor: kWarningOrange),
+        const SnackBar(content: Text('Set area weightages for billing (weightage = money source)'), backgroundColor: kWarningOrange),
       );
       return;
     }
-    final weightages = _buildAreaWeightages();
-    if (weightages.isNotEmpty && (_weightTotal - 100).abs() > 0.01) {
+    if ((_weightTotal - 100).abs() > 0.01) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Area weightages must total exactly 100% (currently ${_weightTotal.toStringAsFixed(2)}%)'), backgroundColor: kErrorRed),
       );
@@ -133,7 +158,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
     try {
       final c = _config;
       await ApiService.savePerformanceBillingConfig(widget.contractId, {
-        'ratePerSqft': defaultRate != null && defaultRate > 0 ? defaultRate : null,
+        'ratePerSqft': null,
         'areaRateOverrides': _buildAreaOverrides(),
         'areaWeightages': weightages,
         'gstRate': c?.gstRate ?? 18,
@@ -144,7 +169,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Area rates saved'), backgroundColor: kSuccessGreen),
+        const SnackBar(content: Text('Area weightages saved — rates auto-derived from weightage'), backgroundColor: kSuccessGreen),
       );
     } catch (e) {
       if (!mounted) return;
@@ -203,8 +228,9 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Daily billing values each cleaning pass as area sq.ft. × ₹/sq.ft. Leave a rate blank to use the default. '
-                              'Weightages are shown for reference on the daily bill and must total 100%.',
+                              'Enter Area Weightage per area — the per-sq.ft. rate auto-fills as '
+                              '(ACV × weightage ÷ 100 ÷ 365) ÷ sq.ft. and is read-only. '
+                              'Weightages must total 100%.',
                               style: TextStyle(fontSize: 11, color: Colors.black87, height: 1.4),
                             ),
                           ),
@@ -239,7 +265,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
             const Text('Default Rate', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             const SizedBox(height: 4),
             const Text(
-              'Rate per square foot per execution. Applied to every area that has no override below.',
+              'Rate per sq.ft. is AUTO-DERIVED from weightage: (ACV × weightage ÷ 100 ÷ 365) ÷ sq.ft.',
               style: TextStyle(fontSize: 11, color: Colors.grey),
             ),
             const SizedBox(height: 10),
@@ -320,7 +346,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       caption = 'Weightage total must be 100%';
     } else {
       color = Colors.grey[500]!;
-      caption = 'Optional — set weights per area summing to 100%';
+      caption = 'Enter weightage per area summing to 100%';
     }
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -408,10 +434,14 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                       child: TextField(
                         controller: rateCtrl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
+                        readOnly: (() {
+                          final w = double.tryParse(weightCtrl.text.trim());
+                          return w != null && w > 0;
+                        })(),
+                        decoration: InputDecoration(
                           labelText: 'Rate ₹',
                           isDense: true,
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                         ),
                         style: const TextStyle(fontSize: 12),
                         onChanged: (_) => setState(() {}),
@@ -429,7 +459,16 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                           border: const OutlineInputBorder(),
                         ),
                         style: const TextStyle(fontSize: 12),
-                        onChanged: (_) => setState(() {}),
+                        onChanged: (_) {
+                          final w = double.tryParse(weightCtrl.text.trim());
+                          final derived = w != null && w > 0 ? _autoRate(uid, w) : null;
+                          if (derived != null) {
+                            rateCtrl.text = derived.toStringAsFixed(4);
+                          } else if (ov == null) {
+                            rateCtrl.text = '';
+                          }
+                          setState(() {});
+                        },
                       ),
                     ),
                   ],

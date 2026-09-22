@@ -92,6 +92,7 @@ class BillingConfig {
   final double? ratePerSqft;
   final Map<String, double> areaRateOverrides;
   final Map<String, double> areaWeightages;
+  final double annualContractValue;
   final int gstRate;
   final double otherDeductions;
   final double dailyIncompleteExecutionPenalty;
@@ -107,6 +108,7 @@ class BillingConfig {
     this.ratePerSqft,
     this.areaRateOverrides = const {},
     this.areaWeightages = const {},
+    this.annualContractValue = 0,
     required this.gstRate,
     this.otherDeductions = 0,
     this.dailyIncompleteExecutionPenalty = 200,
@@ -128,6 +130,7 @@ class BillingConfig {
       areaWeightages: (json['areaWeightages'] as Map<String, dynamic>?)
               ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
           const {},
+      annualContractValue: (json['annualContractValue'] as num?)?.toDouble() ?? 0,
       gstRate: (json['gstRate'] as num?)?.toInt() ?? 18,
       otherDeductions: (json['otherDeductions'] as num?)?.toDouble() ?? 0,
       dailyIncompleteExecutionPenalty: (json['dailyIncompleteExecutionPenalty'] as num?)?.toDouble() ?? 200,

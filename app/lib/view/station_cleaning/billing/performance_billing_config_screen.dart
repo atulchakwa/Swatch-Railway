@@ -86,15 +86,19 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
         _areas = areas.where((a) => a.active && a.basicAreaSqFt != null).toList();
         for (final a in _areas) {
           final uid = a.uid!;
+          final savedW = _config?.areaWeightages[uid] != null && _config!.areaWeightages[uid]! > 0
+              ? _config!.areaWeightages[uid]!
+              : 0.0;
+          final savedOverride = _config?.areaRateOverrides[uid];
           _areaRateCtrls[uid] ??= TextEditingController(
-            text: _config?.areaRateOverrides[uid] != null && _config!.areaRateOverrides[uid]! > 0
-                ? '${_config!.areaRateOverrides[uid]}'
-                : '',
+            text: savedW > 0
+                ? (_autoRate(uid, savedW) ?? 0).toStringAsFixed(4)
+                : savedOverride != null && savedOverride > 0
+                    ? '${savedOverride}'
+                    : '',
           );
           _areaWeightCtrls[uid] ??= TextEditingController(
-            text: _config?.areaWeightages[uid] != null && _config!.areaWeightages[uid]! > 0
-                ? '${_config!.areaWeightages[uid]}'
-                : '',
+            text: savedW > 0 ? '${savedW}' : '',
           );
         }
       });
@@ -108,6 +112,11 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     _areaRateCtrls.forEach((areaId, ctrl) {
       final v = double.tryParse(ctrl.text.trim());
       if (v != null && v > 0) m[areaId] = v;
+    });
+    _areaWeightCtrls.forEach((areaId, ctrl) {
+      final w = double.tryParse(ctrl.text.trim());
+      final derived = w != null && w > 0 ? _autoRate(areaId, w) : null;
+      if (derived != null && derived > 0) m[areaId] = derived;
     });
     return m;
   }
@@ -123,6 +132,23 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
 
   double get _weightTotal => _buildAreaWeightages().values.fold<double>(0, (s, v) => s + v);
 
+  double get _annualContractValue => _config?.annualContractValue ?? 0;
+
+  double _sqftOf(String uid) {
+    for (final a in _areas) {
+      if (a.uid == uid) return a.basicAreaSqFt ?? 0;
+    }
+    return 0;
+  }
+
+  double? _autoRate(String uid, double weightage) {
+    final acv = _annualContractValue;
+    final sqft = _sqftOf(uid);
+    if (acv <= 0 || sqft <= 0 || weightage <= 0) return null;
+    final rate = (acv * weightage / 100 / 365) / sqft;
+    return double.parse(rate.toStringAsFixed(4));
+  }
+
   Future<void> _save() async {
     final weightages = _buildAreaWeightages();
     if (weightages.isNotEmpty && (_weightTotal - 100).abs() > 0.01) {
@@ -133,8 +159,9 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     setState(() { _saving = true; _error = null; });
     try {
       final rateText = _rateCtrl.text.trim();
+      final hasWeightages = weightages.isNotEmpty;
       await ApiService.savePerformanceBillingConfig(widget.contractId, {
-        'ratePerSqft': rateText.isEmpty ? null : double.tryParse(rateText) ?? 0,
+        'ratePerSqft': hasWeightages ? null : (rateText.isEmpty ? null : double.tryParse(rateText) ?? 0),
         'areaRateOverrides': _buildAreaOverrides(),
         'areaWeightages': weightages,
         'gstRate': double.tryParse(_gstCtrl.text.trim()) ?? 18,
@@ -383,6 +410,10 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                                       child: TextField(
                                         controller: rateCtrl,
                                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        readOnly: (() {
+                                          final w = double.tryParse(weightCtrl.text.trim());
+                                          return w != null && w > 0;
+                                        })(),
                                         decoration: const InputDecoration(
                                           labelText: 'Rate ₹',
                                           isDense: true,
@@ -404,7 +435,16 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                                           border: const OutlineInputBorder(),
                                         ),
                                         style: const TextStyle(fontSize: 12),
-                                        onChanged: (_) => setState(() {}),
+                                        onChanged: (_) {
+                                          final w = double.tryParse(weightCtrl.text.trim());
+                                          final derived = w != null && w > 0 ? _autoRate(uid, w) : null;
+                                          if (derived != null) {
+                                            rateCtrl.text = derived.toStringAsFixed(4);
+                                          } else if (ov == null) {
+                                            rateCtrl.text = '';
+                                          }
+                                          setState(() {});
+                                        },
                                       ),
                                     ),
                                   ],

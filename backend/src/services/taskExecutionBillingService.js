@@ -149,6 +149,7 @@ export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSum
       const acv = Number(annualContractValue) || 0;
       const areaDaily = areaDailyMoneyValue(acv, r.weightage);
       const perExec = perExecutionValue(areaDaily, r.required);
+      r.ratePerSqft = areaRatePerSqFt(areaDaily, r.areaSqft);
       r.expectedValue = roundMoney(perExec * r.required);
       r.actualExecutionValue = roundMoney(perExec * r.completed);
       r.executionDeduction = roundMoney(executionDeduction(perExec, r.required - r.completed));
