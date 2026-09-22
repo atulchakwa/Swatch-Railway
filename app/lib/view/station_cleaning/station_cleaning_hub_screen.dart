@@ -11,6 +11,7 @@ import 'billing/area_rate_config_screen.dart';
 import 'billing/billing_support_pack_screen.dart';
 import 'billing/daily_task_billing_screen.dart';
 import 'billing/performance_billing_screen.dart';
+import 'billing/annexure_billing_config_screen.dart';
 import 'feedback/feedback_qr_screen.dart';
 import 'feedback/passenger_feedback_form_screen.dart';
 import 'feedback/passenger_feedback_list_screen.dart';
@@ -141,6 +142,7 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
           _moduleCard(context, Icons.calendar_month, 'Daily Billing', Colors.teal.shade700, () => _openDailyBilling(context)),
           _moduleCard(context, Icons.payments, 'Performance Billing', Colors.redAccent, () => _openPerformanceBilling(context)),
           _moduleCard(context, Icons.currency_rupee, 'Area Rates & Weightage', Colors.brown, () => _openAreaRates(context)),
+          _moduleCard(context, Icons.rule_folder_outlined, 'Annexure-4B Rule Engine', Colors.deepOrange.shade800, () => _openAnnexureBilling(context)),
         ],
       ),
       (
@@ -355,6 +357,22 @@ class _StationCleaningHubScreenState extends State<StationCleaningHubScreen> {
     final contractId = _effectiveContractId();
     if (contractId != null) {
       Navigator.push(context, MaterialPageRoute(builder: (_) => AreaRateConfigScreen(contractId: contractId)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
+    }
+  }
+
+  void _openAnnexureBilling(BuildContext context) {
+    if (_loadingContract) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checking contract for this station…')));
+      return;
+    }
+    final contractId = _effectiveContractId();
+    if (contractId != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => AnnexureBillingConfigScreen(
+        contractId: contractId,
+        stationName: _selectedStationName,
+      )));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No contract linked to this station')));
     }

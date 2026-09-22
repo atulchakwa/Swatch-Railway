@@ -68,6 +68,7 @@ import geofenceRoutes from './routes/geofence.js';
 import idleAlertRoutes from './routes/idleAlert.js';
 import pettyIssueRoutes from './routes/pettyIssue.js';
 import performanceBillingRoutes from './routes/performanceBilling.js';
+import annexureBillingRoutes from './routes/annexureBilling.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { metricsMiddleware, metricsHandler } from './middleware/metrics.js';
@@ -168,6 +169,7 @@ app.use(geofenceRoutes);                            // /api/geofences/* /api/geo
 app.use(idleAlertRoutes);                           // /api/idle-alerts/*
 app.use(pettyIssueRoutes);                           // /api/petty-issues/*
 app.use(performanceBillingRoutes);                   // /api/performance-billing/*
+app.use('/api/annexure-billing', annexureBillingRoutes); // Annexure-4B contract rule engine
 
 // Relative-path routes mounted with base prefixes
 app.use('/api/passenger', passengerRoutes);       // /api/passenger/*
