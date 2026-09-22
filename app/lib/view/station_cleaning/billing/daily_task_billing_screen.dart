@@ -1081,10 +1081,12 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
         ],
         const Divider(height: 22),
         _groupLabel('PENALTY & DEDUCTIONS'),
-        if (b.penaltyApplied && b.penalty > 0)
+        if (b.performancePenaltyAmount > 0)
           _kvRow('Performance penalty (score ${b.overallScore.toStringAsFixed(1)}%)', _money(b.performancePenaltyAmount), valueColor: kErrorRed)
         else
           _kvRow('Performance penalty (score ${b.overallScore.toStringAsFixed(1)}%)', 'Nil'),
+        if (b.incompleteExecutionPenaltyAmount > 0)
+          _kvRow('Task execution < 100% — incomplete penalty', _money(b.incompleteExecutionPenaltyAmount), valueColor: kErrorRed),
         if (b.otherDeductions > 0)
           _kvRow('Other contractual deductions', _money(b.otherDeductions), valueColor: kErrorRed),
         _kvRow('Total deduction', _money(b.deduction), valueColor: kErrorRed, bold: true),

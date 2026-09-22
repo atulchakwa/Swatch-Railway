@@ -29,6 +29,7 @@ class DailyTaskBillingResponse {
   // the configured penalty/deduction rule).
   final double grossEligibleWorkValue;
   final double performancePenaltyAmount;
+  final double incompleteExecutionPenaltyAmount;
   final double otherDeductions;
   final bool penaltyApplied;
   final double penalty;
@@ -67,6 +68,7 @@ class DailyTaskBillingResponse {
     this.grade = 'E',
     this.grossEligibleWorkValue = 0,
     this.performancePenaltyAmount = 0,
+    this.incompleteExecutionPenaltyAmount = 0,
     this.otherDeductions = 0,
     this.penaltyApplied = false,
     this.penalty = 0,
@@ -112,6 +114,7 @@ class DailyTaskBillingResponse {
       grade: (json['grade'] ?? 'E').toString(),
       grossEligibleWorkValue: num2('grossEligibleWorkValue'),
       performancePenaltyAmount: num2('performancePenaltyAmount'),
+      incompleteExecutionPenaltyAmount: num2('incompleteExecutionPenaltyAmount'),
       otherDeductions: num2('otherDeductions'),
       penaltyApplied: penalty['applied'] == true,
       penalty: ((penalty['totalPenalty'] as num?) ?? 0).toDouble(),

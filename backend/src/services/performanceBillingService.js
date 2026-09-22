@@ -72,6 +72,7 @@ class PerformanceBillingService {
       if (Array.isArray(existing.activities)) existing.activities = [];
       if (existing.ratePerSqft === undefined) existing.ratePerSqft = null;
       if (existing.otherDeductions === undefined) existing.otherDeductions = 0;
+      if (existing.dailyIncompleteExecutionPenalty === undefined) existing.dailyIncompleteExecutionPenalty = 200;
       if (!existing.areaRateOverrides || typeof existing.areaRateOverrides !== 'object') existing.areaRateOverrides = {};
       if (!existing.areaWeightages || typeof existing.areaWeightages !== 'object') existing.areaWeightages = {};
       if (existing.renormaliseInactiveActivities !== undefined) existing.renormaliseInactiveActivities = undefined;
@@ -94,6 +95,7 @@ class PerformanceBillingService {
       areaWeightages: {},
       gstRate: contract.gstRate || 18,
       otherDeductions: 0,
+      dailyIncompleteExecutionPenalty: 200,
       verifiedStatuses: ['approved'],
       categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),
       activities: [],
@@ -160,6 +162,8 @@ class PerformanceBillingService {
     if (Number.isNaN(gst) || gst < 0) throw new ValidationError('GST rate must be a non-negative number');
     const other = Number(config.otherDeductions);
     if (Number.isNaN(other) || other < 0) throw new ValidationError('Other contractual deductions must be a non-negative number');
+    const dPenalty = Number(config.dailyIncompleteExecutionPenalty);
+    if (Number.isNaN(dPenalty) || dPenalty < 0) throw new ValidationError('Incomplete task execution penalty must be a non-negative number');
     return true;
   }
 
@@ -195,6 +199,12 @@ class PerformanceBillingService {
     }
     if (body.gstRate !== undefined) next.gstRate = Number(body.gstRate);
     if (body.otherDeductions !== undefined) next.otherDeductions = Number(body.otherDeductions) || 0;
+    if (body.dailyIncompleteExecutionPenalty !== undefined) {
+      next.dailyIncompleteExecutionPenalty =
+        body.dailyIncompleteExecutionPenalty === null || body.dailyIncompleteExecutionPenalty === ''
+          ? 0
+          : Number(body.dailyIncompleteExecutionPenalty);
+    }
     if (body.verifiedStatuses !== undefined) next.verifiedStatuses = Array.isArray(body.verifiedStatuses) ? body.verifiedStatuses : ['approved'];
     if (body.categories !== undefined) next.categories = body.categories;
     if (body.penaltyRules !== undefined) next.penaltyRules = body.penaltyRules;
@@ -523,6 +533,7 @@ class PerformanceBillingService {
       verifiedStatuses: config.verifiedStatuses || ['approved'],
       gstRate: config.gstRate,
       otherDeductions: Number(config.otherDeductions) || 0,
+      dailyIncompleteExecutionPenalty: Number(config.dailyIncompleteExecutionPenalty) || 0,
     };
   }
 

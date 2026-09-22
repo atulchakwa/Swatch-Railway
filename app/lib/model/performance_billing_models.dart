@@ -94,6 +94,7 @@ class BillingConfig {
   final Map<String, double> areaWeightages;
   final int gstRate;
   final double otherDeductions;
+  final double dailyIncompleteExecutionPenalty;
   final List<String> verifiedStatuses;
   final List<PerformanceBillingCategory> categories;
   final List<PenaltyRule> penaltyRules;
@@ -108,6 +109,7 @@ class BillingConfig {
     this.areaWeightages = const {},
     required this.gstRate,
     this.otherDeductions = 0,
+    this.dailyIncompleteExecutionPenalty = 200,
     required this.verifiedStatuses,
     required this.categories,
     required this.penaltyRules,
@@ -128,6 +130,7 @@ class BillingConfig {
           const {},
       gstRate: (json['gstRate'] as num?)?.toInt() ?? 18,
       otherDeductions: (json['otherDeductions'] as num?)?.toDouble() ?? 0,
+      dailyIncompleteExecutionPenalty: (json['dailyIncompleteExecutionPenalty'] as num?)?.toDouble() ?? 200,
       verifiedStatuses: (json['verifiedStatuses'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? ['approved'],
       categories: (json['categories'] as List<dynamic>?)
           ?.map((e) => PerformanceBillingCategory.fromJson(e as Map<String, dynamic>))

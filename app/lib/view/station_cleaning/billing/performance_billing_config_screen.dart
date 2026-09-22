@@ -24,6 +24,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   late List<PenaltyRule> _penaltyRules;
   late TextEditingController _gstCtrl;
   late TextEditingController _otherDeductionsCtrl;
+  late TextEditingController _incompletePenaltyCtrl;
   late TextEditingController _rateCtrl;
   late List<String> _verifiedStatuses;
   final Map<String, TextEditingController> _areaRateCtrls = {};
@@ -35,6 +36,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     super.initState();
     _gstCtrl = TextEditingController();
     _otherDeductionsCtrl = TextEditingController();
+    _incompletePenaltyCtrl = TextEditingController();
     _rateCtrl = TextEditingController();
     _load();
   }
@@ -43,6 +45,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   void dispose() {
     _gstCtrl.dispose();
     _otherDeductionsCtrl.dispose();
+    _incompletePenaltyCtrl.dispose();
     _rateCtrl.dispose();
     for (final c in _areaRateCtrls.values) c.dispose();
     for (final c in _areaWeightCtrls.values) c.dispose();
@@ -60,6 +63,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
         _penaltyRules = List.of(c.penaltyRules);
         _gstCtrl.text = '${c.gstRate}';
         _otherDeductionsCtrl.text = c.otherDeductions > 0 ? '${c.otherDeductions}' : '';
+        _incompletePenaltyCtrl.text = c.dailyIncompleteExecutionPenalty > 0 ? '${c.dailyIncompleteExecutionPenalty}' : '';
         _rateCtrl.text = c.ratePerSqft != null ? '${c.ratePerSqft}' : '';
         _verifiedStatuses = List.of(c.verifiedStatuses);
         _loading = false;
@@ -135,6 +139,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
         'areaWeightages': weightages,
         'gstRate': double.tryParse(_gstCtrl.text.trim()) ?? 18,
         'otherDeductions': double.tryParse(_otherDeductionsCtrl.text.trim()) ?? 0,
+        'dailyIncompleteExecutionPenalty': double.tryParse(_incompletePenaltyCtrl.text.trim()) ?? 200,
         'verifiedStatuses': _verifiedStatuses,
         'categories': _categories.map((c) => c.toJson()).toList(),
         'penaltyRules': _penaltyRules.map((r) => r.toJson()).toList(),
@@ -460,6 +465,42 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.event_busy, size: 18, color: kErrorRed),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text('Incomplete Task Execution Penalty', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Charged as a flat fixed penalty on ANY day where task execution is below 100%. Applies on top of the score slabs below.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600, height: 1.35),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _incompletePenaltyCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Penalty amount per incomplete day (₹)',
+                    prefixIcon: Icon(Icons.currency_rupee),
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         _infoBanner(
           'Penalty slabs keyed off the overall score. The FIRST matching slab (score >= from AND score < to) is applied.',
           ok: true,

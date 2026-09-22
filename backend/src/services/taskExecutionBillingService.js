@@ -22,8 +22,10 @@
  *   grossEligibleWorkValue = total actual execution value
  *   performancePenalty     = applied by the configured penalty slabs keyed off
  *                            the final performance score
+ *   incompleteExecPenalty  = flat daily penalty (config.dailyIncompleteExecutionPenalty,
+ *                            default ₹200) whenever task execution is below 100%
  *   otherDeductions        = configurable contractual deductions
- *   deduction              = performancePenalty + otherDeductions
+ *   deduction              = performancePenalty + incompleteExecPenalty + otherDeductions
  *   netAmount              = grossEligibleWorkValue - deduction  (floor 0)
  *   netAmount -> GST -> totalPayable
  *
@@ -203,7 +205,29 @@ export function computeDailyTaskBilling({
   // configured performance penalty/deduction rule; it is not multiplied into
   // the actual executed work value.
   const grossEligibleWorkValue = roundMoney(actualExecutionValue);
-  const penalty = applyPenaltyRules(config.penaltyRules, overallScore, expectedWorkValue, grossEligibleWorkValue);
+  const slabPenalty = applyPenaltyRules(config.penaltyRules, overallScore, expectedWorkValue, grossEligibleWorkValue);
+
+  // Flat daily penalty: when task execution is not 100% on a day, the contract
+  // charges a fixed amount (default ₹200) on top of any slab penalty.
+  const incompletePenaltyAmount = Number(config.dailyIncompleteExecutionPenalty) || 0;
+  const executionIncomplete = taskExecutionScore !== null && taskExecutionScore < 100 && incompletePenaltyAmount > 0;
+  const incompleteRow = executionIncomplete
+    ? {
+        uid: 'daily-incomplete-execution',
+        name: `Task execution not 100% (${round2(taskExecutionScore)}%)`,
+        action: 'FIXED_AMOUNT',
+        value: incompletePenaltyAmount,
+        amount: roundMoney(incompletePenaltyAmount),
+        reason: 'incomplete-execution',
+      }
+    : null;
+  const penaltyRows = [...slabPenalty.rows, ...(incompleteRow ? [incompleteRow] : [])];
+  const penalty = {
+    applied: slabPenalty.applied || executionIncomplete,
+    rows: penaltyRows,
+    totalPenalty: roundMoney(slabPenalty.totalPenalty + (incompleteRow ? incompleteRow.amount : 0)),
+  };
+
   const otherDeductions = roundMoney(Math.max(0, Number(config.otherDeductions) || 0));
   const deduction = roundMoney(penalty.totalPenalty + otherDeductions);
   const netAmount = roundMoney(Math.max(0, grossEligibleWorkValue - deduction));
@@ -232,7 +256,8 @@ export function computeDailyTaskBilling({
       : { count: 0, achievement: null },
     overallScore,
     grade,
-    performancePenaltyAmount: penalty.totalPenalty,
+    performancePenaltyAmount: slabPenalty.totalPenalty,
+    incompleteExecutionPenaltyAmount: incompleteRow ? incompleteRow.amount : 0,
     otherDeductions,
     penalty,
     deduction,
@@ -638,6 +663,7 @@ class TaskExecutionBillingService {
       totalActualExecutionValue: sum('actualExecutionValue'),
       totalGrossAmount: sum('grossAmount'),
       totalPerformancePenalty: sum('performancePenaltyAmount'),
+      totalIncompleteExecutionPenalty: sum('incompleteExecutionPenaltyAmount'),
       totalOtherDeductions: sum('otherDeductions'),
       totalDeduction: sum('deduction'),
       totalNetAmount: sum('netAmount'),
