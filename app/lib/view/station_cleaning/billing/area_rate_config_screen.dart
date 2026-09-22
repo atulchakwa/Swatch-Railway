@@ -99,6 +99,16 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
 
   double get _weightTotal => _buildAreaWeightages().values.fold<double>(0, (s, v) => s + v);
 
+  double _othersTotal(String uid) {
+    double s = 0;
+    _areaWeightCtrls.forEach((id, ctrl) {
+      if (id == uid) return;
+      final v = double.tryParse(ctrl.text.trim());
+      if (v != null && v > 0) s += v;
+    });
+    return s;
+  }
+
   double get _annualContractValue => _config?.annualContractValue ?? 0;
 
   double get _dailyContractValue => _annualContractValue / 365;
@@ -128,9 +138,16 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       );
       return;
     }
-    if ((_weightTotal - 100).abs() > 0.01) {
+    final total = _weightTotal;
+    if (total > 100.0001) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Weightage must total exactly 100% (currently ${_weightTotal.toStringAsFixed(2)}%)'), backgroundColor: kErrorRed),
+        SnackBar(content: Text('Weightage CANNOT exceed 100% (currently ${total.toStringAsFixed(2)}%) — reduce the excess allocation'), backgroundColor: kErrorRed),
+      );
+      return;
+    }
+    if ((total - 100).abs() > 0.0001) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Weightage must total EXACTLY 100% (currently ${total.toStringAsFixed(2)}%, ${(100 - total).toStringAsFixed(2)}% remaining)'), backgroundColor: kErrorRed),
       );
       return;
     }
@@ -307,15 +324,19 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
   Widget _buildWeightageTotal() {
     final total = _weightTotal;
     final hasAny = total > 0;
-    final ok = hasAny && (total - 100).abs() <= 0.01;
+    final exceeds = total > 100.0001;
+    final ok = hasAny && (total - 100).abs() <= 0.0001;
     final Color color;
     final String caption;
-    if (ok) {
+    if (exceeds) {
+      color = kErrorRed;
+      caption = 'EXCEEDS 100% — reduce allocation';
+    } else if (ok) {
       color = kSuccessGreen;
       caption = 'Fully allocated — totals 100%';
     } else if (hasAny) {
       color = kErrorRed;
-      caption = 'Allocation must total 100%';
+      caption = 'Must total EXACTLY 100%';
     } else {
       color = Colors.grey[500]!;
       caption = 'Enter % per area to allocate the daily value';
@@ -330,11 +351,17 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
       ),
       child: Row(
         children: [
-          Icon(ok ? Icons.check_circle_outline : (hasAny ? Icons.adjust : Icons.percent), size: 18, color: color),
+          Icon(exceeds
+              ? Icons.error_outline
+              : ok
+                  ? Icons.check_circle_outline
+                  : hasAny
+                      ? Icons.adjust
+                      : Icons.percent, size: 18, color: color),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Allocated: ${total.toStringAsFixed(2)}%${hasAny && !ok ? '  •  ${remaining.toStringAsFixed(2)}% left' : ''}',
+              'Allocated: ${total.toStringAsFixed(2)}%${hasAny && !ok ? '  •  ${remaining.toStringAsFixed(2)}% ${exceeds ? 'over' : 'left'}' : ''}',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
             ),
           ),
@@ -379,6 +406,10 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
     final daily = wt != null && wt > 0 ? _dailyMoney(uid, wt) : 0.0;
     final rate = _ratePerSqft(uid, wt ?? 0);
     final hasWt = wt != null && wt > 0;
+    final others = _othersTotal(uid);
+    final exceeds = hasWt && wt! > (100 - others) + 0.0001;
+    final overSingle = hasWt && (wt! > 100 || exceeds);
+    final maxAllowed = 100 - others;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -425,9 +456,32 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
                   labelText: 'Weightage',
                   suffixText: wt != null ? '%' : null,
                   isDense: true,
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(
+                    borderSide: overSingle
+                        ? const BorderSide(color: kErrorRed, width: 1.4)
+                        : BorderSide.none,
+                  ),
+                  errorText: exceeds
+                      ? 'Max ${maxAllowed.toStringAsFixed(1)}%'
+                      : null,
                 ),
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) {
+                  final parsed = double.tryParse(weightCtrl.text.trim());
+                  if (parsed != null && parsed > 0) {
+                    final clamp = 100 - _othersTotal(uid);
+                    if (clamp < 0) {
+                      setState(() {
+                        weightCtrl.text = '';
+                      });
+                    } else if (parsed > clamp) {
+                      final v = clamp.toStringAsFixed(clamp == clamp.roundToDouble() ? 0 : 2);
+                      setState(() {
+                        weightCtrl.text = v;
+                      });
+                    }
+                  }
+                  setState(() {});
+                },
               ),
             ),
           ],
