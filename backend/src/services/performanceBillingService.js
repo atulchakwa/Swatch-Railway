@@ -73,6 +73,8 @@ class PerformanceBillingService {
   /* ────────────────────────── configuration ────────────────────────── */
 
   async getOrCreateConfig(contractId) {
+    const contractDoc = await db.collection('contracts').doc(contractId).get();
+    const contract = contractDoc.exists ? contractDoc.data() : {};
     const snap = await db.collection('billing_configs')
       .where('contractId', '==', contractId).limit(1).get();
     if (!snap.empty) {
@@ -85,8 +87,6 @@ class PerformanceBillingService {
       if (!existing.areaRateOverrides || typeof existing.areaRateOverrides !== 'object') existing.areaRateOverrides = {};
       if (!existing.areaWeightages || typeof existing.areaWeightages !== 'object') existing.areaWeightages = {};
       if (existing.renormaliseInactiveActivities !== undefined) existing.renormaliseInactiveActivities = undefined;
-      const contractDoc = await db.collection('contracts').doc(contractId).get();
-      const contract = contractDoc.exists ? contractDoc.data() : {};
       const acv = Number(existing.annualContractValue || contract.contractValue || contract.annualContractValue || 0);
       const contractDays = computeContractDays(contract.startDate, contract.endDate) || 365;
       existing.annualContractValue = acv;
