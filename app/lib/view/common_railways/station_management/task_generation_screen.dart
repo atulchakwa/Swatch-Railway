@@ -906,28 +906,9 @@ int _defaultFrequencyForArea(StationArea area) {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildCardHeader(Icons.tune, 'Generation Mode'),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    label: Text('Occurrences'),
-                    icon: Icon(Icons.repeat, size: 18),
-                  ),
-                ],
-                selected: {_byFrequency},
-                onSelectionChanged: (v) => setState(() => _byFrequency = v.first),
-                style: SegmentedButton.styleFrom(
-                  selectedBackgroundColor: kRailwayBlue,
-                  selectedForegroundColor: Colors.white,
-                ),
-              ),
-            ),
             const SizedBox(height: 8),
             Text(
-              'Set how many occurrences to schedule today per area and the activities to perform.',
+              'Tasks are generated per area automatically. Select areas below and choose the activities to perform.',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ],
