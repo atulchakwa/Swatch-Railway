@@ -309,10 +309,14 @@ class UserService {
     if (trainId !== undefined) updateData.trainId = trainId;
     if (trainIds !== undefined) updateData.trainIds = trainIds;
     if (worker_type !== undefined) {
-      if (!['Janitor', 'Attendant'].includes(worker_type)) {
-        throw new ValidationError("Invalid worker category. Only 'Janitor' and 'Attendant' categories are permitted for workers.");
+      const targetRoleUpper = finalRoleUpper;
+      const isWorkerRole = targetRoleUpper.includes('WORKER') || targetRoleUpper === 'JANITOR' || targetRoleUpper === 'ATTENDANT';
+      if (isWorkerRole) {
+        if (!['Janitor', 'Attendant'].includes(worker_type)) {
+          throw new ValidationError("Invalid worker category. Only 'Janitor' and 'Attendant' categories are permitted for workers.");
+        }
+        updateData.worker_type = worker_type;
       }
-      updateData.worker_type = worker_type;
     }
     if (stationId !== undefined) updateData.stationId = stationId;
     if (platformId !== undefined) updateData.platformId = platformId;
