@@ -152,6 +152,44 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     return double.parse(rate.toStringAsFixed(4));
   }
 
+  Widget _buildDerivedRateRow(StationArea a) {
+    final uid = a.uid!;
+    final sqft = a.basicAreaSqFt ?? 0;
+    final wt = double.tryParse(_areaWeightCtrls[uid]?.text.trim() ?? '');
+    final derived = (wt != null && wt > 0) ? _autoRate(uid, wt) : null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(a.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text('${sqft.round()} sqft  •  ${wt == null ? 'no weightage' : 'weightage ${wt.toStringAsFixed(2)}%'}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+              ],
+            ),
+          ),
+          Text(
+            derived == null ? '—' : '₹${derived.toStringAsFixed(2)}/sqft',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: derived == null ? Colors.grey[500] : const Color(0xFF1565C0),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _save() async {
     final weightages = _buildAreaWeightages();
     if (weightages.isNotEmpty && (_weightTotal - 100).abs() > 0.01) {
@@ -740,6 +778,8 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
 
   // ── General ──
   Widget _buildGeneralTab() {
+    final weightages = _buildAreaWeightages();
+    final hasWeightages = weightages.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -749,17 +789,40 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Cleaning Rate', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                const SizedBox(height: 4),
-                const Text('Rate per square foot per execution (₹/sqft). Required to generate scorecards and bills.',
-                    style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _rateCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Rate per sqft (₹)', isDense: true, border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
+                if (hasWeightages) ...[
+                  const Text('Cleaning Rate', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Rate is derived per area — a single ₹/sqft is not used because each area carries its own '
+                    'weightage. Per-area rate = ACV × weightage% ÷ contract days ÷ area sqft.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey, height: 1.4),
+                  ),
+                  const SizedBox(height: 10),
+                  if (_areas.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('No areas with area size found. Add area sizes to compute rates.',
+                          style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                    ),
+                  for (final a in _areas)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: _buildDerivedRateRow(a),
+                    ),
+                  const SizedBox(height: 12),
+                ] else ...[
+                  const Text('Cleaning Rate', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  const Text('Set area weightages in the Area Rates tab to auto-derive each area\'s ₹/sqft.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _rateCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Rate per sqft (₹)', isDense: true, border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 TextField(
                   controller: _gstCtrl,
                   keyboardType: TextInputType.number,
