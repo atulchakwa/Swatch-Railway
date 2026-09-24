@@ -111,7 +111,9 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
 
   double get _annualContractValue => _config?.annualContractValue ?? 0;
 
-  double get _dailyContractValue => _annualContractValue / 365;
+  double get _contractDays => (_config?.contractDays ?? 0) > 0 ? _config!.contractDays : 365;
+
+  double get _dailyContractValue => _annualContractValue / _contractDays;
 
   double _sqftOf(String uid) {
     for (final a in _areas) {
@@ -121,7 +123,7 @@ class _AreaRateConfigScreenState extends State<AreaRateConfigScreen> {
   }
 
   double _dailyMoney(String uid, double weightage) {
-    return (_annualContractValue * weightage / 100) / 365;
+    return (_annualContractValue * weightage / 100) / _contractDays;
   }
 
   double? _ratePerSqft(String uid, double weightage) {

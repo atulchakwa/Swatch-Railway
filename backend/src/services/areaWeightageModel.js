@@ -5,11 +5,15 @@
  * allocation. The ONLY source of allocation is the admin-entered Area
  * Weightage % for every billable area. The sum must equal 100%.
  *
- *   Daily Contract Value   = Annual Contract Value / 365
- *   Area Daily Money Value = (Annual Contract Value x Area Weightage) / 100 / 365
+ *   Daily Contract Value   = Annual Contract Value / Contract Days
+ *   Area Daily Money Value = (Annual Contract Value x Area Weightage) / 100 / Contract Days
  *   Area Rate per SqFt     = Area Daily Money Value / Area SqFt   (READ-ONLY)
  *   Per-Execution Value    = Area Daily Money Value / Required Executions
  *   Missed-Exec Deduction  = Per-Execution Value x Missed Executions
+ *
+ * Contract Days are the inclusive days of the actual contract period (e.g. a
+ * 14-day contract divides the ACV by 14). When no contract period is known the
+ * model falls back to 365 days.
  *
  * The rate is always DERIVED from the daily money value and is never a
  * manually entered default. Money values are rounded to 2dp; the rate is
@@ -23,17 +27,19 @@ export const WEIGHTAGE_TOLERANCE = 0.01;
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const round4 = (n) => Math.round((n + Number.EPSILON) * 10000) / 10000;
 
-/** Daily Contract Value = Annual Contract Value / 365. */
-export function dailyContractValue(annualContractValue) {
+/** Daily Contract Value = Annual Contract Value / Contract Days (default 365). */
+export function dailyContractValue(annualContractValue, contractDays = 365) {
   const acv = Number(annualContractValue) || 0;
-  return round2(acv / 365);
+  const days = Number(contractDays) > 0 ? Number(contractDays) : 365;
+  return round2(acv / days);
 }
 
-/** Area Daily Money Value = (ACV x weightage) / 100 / 365. */
-export function areaDailyMoneyValue(annualContractValue, weightage) {
+/** Area Daily Money Value = (ACV x weightage) / 100 / Contract Days (default 365). */
+export function areaDailyMoneyValue(annualContractValue, weightage, contractDays = 365) {
   const acv = Number(annualContractValue) || 0;
   const w = Number(weightage) || 0;
-  return round2((acv * w) / 100 / 365);
+  const days = Number(contractDays) > 0 ? Number(contractDays) : 365;
+  return round2((acv * w) / 100 / days);
 }
 
 /** Area Rate per SqFt = Area Daily Money Value / Area SqFt (read-only, 4dp). */
@@ -101,14 +107,14 @@ export function validateAreaWeightages(weightages, areas = []) {
  * Returns a row containing the derived values (rate is read-only, so the
  * backend always recalculates it rather than trusting a client value).
  */
-export function buildWeightageAreaRow({ areaId, areaName, sqft, weightage, annualContractValue, requiredExecutions, completedExecutions }) {
+export function buildWeightageAreaRow({ areaId, areaName, sqft, weightage, annualContractValue, requiredExecutions, completedExecutions, contractDays = 365 }) {
   const areaIdKey = String(areaId || '');
   const w = Number(weightage) || 0;
   const acv = Number(annualContractValue) || 0;
   const required = Number(requiredExecutions) || 0;
   const completed = Number(completedExecutions) || 0;
   const missed = Math.max(0, required - completed);
-  const daily = areaDailyMoneyValue(acv, w);
+  const daily = areaDailyMoneyValue(acv, w, contractDays);
   const perExec = perExecutionValue(daily, required);
   const scheduledValue = round2(perExec * required); // full day's money value
   const actualExecutedValue = round2(perExec * completed);
@@ -118,7 +124,8 @@ export function buildWeightageAreaRow({ areaId, areaName, sqft, weightage, annua
     areaName: areaName || '',
     areaSqFt: Number(sqft) || 0,
     annualContractValue: acv,
-    dailyContractValue: dailyContractValue(acv),
+    contractDays: Number(contractDays) > 0 ? Number(contractDays) : 365,
+    dailyContractValue: dailyContractValue(acv, contractDays),
     areaWeightage: w,
     areaDailyMoneyValue: daily,
     ratePerSqFt: areaRatePerSqFt(daily, sqft),

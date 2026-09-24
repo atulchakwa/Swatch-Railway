@@ -28,7 +28,57 @@ Map<String, List<BoqItem>> get _boqGrouped {
 class _MainAreaSelection {
   String mainArea;
   final String subArea;
-  _MainAreaSelection({required this.mainArea, required this.subArea});
+  final double? sqft;
+  final String? frequency;
+  final int? times;
+  final double? tendered;
+  _MainAreaSelection({
+    required this.mainArea,
+    required this.subArea,
+    this.sqft,
+    this.frequency,
+    this.times,
+    this.tendered,
+  });
+}
+
+const _detailFrequencyOptions = <MapEntry<String, String>>[
+  MapEntry('Once per day', 'daily'),
+  MapEntry('Twice per day', 'twice_daily'),
+  MapEntry('Three times per day', 'three_times_daily'),
+  MapEntry('Four times per day', 'four_times_daily'),
+  MapEntry('Once per week', 'weekly'),
+  MapEntry('Once per month', 'monthly'),
+];
+
+int _timesForFrequency(String freq) {
+  switch (freq) {
+    case 'twice_daily':
+    case 'two_times_daily':
+      return 2;
+    case 'three_times_daily':
+    case 'shift_wise':
+      return 3;
+    case 'four_times_daily':
+      return 4;
+    case 'weekly':
+    case 'monthly':
+    case 'daily':
+      return 1;
+    default:
+      return 1;
+  }
+}
+
+double _tenderedFor(double sqft, String freq, int times) {
+  switch (freq.toLowerCase()) {
+    case 'monthly':
+      return (sqft * times) / 30;
+    case 'weekly':
+      return (sqft * times) / 7;
+    default:
+      return sqft * times;
+  }
 }
 
 class AreaFormScreen extends StatefulWidget {
@@ -56,8 +106,12 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
   bool _useCustomMain = false;
   final _customMainCtrl = TextEditingController();
   final _customSubCtrl = TextEditingController();
+  final _customSqftCtrl = TextEditingController();
+  final _customTimesCtrl = TextEditingController(text: '1');
   final _descCtrl = TextEditingController();
   final _orderCtrl = TextEditingController(text: '0');
+  String _customFrequency = 'daily';
+  int _customTimes = 1;
   bool _active = true;
 
   @override
@@ -68,7 +122,21 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
       final ma = e['mainArea'] as String? ?? '';
       final sa = e['areaName'] as String? ?? e['name'] as String? ?? '';
       if (ma.isNotEmpty) {
-        _selections.add(_MainAreaSelection(mainArea: ma, subArea: sa));
+        final qty = (e['quantity'] as num?)?.toDouble();
+        final sqft = (e['basicAreaSqFt'] as num?)?.toDouble();
+        final freq = (e['frequencyType'] as String?)?.isNotEmpty == true
+            ? e['frequencyType'] as String
+            : e['cleaningFrequency'] as String? ?? 'daily';
+        final times = (e['boqTimesPerPeriod'] as num?)?.toInt() ?? _timesForFrequency(freq);
+        final tendered = (e['tenderedAreaPerDay'] as num?)?.toDouble();
+        _selections.add(_MainAreaSelection(
+          mainArea: ma,
+          subArea: sa,
+          sqft: (qty != null && qty > 0) ? qty : (sqft ?? 0),
+          frequency: freq,
+          times: times,
+          tendered: tendered,
+        ));
       }
       _descCtrl.text = e['description'] ?? '';
       _orderCtrl.text = '${e['order'] ?? 0}';
@@ -80,7 +148,17 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
         final ma = p['mainArea'] ?? '';
         final sa = p['subArea'] ?? '';
         if (ma.isNotEmpty && sa.isNotEmpty) {
-          _selections.add(_MainAreaSelection(mainArea: ma, subArea: sa));
+          final item = _boqGrouped.containsKey(ma)
+              ? _boqGrouped[ma]!.where((i) => i.subArea == sa).firstOrNull
+              : null;
+          _selections.add(_MainAreaSelection(
+            mainArea: ma,
+            subArea: sa,
+            sqft: item?.basicAreaSqFt,
+            frequency: item?.frequencyType ?? 'daily',
+            times: item?.boqTimesPerPeriod ?? 1,
+            tendered: item?.tenderedAreaPerDay,
+          ));
         }
       }
     }
@@ -120,6 +198,8 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
   void dispose() {
     _customMainCtrl.dispose();
     _customSubCtrl.dispose();
+    _customSqftCtrl.dispose();
+    _customTimesCtrl.dispose();
     _descCtrl.dispose();
     _orderCtrl.dispose();
     super.dispose();
@@ -158,6 +238,7 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
     }
 
     int skipped = 0;
+    final customSqft = double.tryParse(_customSqftCtrl.text.trim());
     setState(() {
       for (final sa in selected) {
         final key = '$mainArea||$sa';
@@ -166,7 +247,27 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
           continue;
         }
         if (!_selections.any((s) => s.mainArea == mainArea && s.subArea == sa)) {
-          _selections.add(_MainAreaSelection(mainArea: mainArea, subArea: sa));
+          if (useBoq) {
+            final item = _boqGrouped[mainArea]!.where((i) => i.subArea == sa).firstOrNull;
+            _selections.add(_MainAreaSelection(
+              mainArea: mainArea,
+              subArea: sa,
+              sqft: item?.basicAreaSqFt ?? 0,
+              frequency: item?.frequencyType ?? 'daily',
+              times: item?.boqTimesPerPeriod ?? 1,
+              tendered: item?.tenderedAreaPerDay,
+            ));
+          } else {
+            final sqft = customSqft ?? 0.0;
+            _selections.add(_MainAreaSelection(
+              mainArea: mainArea,
+              subArea: sa,
+              sqft: sqft,
+              frequency: _customFrequency,
+              times: _customTimes,
+              tendered: _tenderedFor(sqft, _customFrequency, _customTimes),
+            ));
+          }
         }
       }
       _pendingMainArea = '';
@@ -174,6 +275,10 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
       _useCustomMain = false;
       _customMainCtrl.clear();
       _customSubCtrl.clear();
+      _customSqftCtrl.clear();
+      _customFrequency = 'daily';
+      _customTimes = 1;
+      _customTimesCtrl.text = '1';
     });
     if (skipped > 0) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -299,30 +404,12 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
 
     for (final sel in _selections) {
       final key = '${sel.mainArea}||${sel.subArea}';
-      if (_existingKeys.contains(key)) {
+      if (widget.existingArea == null && _existingKeys.contains(key)) {
         skipped++;
         continue;
       }
 
-      BoqItem? matched;
-      if (_boqGrouped.containsKey(sel.mainArea)) {
-        matched = _boqGrouped[sel.mainArea]!.where((i) => i.subArea == sel.subArea).firstOrNull;
-      }
-
-      final _boqTimes = matched?.boqTimesPerPeriod ?? 1;
-      final data = {
-        'stationId': widget.stationId,
-        'areaName': sel.subArea,
-        'mainArea': sel.mainArea,
-        'basicAreaSqFt': matched?.basicAreaSqFt ?? 0,
-        'frequencyType': matched?.frequencyType ?? 'daily',
-        'boqTimesPerPeriod': _boqTimes,
-        'tenderedAreaPerDay': matched?.tenderedAreaPerDay ?? 0,
-        'cleaningFrequency': _boqTimesToFrequency(_boqTimes),
-        'description': _descCtrl.text.trim(),
-        'order': int.tryParse(_orderCtrl.text) ?? 0,
-        'active': _active,
-      };
+      final data = _payloadFor(sel);
 
       if (widget.existingArea != null) {
         try {
@@ -407,6 +494,177 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
     }
   }
 
+  Map<String, dynamic> _payloadFor(_MainAreaSelection sel) {
+    final sqft = sel.sqft ?? 0.0;
+    final freq = sel.frequency ?? 'daily';
+    final times = sel.times ?? _timesForFrequency(freq);
+    return {
+      'stationId': widget.stationId,
+      'areaName': sel.subArea,
+      'name': sel.subArea,
+      'mainArea': sel.mainArea,
+      'subArea': sel.subArea,
+      'basicAreaSqFt': sqft,
+      'quantity': sqft,
+      'measurementType': sqft > 0 ? 'sq_ft' : 'as_available',
+      'frequencyType': freq,
+      'boqTimesPerPeriod': times,
+      'tenderedAreaPerDay': sel.tendered ?? _tenderedFor(sqft, freq, times),
+      'cleaningFrequency': _boqTimesToFrequency(times),
+      'description': _descCtrl.text.trim(),
+      'order': int.tryParse(_orderCtrl.text) ?? 0,
+      'active': _active,
+    };
+  }
+
+  Future<void> _showEditSelection(int index) async {
+    final sel = _selections[index];
+    final nameCtrl = TextEditingController(text: sel.subArea);
+    final sqftCtrl = TextEditingController(text: (sel.sqft ?? 0) > 0 ? _num(sel.sqft) : '');
+    final timesCtrl = TextEditingController(text: '${sel.times ?? _timesForFrequency(sel.frequency ?? 'daily')}');
+    String frequency = sel.frequency ?? 'daily';
+
+    final freqOptions = [
+      ..._detailFrequencyOptions,
+      if (!_detailFrequencyOptions.any((o) => o.value == frequency))
+        MapEntry(_frequencyLabel(frequency), frequency),
+    ];
+
+    final edited = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) => AlertDialog(
+          title: const Text('Edit Area Details', style: TextStyle(fontSize: 18)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Area name', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: sqftCtrl,
+                  decoration: const InputDecoration(labelText: 'Area size (sq.ft.)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.square_foot)),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: frequency,
+                  decoration: const InputDecoration(labelText: 'Frequency', border: OutlineInputBorder()),
+                  items: freqOptions.map((o) => DropdownMenuItem(value: o.value, child: Text(o.key))).toList(),
+                  onChanged: (v) => setSheetState(() {
+                    frequency = v!;
+                    final t = _timesForFrequency(v);
+                    timesCtrl.text = '$t';
+                  }),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: timesCtrl,
+                  decoration: const InputDecoration(labelText: 'Times per period', border: OutlineInputBorder(), prefixIcon: Icon(Icons.repeat)),
+                  keyboardType: TextInputType.number,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: kRailwayBlue),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (edited != true) return;
+    final name = nameCtrl.text.trim();
+    final sqft = double.tryParse(sqftCtrl.text.trim());
+    final times = int.tryParse(timesCtrl.text.trim()) ?? sel.times ?? _timesForFrequency(frequency);
+    final resolvedSqft = sqft ?? sel.sqft ?? 0.0;
+    setState(() {
+      _selections[index] = _MainAreaSelection(
+        mainArea: sel.mainArea,
+        subArea: name.isEmpty ? sel.subArea : name,
+        sqft: resolvedSqft,
+        frequency: frequency,
+        times: times,
+        tendered: _tenderedFor(resolvedSqft, frequency, times),
+      );
+    });
+  }
+
+  Widget _customDetailFields() {
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      elevation: 0,
+      color: kRailwayBlue.withOpacity(0.03),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: kRailwayBlue.withOpacity(0.15))),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.info_outline, size: 16, color: kRailwayBlue),
+                const SizedBox(width: 6),
+                Text('Details (custom area)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _customSqftCtrl,
+              decoration: const InputDecoration(labelText: 'Area size (sq.ft.)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.square_foot)),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              value: _customFrequency,
+              decoration: const InputDecoration(labelText: 'Frequency', border: OutlineInputBorder()),
+              items: _detailFrequencyOptions.map((o) => DropdownMenuItem(value: o.value, child: Text(o.key))).toList(),
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() {
+                  _customFrequency = v;
+                  _customTimes = _timesForFrequency(v);
+                  _customTimesCtrl.text = '$_customTimes';
+                });
+              },
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _customTimesCtrl,
+              decoration: const InputDecoration(labelText: 'Times per period', border: OutlineInputBorder(), prefixIcon: Icon(Icons.repeat)),
+              keyboardType: TextInputType.number,
+              onChanged: (v) => _customTimes = int.tryParse(v) ?? _customTimes,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  double _rowSqft(_MainAreaSelection sel) {
+    if (sel.sqft != null && sel.sqft! > 0) return sel.sqft!;
+    final matched = _boqGrouped[sel.mainArea]?.where((i) => i.subArea == sel.subArea).firstOrNull;
+    return matched?.basicAreaSqFt ?? 0;
+  }
+
+  String _rowDetail(_MainAreaSelection sel) {
+    final parts = <String>[];
+    final sqft = _rowSqft(sel);
+    if (sqft > 0) parts.add('${_num(sqft)} sq.ft.');
+    final f = sel.frequency ?? _boqGrouped[sel.mainArea]?.where((i) => i.subArea == sel.subArea).firstOrNull?.frequencyType;
+    final t = sel.times ?? _boqGrouped[sel.mainArea]?.where((i) => i.subArea == sel.subArea).firstOrNull?.boqTimesPerPeriod;
+    if (f != null && f.isNotEmpty) parts.add('${_frequencyLabel(f)}${(t ?? 0) > 1 ? ' x$t' : ''}');
+    return parts.join('  ·  ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existingArea != null;
@@ -473,22 +731,38 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: RichText(
-                                      text: TextSpan(
-                                        style: const TextStyle(fontSize: 13, color: Colors.black87),
-                                        children: [
-                                          TextSpan(text: _selections[i].mainArea, style: const TextStyle(fontWeight: FontWeight.bold, color: kRailwayBlue)),
-                                          const TextSpan(text: '  →  '),
-                                          TextSpan(text: _selections[i].subArea),
-                                        ],
-                                      ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        RichText(
+                                          text: TextSpan(
+                                            style: const TextStyle(fontSize: 13, color: Colors.black87),
+                                            children: [
+                                              TextSpan(text: _selections[i].mainArea, style: const TextStyle(fontWeight: FontWeight.bold, color: kRailwayBlue)),
+                                              const TextSpan(text: '  →  '),
+                                              TextSpan(text: _selections[i].subArea),
+                                            ],
+                                          ),
+                                        ),
+                                        if (_rowDetail(_selections[i]).isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 2),
+                                            child: Text(
+                                              _rowDetail(_selections[i]),
+                                              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   ),
-                                  if (_boqGrouped[_selections[i].mainArea]?.any((item) => item.subArea == _selections[i].subArea) == true)
-                                    Text(
-                                      '${_num((_boqGrouped[_selections[i].mainArea]!.firstWhere((item) => item.subArea == _selections[i].subArea).basicAreaSqFt))} sq.ft.',
-                                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                                    ),
+                                  IconButton(
+                                    onPressed: () => _showEditSelection(i),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    icon: const Icon(Icons.edit_outlined, size: 16, color: kRailwayBlue),
+                                    tooltip: 'Edit name / size / frequency',
+                                  ),
                                   const SizedBox(width: 4),
                                   GestureDetector(
                                     onTap: () => setState(() => _selections.removeAt(i)),
@@ -610,6 +884,7 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
                         hintText: 'e.g. Extra Room A',
                       ),
                     ),
+                    _customDetailFields(),
                   ],
                   if (_useCustomMain) ...[
                     const SizedBox(height: 14),
@@ -624,6 +899,7 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
                         hintText: 'e.g. Extra Room A',
                       ),
                     ),
+                    _customDetailFields(),
                   ],
                   const SizedBox(height: 12),
 
@@ -728,6 +1004,13 @@ class _AreaFormScreenState extends State<AreaFormScreen> {
     if (times == 4) return 'four_times_daily';
     if (times <= 6) return '4hrs';
     return 'hourly';
+  }
+
+  String _frequencyLabel(String freq) {
+    for (final o in _detailFrequencyOptions) {
+      if (o.value == freq) return o.key;
+    }
+    return freq.replaceAll('_', ' ');
   }
 
   Widget _sectionHeader(IconData icon, String label) {

@@ -77,6 +77,12 @@ const DEFAULT_CATEGORIES = [
   { code: 'FEEDBACK', name: 'Passenger Feedback', maxMarks: 30, dataSource: 'feedback', enabled: true, order: 3 },
 ];
 
+/* Whether money is driven solely by area weightage (no manual ₹/sqft rate). */
+function weightageModeOnly(config) {
+  const weightages = config.areaWeightages || {};
+  return Object.keys(weightages).length > 0;
+}
+
 /* ─────────────────────────── Pure calculation helpers ─────────────────────── */
 
 /*
@@ -89,7 +95,7 @@ const DEFAULT_CATEGORIES = [
  * `times` to its area's completed count, capped at the tasks required.
  * Unknown / inactive areas are excluded (a task on a removed area is not billed).
  */
-export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSummaries = []) {
+export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSummaries = [], contractDays = 365) {
   const ratePerSqft = Number(config.ratePerSqft);
   const overrides = config.areaRateOverrides || {};
   const weightages = config.areaWeightages || {};
@@ -147,7 +153,7 @@ export function aggregateTaskAreaRows(tasks, meta = {}, config = {}, approvedSum
     r.expectedSqft = roundMoney(r.areaSqft * r.required);
     if (weightages && Object.keys(weightages).length > 0 && annualContractValue > 0 && r.weightage !== null) {
       const acv = Number(annualContractValue) || 0;
-      const areaDaily = areaDailyMoneyValue(acv, r.weightage);
+      const areaDaily = areaDailyMoneyValue(acv, r.weightage, contractDays);
       const perExec = perExecutionValue(areaDaily, r.required);
       r.ratePerSqft = areaRatePerSqFt(areaDaily, r.areaSqft);
       r.expectedValue = roundMoney(perExec * r.required);
@@ -320,7 +326,9 @@ class TaskExecutionBillingService {
   async _loadConfigOrFail(contractId) {
     const config = await performanceBillingService.getOrCreateConfig(contractId);
     const rate = Number(config.ratePerSqft);
-    if (Number.isNaN(rate) || rate <= 0) {
+    const weightages = config.areaWeightages || {};
+    const hasWeightages = Object.keys(weightages).length > 0;
+    if ((Number.isNaN(rate) || rate <= 0) && !hasWeightages) {
       throw new ValidationError('Cleaning rate (₹/sqft per execution) is not configured. Set it in Billing Configuration → General.');
     }
     return config;
@@ -472,7 +480,7 @@ class TaskExecutionBillingService {
     ]);
     const areaMeta = {};
     areas.forEach((a) => { areaMeta[a.id || a.uid] = a; });
-    const areaRows = aggregateTaskAreaRows(tasks, areaMeta, config, summaries);
+    const areaRows = aggregateTaskAreaRows(tasks, areaMeta, config, summaries, contractDays);
     const calc = computeDailyTaskBilling({ areaRows, config, inspection, feedback });
 
     return {
@@ -484,7 +492,7 @@ class TaskExecutionBillingService {
       contractStartDate: contract.startDate || '',
       contractEndDate: contract.endDate || '',
       contractDays,
-      ratePerSqft: Number(config.ratePerSqft),
+      ratePerSqft: weightageModeOnly(config) ? null : (Number(config.ratePerSqft) || null),
       executionSource: 'approved_shift_summaries',
       approvedShiftSummaries: summaries.length,
       ...calc,
@@ -539,7 +547,7 @@ class TaskExecutionBillingService {
         return { count: ratings.length, achievement: round2((ratings.reduce((s, v) => s + v, 0) / ratings.length / 5) * 100) };
       })();
 
-      const areaRows = aggregateTaskAreaRows(dayTasks, areaMeta, config, daySummaries);
+      const areaRows = aggregateTaskAreaRows(dayTasks, areaMeta, config, daySummaries, contractDays);
       const calc = computeDailyTaskBilling({ areaRows, config, inspection: dayInspection, feedback: dayFeedback });
       bills.push({
         uid: '',
@@ -551,7 +559,7 @@ class TaskExecutionBillingService {
         contractStartDate: contract.startDate || '',
         contractEndDate: contract.endDate || '',
         contractDays,
-        ratePerSqft: Number(config.ratePerSqft),
+        ratePerSqft: weightageModeOnly(config) ? null : (Number(config.ratePerSqft) || null),
         executionSource: 'approved_shift_summaries',
         approvedShiftSummaries: daySummaries.length,
         status: 'preview',

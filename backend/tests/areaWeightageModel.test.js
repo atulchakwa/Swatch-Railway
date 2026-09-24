@@ -15,6 +15,14 @@ describe("areaWeightageModel - Ujjain money model (ECR-30 exact)", () => {
   it("ACV 36500000 -> daily contract value 100000", () => {
     expect(dailyContractValue(ACV)).toBe(100000);
   });
+  it("daily & area daily divide by CONTRACT days, not 365 (14-day contract)", () => {
+    expect(dailyContractValue(ACV, 14)).toBe(2607142.86);
+    expect(areaDailyMoneyValue(ACV, 25, 14)).toBe(651785.71);
+  });
+  it("invalid contract days fall back to 365", () => {
+    expect(dailyContractValue(ACV, 0)).toBe(100000);
+    expect(areaDailyMoneyValue(ACV, 25, -5)).toBe(25000);
+  });
   it("25% weightage -> area daily money value 25000", () => {
     expect(areaDailyMoneyValue(ACV, 25)).toBe(25000);
   });

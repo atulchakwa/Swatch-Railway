@@ -6,7 +6,6 @@ import 'package:crm_train/repositories/station_cleaning_repository.dart';
 import 'package:crm_train/helper/api_error_handler.dart';
 import 'package:crm_train/utills/app_colors.dart';
 import 'package:crm_train/view/common_railways/station_management/area_form_screen.dart';
-import 'package:crm_train/view/common_railways/station_management/area_work_item_form_screen.dart';
 
 double _calcTendered(double basicAreaSqFt, String frequencyType, int boqTimesPerPeriod) {
   final area = basicAreaSqFt;
@@ -563,7 +562,7 @@ class _AreaConfigScreenState extends State<AreaConfigScreen> {
           final result = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
-              builder: (_) => AreaWorkItemFormScreen(stationId: widget.stationId),
+              builder: (_) => AreaFormScreen(stationId: widget.stationId),
             ),
           );
           if (result == true) _loadAreas();

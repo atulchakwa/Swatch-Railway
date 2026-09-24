@@ -40,6 +40,7 @@
 import { db } from '../database/index.js';
 import { NotFoundError, ValidationError } from '../errors/index.js';
 import logger from '../logger/index.js';
+import { computeContractDays } from '../utils/period.js';
 import { auditService } from './auditService.js';
 import {
   dailyContractValue,
@@ -87,20 +88,24 @@ class PerformanceBillingService {
       const contractDoc = await db.collection('contracts').doc(contractId).get();
       const contract = contractDoc.exists ? contractDoc.data() : {};
       const acv = Number(existing.annualContractValue || contract.contractValue || contract.annualContractValue || 0);
+      const contractDays = computeContractDays(contract.startDate, contract.endDate) || 365;
       existing.annualContractValue = acv;
-      existing.dailyContractValue = dailyContractValue(acv);
+      existing.contractDays = contractDays;
+      existing.dailyContractValue = dailyContractValue(acv, contractDays);
       return existing;
     }
 
     const ref = db.collection('billing_configs').doc();
     const now = new Date().toISOString();
+    const contractDays = computeContractDays(contract.startDate, contract.endDate) || 365;
     const config = {
       uid: ref.id,
       contractId,
       stationId: contract.stationIds?.[0] || contract.stationId || '',
       billingMethod: 'PERFORMANCE_WEIGHTAGE',
       annualContractValue: contract.contractValue || contract.annualContractValue || 0,
-      dailyContractValue: dailyContractValue(contract.contractValue || contract.annualContractValue || 0),
+      contractDays,
+      dailyContractValue: dailyContractValue(contract.contractValue || contract.annualContractValue || 0, contractDays),
       ratePerSqft: null,
       areaRateOverrides: {},
       areaWeightages: {},

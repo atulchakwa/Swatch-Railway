@@ -93,6 +93,7 @@ class BillingConfig {
   final Map<String, double> areaRateOverrides;
   final Map<String, double> areaWeightages;
   final double annualContractValue;
+  final int contractDays;
   final int gstRate;
   final double otherDeductions;
   final double dailyIncompleteExecutionPenalty;
@@ -109,6 +110,7 @@ class BillingConfig {
     this.areaRateOverrides = const {},
     this.areaWeightages = const {},
     this.annualContractValue = 0,
+    this.contractDays = 0,
     required this.gstRate,
     this.otherDeductions = 0,
     this.dailyIncompleteExecutionPenalty = 200,
@@ -131,6 +133,7 @@ class BillingConfig {
               ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
           const {},
       annualContractValue: (json['annualContractValue'] as num?)?.toDouble() ?? 0,
+      contractDays: (json['contractDays'] as num?)?.toInt() ?? 0,
       gstRate: (json['gstRate'] as num?)?.toInt() ?? 18,
       otherDeductions: (json['otherDeductions'] as num?)?.toDouble() ?? 0,
       dailyIncompleteExecutionPenalty: (json['dailyIncompleteExecutionPenalty'] as num?)?.toDouble() ?? 200,

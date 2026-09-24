@@ -134,6 +134,8 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
 
   double get _annualContractValue => _config?.annualContractValue ?? 0;
 
+  double get _contractDays => (_config?.contractDays ?? 0) > 0 ? _config!.contractDays : 365;
+
   double _sqftOf(String uid) {
     for (final a in _areas) {
       if (a.uid == uid) return a.basicAreaSqFt ?? 0;
@@ -145,7 +147,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     final acv = _annualContractValue;
     final sqft = _sqftOf(uid);
     if (acv <= 0 || sqft <= 0 || weightage <= 0) return null;
-    final rate = (acv * weightage / 100 / 365) / sqft;
+    final rate = (acv * weightage / 100 / _contractDays) / sqft;
     return double.parse(rate.toStringAsFixed(4));
   }
 

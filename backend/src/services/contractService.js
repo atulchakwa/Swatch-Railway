@@ -1,5 +1,6 @@
 import { db } from '../database/index.js';
 import { NotFoundError, ConflictError, ValidationError, ForbiddenError } from '../errors/index.js';
+import { computeContractDays } from '../utils/period.js';
 
 class ContractService {
   async createContract(creatorData, body) {
@@ -125,7 +126,8 @@ class ContractService {
 
     const startMs = new Date(startDate).getTime();
     const endMs = new Date(endDate).getTime();
-    const durationDays = Math.ceil((endMs - startMs) / (1000 * 60 * 60 * 24));
+    const durationDays = computeContractDays(startDate, endDate) || Math.ceil((endMs - startMs) / (1000 * 60 * 60 * 24));
+    const dailyContractValue = durationDays > 0 ? Math.round(((contractValue || 0) / durationDays) * 100) / 100 : 0;
 
     const savedDivision = division || '';
 
@@ -142,7 +144,9 @@ class ContractService {
       trainNames,
       startDate,
       endDate,
+      contractDays: durationDays,
       contractDuration: `${durationDays} days`,
+      dailyContractValue,
       contractValue: contractValue || 0,
       workCategories,
       remarks: remarks || null,
@@ -195,6 +199,17 @@ class ContractService {
     updateData.updatedBy = userId;
     updateData.updatedByName = editorName;
     updateData.updatedAt = new Date().toISOString();
+
+    if (updates.contractValue !== undefined || updates.startDate !== undefined || updates.endDate !== undefined) {
+      const current = doc.data();
+      const s = updates.startDate ?? current.startDate;
+      const e = updates.endDate ?? current.endDate;
+      const days = computeContractDays(s, e) || Number(current.contractDays) || 0;
+      const val = updates.contractValue !== undefined ? Number(updates.contractValue) : Number(current.contractValue) || 0;
+      updateData.contractDays = days;
+      updateData.contractDuration = `${days} days`;
+      updateData.dailyContractValue = days > 0 ? Math.round((val / days) * 100) / 100 : 0;
+    }
 
 
     await docRef.update(updateData);

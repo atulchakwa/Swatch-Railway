@@ -67,9 +67,34 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
 
   bool get isEditMode => widget.contract != null;
 
+  int _computedContractDays() {
+    final s = startDate;
+    final e = endDate;
+    if (s == null || e == null) return 0;
+    final dayS = DateTime(s.year, s.month, s.day);
+    final dayE = DateTime(e.year, e.month, e.day);
+    return dayE.difference(dayS).inDays + 1;
+  }
+
+  double get _contractValueInput {
+    final v = double.tryParse(contractValueController.text);
+    if (v != null && v > 0) return v;
+    return isEditMode ? (widget.contract?.contractValue ?? 0) : 0;
+  }
+
+  double get _computedDailyContractValue {
+    final days = _computedContractDays();
+    final val = _contractValueInput;
+    if (days <= 0 || val <= 0) return 0;
+    return double.parse((val / days).toStringAsFixed(2));
+  }
+
   @override
   void initState() {
     super.initState();
+    contractValueController.addListener(() {
+      if (mounted) setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
       if (isEditMode) {
@@ -107,6 +132,7 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
     final c = widget.contract!;
 
     contractNoController.text = c.contractNumber ?? '';
+    contractValueController.text = (c.contractValue ?? 0).toStringAsFixed(0);
     contractNameController.text = c.contractName ?? '';
     remarksController.text = c.remarks ?? '';
     selectedEntity = c.entityId;
@@ -321,6 +347,8 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                         _buildDateField("End Date *", endDate, (date) {
                           if (!isEditMode) setState(() => endDate = date);
                         }, enabled: !isEditMode),
+                        const SizedBox(height: 4),
+                        _buildContractPeriodSummary(),
                         const SizedBox(height: 12),
                         Row(
                           children: [
@@ -913,6 +941,48 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildContractPeriodSummary() {
+    final days = _computedContractDays();
+    final val = _contractValueInput;
+    final daily = _computedDailyContractValue;
+    String line1;
+    String line2;
+    if (days <= 0) {
+      line1 = 'Select start & end dates';
+      line2 = 'Contract days will be calculated automatically';
+    } else if (val <= 0) {
+      line1 = '$days days (${startDate!.day}/${startDate!.month}/${startDate!.year} → ${endDate!.day}/${endDate!.month}/${endDate!.year})';
+      line2 = 'Enter contract value to see daily value';
+    } else {
+      line1 = '$days days (${startDate!.day}/${startDate!.month}/${startDate!.year} → ${endDate!.day}/${endDate!.month}/${endDate!.year})';
+      line2 = 'Daily contract value = ${_fmtValue(val)} ÷ $days days = ₹${daily.toStringAsFixed(2)}/day';
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8EEF8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(line1,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1565C0))),
+          const SizedBox(height: 2),
+          Text(line2,
+              style: TextStyle(fontSize: 12, color: days > 0 && val > 0 ? Colors.black87 : Colors.grey[600])),
+        ],
+      ),
+    );
+  }
+
+  String _fmtValue(double v) {
+    if (v == v.roundToDouble()) return v.toStringAsFixed(0);
+    return v.toStringAsFixed(2);
   }
 
   Widget _buildDateField(String label, DateTime? date, Function(DateTime) onSelect,

@@ -30,7 +30,7 @@ class DailyTaskBillingScreen extends StatefulWidget {
 
 class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   late final TextEditingController _dateCtrl;
-  final _fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+  final _fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
   int _month = DateTime.now().month;
   int _year = DateTime.now().year;
 
@@ -541,6 +541,21 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
 
   // ── Formatting helpers ──────────────────────────────────────────────────────
   String _money(double v) => _fmt.format(v);
+
+  bool _isWeightageMode(DailyTaskBillingResponse b) =>
+      (b.ratePerSqft <= 0) &&
+      (b.areaRows.any((r) => (((r['weightage'] as num?) ?? 0)).toDouble() > 0));
+
+  String _billingBasis(DailyTaskBillingResponse b) {
+    final days = b.contractDays > 0 ? b.contractDays : 365;
+    if (_isWeightageMode(b)) {
+      return 'Weightage basis: contract ACV ÷ $days contract days × area Wt% — counts APPROVED shift summaries';
+    }
+    if (b.ratePerSqft > 0) {
+      return 'Rate basis: area sq.ft. × ₹${b.ratePerSqft.toStringAsFixed(2)} — counts APPROVED shift summaries';
+    }
+    return 'No active rate or weightage configured — values are zero';
+  }
   String _pct(double? v) => v == null ? '—' : '${v.toStringAsFixed(1)}%';
   Color _scoreColor(double v) => v >= 90 ? kSuccessGreen : v >= 70 ? kWarningOrange : kErrorRed;
 
@@ -1048,6 +1063,10 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
       title: 'Amount Breakdown',
       subtitle: '${b.contractNumber} · ${b.contractStartDate} → ${b.contractEndDate} (${b.contractDays} days)',
       children: [
+        _kvRow('Valuation basis', b.ratePerSqft > 0
+            ? '₹${b.ratePerSqft.toStringAsFixed(2)} per sq.ft.'
+            : 'Area weightage % (ACV ÷ ${b.contractDays > 0 ? b.contractDays : 365} contract days)', bold: true, valueColor: kRailwayBlue),
+        const SizedBox(height: 4),
         _groupLabel('WORK VALUE'),
         _kvRow('Expected work value', _money(b.expectedWorkValue)),
         _kvRow('Actual executed value', _money(b.actualExecutionValue), bold: true, valueColor: kSuccessGreen),
@@ -1197,6 +1216,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
   // ── Area-wise execution table ──────────────────────────────────────────────
   Widget _buildAreaTableCard(DailyTaskBillingResponse b) {
     const colW = {'area': 128.0, 'sqft': 60.0, 'rate': 72.0, 'wt': 58.0, 'req': 44.0, 'done': 44.0, 'exp': 94.0, 'act': 94.0};
+    final weightageMode = _isWeightageMode(b);
     Widget cell(Object? text, double w, {TextAlign align = TextAlign.right, bool bold = false, Color? color}) {
       return SizedBox(
         width: w,
@@ -1222,7 +1242,7 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
     return _sectionCard(
       icon: Icons.table_chart,
       title: 'Area-wise Execution',
-      subtitle: 'Area sq.ft. × ₹/sq.ft. counts APPROVED shift summaries',
+      subtitle: _billingBasis(b),
       children: [
         Scrollbar(
           thumbVisibility: true,
@@ -1255,7 +1275,9 @@ class _DailyTaskBillingScreenState extends State<DailyTaskBillingScreen> {
                       children: [
                         cell(b.areaRows[i]['areaName'] ?? '—', colW['area']!, align: TextAlign.left),
                         cell((b.areaRows[i]['areaSqft'] as num?)?.toDouble().toStringAsFixed(0) ?? '0', colW['sqft']!),
-                        cell('₹${((b.areaRows[i]['ratePerSqft'] as num?) ?? 0).toStringAsFixed(2)}', colW['rate']!),
+                        cell(weightageMode
+                            ? '—'
+                            : '₹${((b.areaRows[i]['ratePerSqft'] as num?) ?? 0).toStringAsFixed(2)}', colW['rate']!),
                         cell(b.areaRows[i]['weightage'] == null
                             ? '—'
                             : '${((b.areaRows[i]['weightage'] as num?) ?? 0).toStringAsFixed(1)}', colW['wt']!),

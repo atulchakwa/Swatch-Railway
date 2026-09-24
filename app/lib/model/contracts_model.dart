@@ -14,6 +14,8 @@ class ContractModel {
   String? startDate;
   String? endDate;
   String? contractDuration;
+  int? contractDays;
+  double? dailyContractValue;
   double contractValue;
   String? workCategories;
   String? remarks;
@@ -54,6 +56,8 @@ class ContractModel {
     this.startDate,
     this.endDate,
     this.contractDuration,
+    this.contractDays = 0,
+    this.dailyContractValue = 0,
     this.contractValue = 0,
     this.workCategories,
     this.remarks,
@@ -131,6 +135,8 @@ class ContractModel {
       startDate: _str(json['startDate']),
       endDate: _str(json['endDate']),
       contractDuration: _str(json['contractDuration']),
+      contractDays: (json['contractDays'] as num?)?.toInt() ?? 0,
+      dailyContractValue: (json['dailyContractValue'] as num?)?.toDouble() ?? 0,
       contractValue: (json['contractValue'] ?? 0).toDouble(),
       workCategories: _str(json['workCategories']),
       remarks: _str(json['remarks']),
@@ -173,8 +179,10 @@ class ContractModel {
       'trainNames': trainNames,
       'startDate': startDate,
       'endDate': endDate,
-      'contractDuration': contractDuration,
-      'contractValue': contractValue,
+'contractDuration': contractDuration,
+        'contractDays': contractDays,
+        'dailyContractValue': dailyContractValue,
+        'contractValue': contractValue,
       'workCategories': workCategories,
       'remarks': remarks,
       'status': status,
