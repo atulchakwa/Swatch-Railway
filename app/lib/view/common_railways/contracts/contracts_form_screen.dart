@@ -50,7 +50,6 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
   List<Station> _availableStations = [];
   List<TrainModel> _availableTrains = [];
   bool _stationsLoading = false;
-  final TextEditingController _stationNameController = TextEditingController();
   String? _manualStationId;
   String? _manualStationName;
   String? selectedBillingCycle;
@@ -165,45 +164,9 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
     if (c.stationIds != null && c.stationIds.isNotEmpty) {
       _manualStationId = c.stationIds.first;
       _manualStationName = c.stationNames.isNotEmpty ? c.stationNames.first : c.stationIds.first;
-      _stationNameController.text = _manualStationName ?? '';
     }
 
     setState(() {});
-  }
-
-  Future<void> _resolveStation(String name) async {
-    if (name.isEmpty) return;
-    try {
-      final stations = await ApiService.getStations(division: selectedDivision, active: true);
-      final match = stations.firstWhere(
-        (s) => s.stationName?.toLowerCase() == name.toLowerCase(),
-        orElse: () => stations.firstWhere(
-          (s) => (s.stationName?.toLowerCase().contains(name.toLowerCase()) ?? false),
-          orElse: () => Station(stationCode: '', stationName: '', zone: '', division: ''),
-        ),
-      );
-      if (match.uid != null && match.uid!.isNotEmpty) {
-        if (mounted) {
-          setState(() {
-            _manualStationId = match.uid;
-            _manualStationName = match.stationName;
-            _stationNameController.text = match.stationName ?? name;
-          });
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Station not found in this division'), backgroundColor: Colors.red),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
   }
 
   @override
@@ -307,30 +270,47 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                     _buildCard(
                       title: "Station Assignment",
                       icon: Icons.train,
-                      child: _manualStationId != null && _manualStationName != null
-                          ? Chip(
-                              avatar: const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                              label: Text('Station: $_manualStationName'),
-                              onDeleted: () => setState(() {
-                                _manualStationId = null;
-                                _manualStationName = null;
-                                _stationNameController.clear();
-                              }),
-                            )
-                          : TextFormField(
-                              controller: _stationNameController,
-                              decoration: const InputDecoration(
-                                labelText: 'Station Name *',
-                                hintText: 'Type station name',
-                                border: OutlineInputBorder(),
-                                suffixIcon: Icon(Icons.search),
+                      child: _stationsLoading
+                          ? const SizedBox(height: 40, child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
+                          : AbsorbPointer(
+                              absorbing: isEditMode,
+                              child: Opacity(
+                                opacity: isEditMode ? 0.5 : 1.0,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildDropdown(
+                                      "Select Station *",
+                                      "Choose station",
+                                      _availableStations
+                                          .map((s) => s.stationName ?? '')
+                                          .where((n) => n.isNotEmpty)
+                                          .toList(),
+                                      _manualStationName,
+                                      (v) {
+                                        if (v == null || v.isEmpty) return;
+                                        final match = _availableStations.firstWhere(
+                                          (s) => s.stationName == v,
+                                          orElse: () => Station(stationCode: '', stationName: '', zone: '', division: ''),
+                                        );
+                                        setState(() {
+                                          _manualStationId = match.uid;
+                                          _manualStationName = match.stationName;
+                                        });
+                                      },
+                                      enabled: !isEditMode,
+                                    ),
+                                    if (_availableStations.isEmpty && !_stationsLoading)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          'No stations found for the selected division.',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
-                              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                              onChanged: (v) {
-                                _manualStationId = null;
-                                _manualStationName = null;
-                              },
-                              onFieldSubmitted: (v) => _resolveStation(v.trim()),
                             ),
                     ),
                   ],
