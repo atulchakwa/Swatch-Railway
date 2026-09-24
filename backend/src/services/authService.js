@@ -235,12 +235,12 @@ class AuthService {
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await otpStore.set(`RESET_${mobile}`, otp);
-    if (!config.sms.twilio.phoneNumber) {
-      logger.error('Auth', ' TWILIO_PHONE_NUMBER not configured');
-      throw new AppError("SMS service not configured", 500);
+    if (!config.sms.twoFactorApiKey && !config.sms.twilio?.phoneNumber) {
+      logger.error('Auth', 'No OTP delivery provider configured (2Factor or Twilio)');
+      throw new AppError("OTP delivery service not configured", 500);
     }
-    await notificationService.sendPasswordResetOtpSms(mobile, otp);
-    logger.info('Auth', `(ForgotPwd) OTP sent to ${mobile}`);
+    await notificationService.sendPasswordResetOtp(mobile, otp);
+    logger.info('Auth', `(ForgotPwd) OTP voice/SMS sent to ${mobile}`);
     return { message: "OTP sent to your registered mobile number." };
   }
 

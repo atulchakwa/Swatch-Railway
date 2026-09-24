@@ -181,6 +181,21 @@ class NotificationService {
     return this.sendSmsVia2Factor(phone, otp);
   }
 
+  async sendPasswordResetOtp(phone, otp) {
+    // Voice call first, then SMS fallbacks — for forgot-password OTP.
+    try {
+      const voiceRes = await this.sendVoiceVia2Factor(phone, otp);
+      if (voiceRes) return voiceRes;
+    } catch (e) {
+      logger.warn('NotificationService', `2Factor voice failed, trying SMS fallback: ${e?.message}`);
+    }
+    try {
+      const smsRes = await this.sendSmsVia2Factor(phone, otp);
+      if (smsRes) return smsRes;
+    } catch (e) {}
+    return this.sendPasswordResetOtpSms(phone, otp);
+  }
+
   async sendPasswordResetOtpSms(phone, otp) {
     const message = `Your Password Reset OTP is: ${otp}. Do not share this with anyone.`;
     return this.sendSmsViaTwilio(phone, message);
