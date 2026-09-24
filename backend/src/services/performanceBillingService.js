@@ -145,6 +145,18 @@ class PerformanceBillingService {
       if (r.action !== 'NONE' && !['PERCENT_OF_ELIGIBLE', 'PERCENT_OF_MONTHLY_BASE', 'FIXED_AMOUNT'].includes(r.action)) {
         throw new ValidationError(`Invalid penalty action "${r.action}" in rule "${r.name}"`);
       }
+      const value = Number(r.value);
+      if (r.action !== 'NONE' && Number.isNaN(value)) {
+        throw new ValidationError(`Penalty value must be a number in rule "${r.name}"`);
+      }
+      if (r.action === 'FIXED_AMOUNT') {
+        if (value < 0) throw new ValidationError(`Fixed penalty amount must be a non-negative number in rule "${r.name}"`);
+      } else if (r.action !== 'NONE' && (value < 0 || value > 100)) {
+        throw new ValidationError(`Penalty percentage must be between 0 and 100 in rule "${r.name}" (got ${value})`);
+      }
+      if (r.maxAmount !== null && r.maxAmount !== undefined && Number(r.maxAmount) < 0) {
+        throw new ValidationError(`Penalty cap amount must be a non-negative number in rule "${r.name}"`);
+      }
     }
 
     const rate = config.ratePerSqft;

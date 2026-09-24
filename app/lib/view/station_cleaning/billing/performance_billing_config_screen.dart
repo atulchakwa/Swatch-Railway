@@ -27,6 +27,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   late TextEditingController _incompletePenaltyCtrl;
   late TextEditingController _rateCtrl;
   late List<String> _verifiedStatuses;
+  final _penaltyFormKey = GlobalKey<FormState>();
   final Map<String, TextEditingController> _areaRateCtrls = {};
   final Map<String, TextEditingController> _areaWeightCtrls = {};
   List<StationArea> _areas = [];
@@ -160,6 +161,19 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
     }
     setState(() { _saving = true; _error = null; });
     try {
+      final penError = _validatePenaltyInputs();
+      if (penError != null) {
+        if (mounted) {
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(penError), backgroundColor: kErrorRed));
+        }
+        return;
+      }
+      final namedRules = _penaltyRules.map((r) {
+        final auto = _autoSlabName(r);
+        return r.name.isEmpty || r.name == 'New slab' || r.name == auto ? PenaltyRule(uid: r.uid, name: auto, fromScore: r.fromScore, toScore: r.toScore, action: r.action, value: r.value, maxAmount: r.maxAmount, enabled: r.enabled) : r;
+      }).toList();
       final rateText = _rateCtrl.text.trim();
       final hasWeightages = weightages.isNotEmpty;
       await ApiService.savePerformanceBillingConfig(widget.contractId, {
@@ -171,7 +185,7 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
         'dailyIncompleteExecutionPenalty': double.tryParse(_incompletePenaltyCtrl.text.trim()) ?? 200,
         'verifiedStatuses': _verifiedStatuses,
         'categories': _categories.map((c) => c.toJson()).toList(),
-        'penaltyRules': _penaltyRules.map((r) => r.toJson()).toList(),
+        'penaltyRules': namedRules.map((r) => r.toJson()).toList(),
       });
       if (!mounted) return;
       setState(() {
@@ -504,7 +518,9 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
 
   // ── Penalty ──
   Widget _buildPenaltyTab() {
-    return ListView(
+    return Form(
+      key: _penaltyFormKey,
+      child: ListView(
       padding: const EdgeInsets.all(12),
       children: [
         Card(
@@ -559,7 +575,50 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
           label: const Text('Add Penalty Slab'),
         ),
       ],
+      ),
     );
+  }
+
+  String _autoSlabName(PenaltyRule r) {
+    final from = r.fromScore.toInt();
+    final to = r.toScore.toInt() > 100 ? 100 : r.toScore.toInt();
+    String rangeText;
+    if (r.action == 'NONE') {
+      rangeText = r.toScore.toInt() >= 101 ? 'Score >= $from%' : 'Score $from% – $to%';
+      return '$rangeText — no penalty';
+    }
+    final top = r.toScore.toInt() >= 101 ? 100 : r.toScore.toInt();
+    final range = from == 0 ? 'Score below $top%' : 'Score $from% – $top%';
+    if (r.action == 'FIXED_AMOUNT') {
+      return '$range — ₹${_fmtPenaltyNum(r.value)} fixed';
+    }
+    final suffix = r.action == 'PERCENT_OF_MONTHLY_BASE' ? 'of scheduled value' : 'of eligible amount';
+    return '$range — ${_fmtPenaltyNum(r.value)}% $suffix';
+  }
+
+  String _fmtPenaltyNum(double v) {
+    return v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
+  }
+
+  String? _validatePenaltyInputs() {
+    if (_penaltyFormKey.currentState == null) return null;
+    final formOk = _penaltyFormKey.currentState!.validate();
+    if (!formOk) {
+      return 'Fix the underlined errors in the penalty slabs.';
+    }
+    if (_penaltyRules.isNotEmpty) {
+      List<PenaltyRule> sorted = List.of(_penaltyRules.where((r) => r.enabled));
+      for (var i = 1; i < sorted.length; i++) {
+        if (sorted[i].fromScore < sorted[i - 1].toScore) {
+          return 'Penalty slabs overlap: "${_autoSlabName(sorted[i])}" starts before "${_autoSlabName(sorted[i - 1])}" ends.';
+        }
+      }
+    }
+    final pen = double.tryParse(_incompletePenaltyCtrl.text.trim());
+    if (pen != null && pen < 0) {
+      return 'Incomplete-day penalty amount must be a non-negative number.';
+    }
+    return null;
   }
 
   Widget _penaltyTile(int i) {
@@ -571,12 +630,15 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
         child: Column(
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: TextFormField(
-                    initialValue: r.name,
-                    decoration: const InputDecoration(labelText: 'Slab Name', isDense: true, border: OutlineInputBorder()),
-                    onChanged: (v) => _mutatePenalty(i, (rr) => PenaltyRule(uid: rr.uid, name: v, fromScore: rr.fromScore, toScore: rr.toScore, action: rr.action, value: rr.value, maxAmount: rr.maxAmount, enabled: rr.enabled)),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      _autoSlabName(r),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1565C0)),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -592,12 +654,19 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
             ),
             const SizedBox(height: 6),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: TextFormField(
                     initialValue: '${r.fromScore.toInt()}',
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Score >=', isDense: true, border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Score >=', isDense: true, border: OutlineInputBorder(), errorMaxLines: 2),
+                    validator: (v) {
+                      final d = double.tryParse(v ?? '');
+                      if (d == null) return 'Enter number';
+                      if (d < 0 || d > 100) return '0–100';
+                      return null;
+                    },
                     onChanged: (v) => _mutatePenalty(i, (rr) => PenaltyRule(uid: rr.uid, name: rr.name, fromScore: double.tryParse(v) ?? 0, toScore: rr.toScore, action: rr.action, value: rr.value, maxAmount: rr.maxAmount, enabled: rr.enabled)),
                   ),
                 ),
@@ -606,7 +675,14 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                   child: TextFormField(
                     initialValue: '${r.toScore.toInt()}',
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Score <', isDense: true, border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Score <', isDense: true, border: OutlineInputBorder(), errorMaxLines: 2),
+                    validator: (v) {
+                      final d = double.tryParse(v ?? '');
+                      if (d == null) return 'Enter number';
+                      if (d <= _penaltyRules[i].fromScore) return 'Must be > from';
+                      if (d > 101) return '100 or 101';
+                      return null;
+                    },
                     onChanged: (v) => _mutatePenalty(i, (rr) => PenaltyRule(uid: rr.uid, name: rr.name, fromScore: rr.fromScore, toScore: double.tryParse(v) ?? 0, action: rr.action, value: rr.value, maxAmount: rr.maxAmount, enabled: rr.enabled)),
                   ),
                 ),
@@ -615,7 +691,23 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
                   child: TextFormField(
                     initialValue: '${r.value.toStringAsFixed(r.value == r.value.roundToDouble() ? 0 : 1)}',
                     keyboardType: TextInputType.number,
-                    decoration: InputDecoration(labelText: r.action.contains('FIXED') ? 'Amount ₹' : 'Value %', isDense: true, border: const OutlineInputBorder()),
+                    decoration: InputDecoration(
+                      labelText: r.action.contains('FIXED') ? 'Amount ₹' : 'Value %',
+                      helperText: r.action.contains('FIXED') ? '₹, no limit' : '0–100',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      errorMaxLines: 3,
+                    ),
+                    validator: (v) {
+                      final d = double.tryParse(v ?? '');
+                      if (d == null) return 'Enter number';
+                      if (r.action.contains('FIXED')) {
+                        if (d < 0) return 'Must be ≥ 0';
+                        return null;
+                      }
+                      if (d < 0 || d > 100) return '0–100 only';
+                      return null;
+                    },
                     onChanged: (v) => _mutatePenalty(i, (rr) => PenaltyRule(uid: rr.uid, name: rr.name, fromScore: rr.fromScore, toScore: rr.toScore, action: rr.action, value: double.tryParse(v) ?? 0, maxAmount: rr.maxAmount, enabled: rr.enabled)),
                   ),
                 ),
