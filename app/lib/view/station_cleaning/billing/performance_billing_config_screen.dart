@@ -639,17 +639,36 @@ class _PerformanceBillingConfigScreenState extends State<PerformanceBillingConfi
   }
 
   String? _validatePenaltyInputs() {
-    if (_penaltyFormKey.currentState == null) return null;
-    final formOk = _penaltyFormKey.currentState!.validate();
-    if (!formOk) {
+    // Inline field errors (only run when the Penalty tab has been built).
+    if (_penaltyFormKey.currentState != null && !_penaltyFormKey.currentState!.validate()) {
       return 'Fix the underlined errors in the penalty slabs.';
     }
-    if (_penaltyRules.isNotEmpty) {
-      List<PenaltyRule> sorted = List.of(_penaltyRules.where((r) => r.enabled));
-      for (var i = 1; i < sorted.length; i++) {
-        if (sorted[i].fromScore < sorted[i - 1].toScore) {
-          return 'Penalty slabs overlap: "${_autoSlabName(sorted[i])}" starts before "${_autoSlabName(sorted[i - 1])}" ends.';
+    // Authoritative validation directly on the rule data — runs even if the
+    // Penalty tab was never opened, so the backend can never be sent 1000%/lakh.
+    for (final r in _penaltyRules) {
+      if (!r.enabled) continue;
+      final label = _autoSlabName(r);
+      if (r.fromScore < 0 || r.fromScore > 100) {
+        return 'Slab "$label": "Score ≥" must be between 0 and 100.';
+      }
+      if (r.toScore <= r.fromScore) {
+        return 'Slab "$label": "Score <" must be greater than "Score ≥".';
+      }
+      if (r.toScore > 101) {
+        return 'Slab "$label": "Score <" cannot exceed 101.';
+      }
+      if (r.action != 'NONE') {
+        if (r.action == 'FIXED_AMOUNT') {
+          if (r.value < 0) return 'Slab "$label": fixed amount cannot be negative.';
+        } else if (r.value < 0 || r.value > 100) {
+          return 'Slab "$label": penalty percentage must be between 0 and 100% (got ${_fmtPenaltyNum(r.value)}%).';
         }
+      }
+    }
+    final sorted = List<PenaltyRule>.of(_penaltyRules.where((r) => r.enabled))..sort((a, b) => a.fromScore.compareTo(b.fromScore));
+    for (var i = 1; i < sorted.length; i++) {
+      if (sorted[i].fromScore < sorted[i - 1].toScore) {
+        return 'Penalty slabs overlap: "${_autoSlabName(sorted[i])}" starts before "${_autoSlabName(sorted[i - 1])}" ends.';
       }
     }
     final pen = double.tryParse(_incompletePenaltyCtrl.text.trim());
