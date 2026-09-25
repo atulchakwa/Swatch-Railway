@@ -136,6 +136,33 @@ class StationCleaningAttendanceService {
       }
     }
 
+    // ── Persistent face baseline (contractor supervisors, station-cleaning) ──
+    // The FIRST attendance photo ever is saved as that person's permanent identity
+    // reference. Every later attendance (any day) made with this credential must
+    // match it, so a different person can never use someone else's login to mark
+    // attendance.
+    const isContractorSupervisor = isContractor || String(userData.role || '').toUpperCase().replace(/\s+/g, '_') === 'CONTRACTOR_SUPERVISOR';
+    let identityVerification = null;
+    if (attendanceType === 'start' && isContractorSupervisor) {
+      const { compareFaces } = await import('./rekognitionService.js');
+      const baseline = await this._getFaceReference(workerId);
+      if (baseline) {
+        const faceVerification = await compareFaces(baseline.url, imageUrl);
+        if (!faceVerification.matched && !faceVerification.error) {
+          await this._recordIdentityMismatch(workerId, `Start attendance rejected: ${faceVerification.reason}`, faceVerification.similarity);
+          throw new ValidationError(
+            `Identity mismatch: these credentials belong to a different person. Attendance not marked. ${faceVerification.reason}`
+          );
+        }
+        identityVerification = faceVerification.error
+          ? { status: 'PENDING_REVIEW', reason: faceVerification.reason, referenceUrl: baseline.url, referenceSetAt: baseline.setAt }
+          : { status: 'VERIFIED', similarity: faceVerification.similarity, referenceUrl: baseline.url, referenceSetAt: baseline.setAt };
+      } else {
+        await this._setFaceReference(workerId, imageUrl);
+        identityVerification = { status: 'BASELINED_FIRST_ATTENDANCE', referenceUrl: imageUrl, setAt: new Date().toISOString() };
+      }
+    }
+
     const snapshot = await db.collection('station_cleaning_attendance').where('workerId', '==', workerId).get();
     let latestDoc = null;
     let latestTime = 0;
@@ -180,6 +207,8 @@ class StationCleaningAttendanceService {
         attendanceStatus: isLateAttendance ? 'LATE' : 'PRESENT',
         lateByMinutes, firstAttendanceReference: firstAttendanceTime,
         identityAuditStatus: 'PENDING_VERIFICATION',
+        faceReferenceUrl: identityVerification?.referenceUrl || null,
+        identityVerification: identityVerification || null,
         startAttendance: attendanceEntry, midAttendance: null, endAttendance: null,
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
       });
@@ -191,7 +220,9 @@ class StationCleaningAttendanceService {
       if (!baseStartPhoto) throw new ValidationError('Baseline image missing from DB.');
 
       const { compareFaces } = await import('./rekognitionService.js');
-      const faceVerification = await compareFaces(baseStartPhoto, imageUrl);
+      const baseline = await this._getFaceReference(workerId);
+      const comparePhoto = baseline?.url || baseStartPhoto;
+      const faceVerification = await compareFaces(comparePhoto, imageUrl);
       const isInfraError = faceVerification.error === true;
 
       if (!faceVerification.matched && !isInfraError) {
@@ -243,6 +274,48 @@ class StationCleaningAttendanceService {
     }
 
     return { success: true, message: `${attendanceType.toUpperCase()} attendance processed successfully.`, uid: attendanceDocId, isLate: isLateAttendance };
+  }
+
+  async _getFaceReference(workerId) {
+    try {
+      const doc = await db.collection('users').doc(workerId).get();
+      if (doc.exists) {
+        const d = doc.data();
+        if (d.attendanceFaceReferenceUrl) {
+          return { url: d.attendanceFaceReferenceUrl, setAt: d.attendanceFaceReferenceAt || null };
+        }
+      }
+    } catch (e) { logger.warn('StationCleaning', 'Face reference lookup failed for', workerId, e.message); }
+    return null;
+  }
+
+  async _setFaceReference(workerId, url) {
+    try {
+      await db.collection('users').doc(workerId).update({
+        attendanceFaceReferenceUrl: url,
+        attendanceFaceReferenceAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      return true;
+    } catch (e) { logger.error('StationCleaning', 'Could not persist attendance face reference for', workerId, e.message); }
+    return false;
+  }
+
+  async _recordIdentityMismatch(workerId, reason, similarity) {
+    try {
+      const ref = db.collection('users').doc(workerId);
+      const doc = await ref.get();
+      if (doc.exists) {
+        const d = doc.data() || {};
+        await ref.update({
+          attendanceFaceMismatchAt: new Date().toISOString(),
+          attendanceFaceMismatchReason: String(reason || '').slice(0, 500),
+          attendanceFaceMismatchCount: (d.attendanceFaceMismatchCount || 0) + 1,
+          lastMismatchSimilarity: similarity ?? null,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (e) { logger.error('StationCleaning', 'Could not persist identity mismatch audit for', workerId, e.message); }
   }
 
   async getAttendanceStatus(runInstanceId, workerId) {
