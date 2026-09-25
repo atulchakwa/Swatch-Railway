@@ -1293,6 +1293,10 @@ class TaskManagementService {
           candidates.slice(0, activeCount - normalizeDesired).forEach(t => {
             batch.update(db.collection('cleaningTasks').doc(t.id), {
               status: 'cancelled',
+              // Marks the slot as deliberately closed by a manual override so the
+              // auto (cron/schedule) generator does not recreate the task at this
+              // time later in the day (see generateTasksFromSchedule).
+              manualOverride: true,
               updatedAt: new Date().toISOString(),
             });
             batchCount++;

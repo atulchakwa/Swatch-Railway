@@ -691,7 +691,10 @@ class StationCleaningService {
           .get();
         daySnap.forEach(doc => {
           const d = doc.data();
-          if (d.status === 'cancelled') return;
+          // A cancelled task that was closed by a MANUAL override still occupies
+          // its slot: the auto generator must not recreate the auto task that the
+          // user deliberately cancelled/reduced (manual override wins).
+          if (d.status === 'cancelled' && !d.manualOverride) return;
           existingMap.set(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`, {
             id: doc.id,
             supervisorId: d.supervisorId || '',
@@ -704,7 +707,7 @@ class StationCleaningService {
           .where('stationId', '==', schedule.stationId).get();
         allSnap.forEach(doc => {
           const d = doc.data();
-          if (d.status !== 'cancelled' && (d.date || d.scheduledDate || '') === dayStr) {
+          if ((d.status !== 'cancelled' || d.manualOverride) && (d.date || d.scheduledDate || '') === dayStr) {
             existingMap.set(`${dayStr}|${d.areaId || ''}|${d.scheduledTime}`, {
               id: doc.id,
               supervisorId: d.supervisorId || '',
